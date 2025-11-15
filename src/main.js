@@ -7,7 +7,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const createScene = () => {
         const scene = new BABYLON.Scene(engine);
-        scene.clearColor = new BABYLON.Color4(0.2, 0.4, 0.9, 1);  // soft sky blue
+        scene.clearColor = new BABYLON.Color4(1, 1, 1, 1);  // soft sky blue
 
         // CAMERA: free-fly WASD
         const camera = new BABYLON.UniversalCamera(
@@ -148,5 +148,6 @@ window.addEventListener("DOMContentLoaded", () => {
         engine.resize();
     });
 });
+
 
 
