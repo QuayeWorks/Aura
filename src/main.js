@@ -56,12 +56,14 @@ window.addEventListener("DOMContentLoaded", () => {
 
 
         // SKYBOX
-        const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 1000 }, scene);
         const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
         skyMat.backFaceCulling = false;
-        skyMat.emissiveColor = new BABYLON.Color3(0.02, 0.02, 0.06);
-        skyMat.diffuseColor = new BABYLON.Color3(0, 0, 0);
-        skyMat.specularColor = new BABYLON.Color3(0, 0, 0);
+        
+        // bright sky color
+        skyMat.emissiveColor = new BABYLON.Color3(0.35, 0.55, 1.0);  
+        skyMat.diffuseColor  = new BABYLON.Color3(0.35, 0.55, 1.0);
+        skyMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        skyMat.ambientColor  = new BABYLON.Color3(0.35, 0.55, 1.0);
         skybox.material = skyMat;
 
         // UI
@@ -148,6 +150,7 @@ window.addEventListener("DOMContentLoaded", () => {
         engine.resize();
     });
 });
+
 
 
 
