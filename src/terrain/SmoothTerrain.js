@@ -28,8 +28,8 @@ export class SmoothTerrain {
         
         // Flat bright green, NOT affected by lights:
         mat.diffuseColor  = new BABYLON.Color3(0.1, 0.9, 0.3);
-        mat.emissiveColor = new BABYLON.Color3(0.04, 0.4, 0.15);
-        mat.ambientColor  = new BABYLON.Color3(0.04, 0.4, 0.15);
+        mat.emissiveColor = new BABYLON.Color3(0.1, 0.8, 0.3);
+        mat.ambientColor  = new BABYLON.Color3(0.1, 0.8, 0.3);
         mat.diffuseColor  = new BABYLON.Color3(0.06, 0.6, 0.20);
 
         mat.disableLighting = true;          // <--- key line
@@ -250,6 +250,7 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
 
 
