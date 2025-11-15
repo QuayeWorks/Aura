@@ -37,15 +37,23 @@ window.addEventListener("DOMContentLoaded", () => {
             new BABYLON.Vector3(0, 1, 0),
             scene
         );
-        hemi.intensity = 1.1; // stronger ambient
-
+        // bright sky light
+        hemi.intensity = 1.0;
+        hemi.diffuse = new BABYLON.Color3(0.9, 0.9, 0.9);
+        // <-- THIS is important: light from below too, so down-facing normals aren't pure black
+        hemi.groundColor = new BABYLON.Color3(0.25, 0.30, 0.25);
+        
+        // small ambient term for everything in the scene
+        scene.ambientColor = new BABYLON.Color3(0.12, 0.12, 0.12);
+        
         const dirLight = new BABYLON.DirectionalLight(
             "dirLight",
             new BABYLON.Vector3(-0.4, -1, 0.4),
             scene
         );
         dirLight.position = new BABYLON.Vector3(40, 60, -40);
-        dirLight.intensity = 0.5;
+        dirLight.intensity = 0.4;
+
 
         // SKYBOX
         const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 1000 }, scene);
@@ -140,3 +148,4 @@ window.addEventListener("DOMContentLoaded", () => {
         engine.resize();
     });
 });
+
