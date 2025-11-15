@@ -24,19 +24,18 @@ export class SmoothTerrain {
         this.mesh = new BABYLON.Mesh("smoothTerrain", this.scene);
         this.mesh.checkCollisions = false;
 
-        // Material — slightly emissive so faces never go pitch black
         const mat = new BABYLON.StandardMaterial("terrainMat", this.scene);
-        // main color
-        mat.diffuseColor  = new BABYLON.Color3(0.3, 0.9, 0.45);
-        // softer specular so we don’t get super harsh highlights
-        mat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
-        mat.specularPower = 24;
-        // ambient + emissive guarantees no face is totally black
-        mat.ambientColor  = new BABYLON.Color3(0.18, 0.26, 0.18);
-        mat.emissiveColor = new BABYLON.Color3(0.06, 0.14, 0.06);
-        // render both sides of the polygons
-        mat.backFaceCulling = false;
+        
+        // Flat bright green, NOT affected by lights:
+        mat.diffuseColor  = new BABYLON.Color3(0.1, 0.9, 0.3);
+        mat.emissiveColor = new BABYLON.Color3(0.1, 0.9, 0.3);  // self-lit
+        mat.ambientColor  = new BABYLON.Color3(0.1, 0.9, 0.3);
+        mat.specularColor = new BABYLON.Color3(0, 0, 0);
+        mat.disableLighting = true;          // <--- key line
+        mat.backFaceCulling = false;         // show both sides of the surface
+        
         this.mesh.material = mat;
+
 
     }
 
@@ -250,4 +249,5 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
