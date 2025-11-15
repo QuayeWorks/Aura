@@ -34,13 +34,11 @@ window.addEventListener("DOMContentLoaded", () => {
         // LIGHTING
         const hemi = new BABYLON.HemisphericLight(
             "hemi",
-            new BABYLON.Vector3(0, 1, 0),
+            new BABYLON.Vector3(0.4, 1, 0.4),
             scene
         );
-        // bright sky light
-        hemi.intensity = 1.0;
-        hemi.diffuse = new BABYLON.Color3(0.9, 0.9, 0.9);
-        // <-- THIS is important: light from below too, so down-facing normals aren't pure black
+        hemi.intensity = 0.75;
+        hemi.diffuse = new BABYLON.Color3(0.8, 0.9, 0.8);
         hemi.groundColor = new BABYLON.Color3(0.25, 0.30, 0.25);
         
         // small ambient term for everything in the scene
@@ -150,6 +148,7 @@ window.addEventListener("DOMContentLoaded", () => {
         engine.resize();
     });
 });
+
 
 
 
