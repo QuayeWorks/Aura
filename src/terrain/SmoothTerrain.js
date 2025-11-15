@@ -32,7 +32,7 @@ export class SmoothTerrain {
         mat.ambientColor  = new BABYLON.Color3(0.04, 0.4, 0.15);
         mat.diffuseColor  = new BABYLON.Color3(0.06, 0.6, 0.20);
 
-        mat.disableLighting = false;          // <--- key line
+        mat.disableLighting = true;          // <--- key line
         mat.backFaceCulling = false;         // show both sides of the surface
         
         this.mesh.material = mat;
@@ -250,6 +250,7 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
 
 
