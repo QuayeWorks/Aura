@@ -28,10 +28,11 @@ export class SmoothTerrain {
         
         // Flat bright green, NOT affected by lights:
         mat.diffuseColor  = new BABYLON.Color3(0.1, 0.9, 0.3);
-        mat.emissiveColor = new BABYLON.Color3(0.1, 0.9, 0.3);  // self-lit
-        mat.ambientColor  = new BABYLON.Color3(0.1, 0.9, 0.3);
-        mat.specularColor = new BABYLON.Color3(0, 0, 0);
-        mat.disableLighting = true;          // <--- key line
+        mat.emissiveColor = new BABYLON.Color3(0.04, 0.4, 0.15);
+        mat.ambientColor  = new BABYLON.Color3(0.04, 0.4, 0.15);
+        mat.diffuseColor  = new BABYLON.Color3(0.06, 0.6, 0.20);
+
+        mat.disableLighting = false;          // <--- key line
         mat.backFaceCulling = false;         // show both sides of the surface
         
         this.mesh.material = mat;
@@ -249,5 +250,6 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
 
