@@ -360,7 +360,9 @@ export class MarchingCubesTerrain {
 
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
-
+        
+        // Approximate radius of the planet (in world units)
+        this.radius = options.radius ?? 18.0;
         // Center the volume around the origin
         this.origin = new BABYLON.Vector3(
             -this.dimX * this.cellSize * 0.5,
@@ -383,23 +385,43 @@ export class MarchingCubesTerrain {
         return x + this.dimX * (y + this.dimY * z);
     }
 
-    // Signed distance-ish function: sphere + noise
+    // Signed distance function: planet with layered noise for terrain
     _sampleSdf(worldPos) {
-        const radius = 12.0;
-
-        const center = new BABYLON.Vector3(0, 0, 0);
+        // Distance from planet center
+        const center = BABYLON.Vector3.Zero();
         const toPoint = worldPos.subtract(center);
-        const sphereDist = toPoint.length() - radius;
-
-        // Simple value noise using sin/cos (fast, deterministic)
-        const n =
-            Math.sin(worldPos.x * 0.3) * 0.5 +
-            Math.cos(worldPos.z * 0.25 + worldPos.y * 0.1) * 0.5;
-
-        const noise = n * 1.3;
-
-        return sphereDist + noise;
+        const dist = toPoint.length();
+    
+        // Base perfect sphere
+        const baseSphere = dist - this.radius;
+    
+        // Fake fractal noise using simple sin/cos combos.
+        // This is cheap, deterministic, and enough to get "mountain" shapes.
+        const nx = worldPos.x * 0.12;
+        const ny = worldPos.y * 0.12;
+        const nz = worldPos.z * 0.12;
+    
+        const lowFreq =
+            Math.sin(nx) * 0.6 +
+            Math.cos(nz * 0.9 + ny * 0.4) * 0.4;
+    
+        const midFreq =
+            Math.sin(nx * 2.1 + nz * 1.3) * 0.25 +
+            Math.cos(ny * 2.0 - nz * 0.7) * 0.2;
+    
+        const highFreq =
+            Math.sin(nx * 4.7 + ny * 3.3 + nz * 2.9) * 0.08;
+    
+        // Combine and scale to get hills + ridges
+        const noise = (lowFreq + midFreq + highFreq);
+    
+        // Push terrain outwards: negative values are "solid"
+        const elevation = noise * 1.2; // tweak for more/less mountains
+    
+        // Final SDF: below 0 = inside terrain, above 0 = empty
+        return (dist - (this.radius + elevation));
     }
+
 
     _buildInitialField() {
         for (let z = 0; z < this.dimZ; z++) {
