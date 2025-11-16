@@ -364,11 +364,16 @@ export class MarchingCubesTerrain {
         // Approximate radius of the planet (in world units)
         this.radius = options.radius ?? 18.0;
         // Center the volume around the origin
-        this.origin = new BABYLON.Vector3(
-            -this.dimX * this.cellSize * 0.5,
-            -this.dimY * this.cellSize * 0.5,
-            -this.dimZ * this.cellSize * 0.5
-        );
+        // but allow an explicit world-space origin via options.origin.
+        if (options.origin) {
+            this.origin = options.origin.clone();
+        } else {
+            this.origin = new BABYLON.Vector3(
+                -this.dimX * this.cellSize * 0.5,
+                -this.dimY * this.cellSize * 0.5,
+                -this.dimZ * this.cellSize * 0.5
+            );
+        }
 
         // Scalar field samples at each grid vertex
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
