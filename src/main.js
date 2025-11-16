@@ -1,5 +1,6 @@
 // src/main.js
 import * as BABYLON from "https://cdn.babylonjs.com/babylon.esm.js";
+import * as GUI from "https://cdn.babylonjs.com/gui/babylon.gui.esm.js";
 import { MarchingCubesTerrain } from "./terrain/MarchingCubesTerrain.js";
 
 const canvas = document.getElementById("renderCanvas");
@@ -10,10 +11,10 @@ let terrain = null;
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
 
-    // blue background
+    // Blue background
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
-    // simple ArcRotate camera
+    // Camera
     const camera = new BABYLON.ArcRotateCamera(
         "camera",
         Math.PI / 4,
@@ -23,9 +24,15 @@ const createScene = () => {
         scene
     );
     camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 10;
+    camera.upperRadiusLimit = 200;
 
-    // lighting
-    const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0.3, 1, 0.2), scene);
+    // Lights
+    const hemi = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0.3, 1, 0.2),
+        scene
+    );
     hemi.intensity = 0.9;
     hemi.groundColor = new BABYLON.Color3(0.1, 0.1, 0.15);
 
@@ -36,28 +43,131 @@ const createScene = () => {
     );
     dir.intensity = 0.6;
 
-    // blue floor plane
-    const ground = BABYLON.MeshBuilder.CreateGround("g", { width: 200, height: 200 }, scene);
-    const mat = new BABYLON.StandardMaterial("gm", scene);
-    mat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
-    ground.material = mat;
+    // Blue ground plane for contrast
+    const ground = BABYLON.MeshBuilder.CreateGround(
+        "g",
+        { width: 200, height: 200 },
+        scene
+    );
+    const groundMat = new BABYLON.StandardMaterial("gm", scene);
+    groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
+    groundMat.specularColor = BABYLON.Color3.Black();
+    ground.material = groundMat;
     ground.position.y = -40;
 
-    // MARCHING CUBES TERRAIN
+    // Marching Cubes terrain
     terrain = new MarchingCubesTerrain(scene, {
         dimX: 32,
         dimY: 32,
         dimZ: 32,
         cellSize: 1,
-        isoLevel: 0,
+        isoLevel: 0
     });
 
-    // carve with left mouse
+    // -----------------------
+    // UI: lighting/material controls
+    // -----------------------
+
+    const ui = GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+
+    const panel = new GUI.StackPanel();
+    panel.width = "260px";
+    panel.isVertical = true;
+    panel.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    panel.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    panel.paddingRight = "20px";
+    panel.paddingTop = "20px";
+    panel.background = "rgba(0,0,0,0.4)";
+    ui.addControl(panel);
+
+    function addSlider(label, min, max, startValue, onChange) {
+        const header = new GUI.TextBlock();
+        header.text = `${label}: ${startValue.toFixed(2)}`;
+        header.height = "26px";
+        header.marginTop = "6px";
+        header.color = "white";
+        header.fontSize = 16;
+        header.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        panel.addControl(header);
+
+        const slider = new GUI.Slider();
+        slider.minimum = min;
+        slider.maximum = max;
+        slider.value = startValue;
+        slider.height = "20px";
+        slider.color = "#88ff88";
+        slider.background = "#333333";
+        slider.borderColor = "#aaaaaa";
+        slider.onValueChangedObservable.add((v) => {
+            header.text = `${label}: ${v.toFixed(2)}`;
+            onChange(v);
+        });
+        panel.addControl(slider);
+    }
+
+    // Cache base values so sliders act as multipliers
+    const baseHemiIntensity = hemi.intensity;
+    const baseDirIntensity = dir.intensity;
+
+    // Terrain material reference (created inside MarchingCubesTerrain)
+    const terrainMat = terrain.material;
+    const baseDiffuse = terrainMat.diffuseColor.clone();
+    const baseEmissive = terrainMat.emissiveColor
+        ? terrainMat.emissiveColor.clone()
+        : new BABYLON.Color3(0, 0, 0);
+
+    // Scene brightness: affects both lights
+    addSlider("Scene brightness", 0.0, 2.0, 1.0, (v) => {
+        hemi.intensity = baseHemiIntensity * v;
+        dir.intensity = baseDirIntensity * v;
+    });
+
+    // Ambient / indirect feel (Hemispheric light only)
+    addSlider("Ambient light", 0.0, 2.0, 1.0, (v) => {
+        hemi.intensity = baseHemiIntensity * v;
+    });
+
+    // Terrain material brightness (diffuse/emissive scale)
+    addSlider("Terrain brightness", 0.0, 3.0, 1.0, (v) => {
+        terrainMat.diffuseColor = new BABYLON.Color3(
+            baseDiffuse.r * v,
+            baseDiffuse.g * v,
+            baseDiffuse.b * v
+        );
+        terrainMat.emissiveColor = new BABYLON.Color3(
+            baseEmissive.r * v,
+            baseEmissive.g * v,
+            baseEmissive.b * v
+        );
+    });
+
+    // Wireframe toggle for debugging
+    const wireframeButton = GUI.Button.CreateSimpleButton(
+        "wireBtn",
+        "Toggle Wireframe"
+    );
+    wireframeButton.height = "32px";
+    wireframeButton.color = "white";
+    wireframeButton.background = "#5555aa";
+    wireframeButton.cornerRadius = 6;
+    wireframeButton.thickness = 1;
+    wireframeButton.marginTop = "10px";
+    wireframeButton.onPointerUpObservable.add(() => {
+        terrain.mesh.material.wireframe = !terrain.mesh.material.wireframe;
+    });
+    panel.addControl(wireframeButton);
+
+    // -----------------------
+    // Carving input (LMB)
+    // -----------------------
     scene.onPointerObservable.add((pointerInfo) => {
         if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-            if (pointerInfo.event.button === 0) {
-                const pick = scene.pick(pointerInfo.event.clientX, pointerInfo.event.clientY);
-                if (pick.hit) {
+            if (pointerInfo.event.button === 0 && terrain) {
+                const pick = scene.pick(
+                    pointerInfo.event.clientX,
+                    pointerInfo.event.clientY
+                );
+                if (pick && pick.hit) {
                     terrain.carveSphere(pick.pickedPoint, 4.0);
                 }
             }
@@ -68,5 +178,11 @@ const createScene = () => {
 };
 
 const scene = createScene();
-engine.runRenderLoop(() => scene.render());
-window.addEventListener("resize", () => engine.resize());
+
+engine.runRenderLoop(() => {
+    scene.render();
+});
+
+window.addEventListener("resize", () => {
+    engine.resize();
+});
