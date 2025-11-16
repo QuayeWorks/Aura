@@ -55,13 +55,15 @@ const createScene = () => {
     ground.material = groundMat;
     ground.position.y = -40;
 
-    // Marching Cubes terrain
-    terrain = new MarchingCubesTerrain(scene, {
-        dimX: 50,
-        dimY: 50,
-        dimZ: 50,
+    // Chunked marching-cubes planet terrain
+    terrain = new ChunkedPlanetTerrain(scene, {
+        chunkCountX: 3,
+        chunkCountZ: 3,
+        baseChunkResolution: 24,
+        dimY: 32,
         cellSize: 1,
-        isoLevel: 0
+        isoLevel: 0,
+        radius: 18
     });
 
     // -----------------------
@@ -186,6 +188,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
