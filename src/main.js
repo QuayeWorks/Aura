@@ -159,7 +159,7 @@ const createScene = () => {
     wireframeButton.thickness = 1;
     wireframeButton.marginTop = "10px";
     wireframeButton.onPointerUpObservable.add(() => {
-        terrain.mesh.material.wireframe = !terrain.mesh.material.wireframe;
+        terrainMat.wireframe = !terrainMat.wireframe;
     });
     panel.addControl(wireframeButton);
 
@@ -192,6 +192,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
