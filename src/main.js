@@ -57,8 +57,8 @@ const createScene = () => {
 
     // Chunked marching-cubes planet terrain
     terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 3,
-        chunkCountZ: 3,
+        chunkCountX: 6,
+        chunkCountZ: 6,
         baseChunkResolution: 24,
         dimY: 32,
         cellSize: 1,
@@ -142,7 +142,11 @@ const createScene = () => {
             baseEmissive.b * v
         );
     });
-
+    // LOD Quality: 0 = Low, 1 = Medium, 2 = High
+    addSlider("LOD quality", 0, 2, 2, (v) => {
+        // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
+        terrain.setLodLevel(v);
+    });
     // Wireframe toggle
     const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
         "wireBtn",
@@ -188,6 +192,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
