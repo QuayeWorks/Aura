@@ -57,9 +57,9 @@ const createScene = () => {
 
     // Marching Cubes terrain
     terrain = new MarchingCubesTerrain(scene, {
-        dimX: 48,
-        dimY: 48,
-        dimZ: 48,
+        dimX: 50,
+        dimY: 50,
+        dimZ: 50,
         cellSize: 1,
         isoLevel: 0
     });
@@ -186,4 +186,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
