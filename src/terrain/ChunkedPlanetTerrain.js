@@ -11,11 +11,16 @@ export class ChunkedPlanetTerrain {
 
         // Base resolution of a chunk in cells (will be divided by LOD factor)
         this.baseChunkResolution = options.baseChunkResolution ?? 22;
-        this.dimY = options.dimY ?? 32;
-
+        
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
+        
+        // Make vertical resolution big enough to fully contain the sphere
+        // (2 * radius / cellSize) + a small margin.
+        const neededY = Math.ceil((this.radius * 2) / this.cellSize) + 4;
+        this.dimY = options.dimY ?? neededY;
+
 
         // LOD level: 2 = high, 1 = medium, 0 = low
         this.lodLevel = 2; // start on high quality
