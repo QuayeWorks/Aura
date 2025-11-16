@@ -1,156 +1,98 @@
 // src/main.js
-import { SmoothTerrain } from "./terrain/SmoothTerrain.js";
+import "@babylonjs/core/Debug/debugLayer";
+import "@babylonjs/inspector";
+import "@babylonjs/loaders";
+import * as BABYLON from "@babylonjs/core";
 
-window.addEventListener("DOMContentLoaded", () => {
-    const canvas = document.getElementById("renderCanvas");
-    const engine = new BABYLON.Engine(canvas, true);
+import { MarchingCubesTerrain } from "./terrain/MarchingCubesTerrain.js";
 
-    const createScene = () => {
-        const scene = new BABYLON.Scene(engine);
-        scene.clearColor = new BABYLON.Color4(0.2, 0.4, 0.9, 1);  // soft sky blue
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
 
-        // CAMERA: free-fly WASD
-        const camera = new BABYLON.UniversalCamera(
-            "camera",
-            new BABYLON.Vector3(0, 12, -30),
-            scene
-        );
-        camera.setTarget(new BABYLON.Vector3(0, 5, 0));
-        camera.attachControl(canvas, true);
+let terrain = null;
 
-        camera.speed = 0.6;
-        camera.inertia = 0.5;
-        camera.angularSensibility = 2500;
+const createScene = () => {
+    const scene = new BABYLON.Scene(engine);
 
-        scene.collisionsEnabled = false;
-        camera.checkCollisions = false;
-        camera.applyGravity = false;
+    // Nice blue background so terrain silhouettes stand out
+    scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
-        camera.keysUp.push(87);    // W
-        camera.keysDown.push(83);  // S
-        camera.keysLeft.push(65);  // A
-        camera.keysRight.push(68); // D
+    const camera = new BABYLON.ArcRotateCamera(
+        "camera",
+        Math.PI / 4,
+        Math.PI / 3,
+        60,
+        BABYLON.Vector3.Zero(),
+        scene
+    );
+    camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 10;
+    camera.upperRadiusLimit = 200;
 
-        // LIGHTING
-        const hemi = new BABYLON.HemisphericLight(
-            "hemi",
-            new BABYLON.Vector3(0.4, 1, 0.4),
-            scene
-        );
-        hemi.intensity = 0.75;
-        hemi.diffuse = new BABYLON.Color3(0.8, 0.9, 0.8);
-        hemi.groundColor = new BABYLON.Color3(0.25, 0.30, 0.25);
-        
-        // small ambient term for everything in the scene
-        scene.ambientColor = new BABYLON.Color3(0.12, 0.12, 0.12);
-        
-        const dirLight = new BABYLON.DirectionalLight(
-            "dirLight",
-            new BABYLON.Vector3(-0.4, -1, 0.4),
-            scene
-        );
-        dirLight.position = new BABYLON.Vector3(40, 60, -40);
-        dirLight.intensity = 0.4;
+    // Lighting
+    const hemi = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0.3, 1, 0.2),
+        scene
+    );
+    hemi.intensity = 0.9;
+    hemi.groundColor = new BABYLON.Color3(0.1, 0.1, 0.15);
 
+    const dirLight = new BABYLON.DirectionalLight(
+        "dir",
+        new BABYLON.Vector3(-0.5, -1, -0.3),
+        scene
+    );
+    dirLight.intensity = 0.6;
 
-        // SKYBOX
-        const skyMat = new BABYLON.StandardMaterial("skyMat", scene);
-        skyMat.backFaceCulling = false;
-        
-        // bright sky color
-        skyMat.emissiveColor = new BABYLON.Color3(0.35, 0.55, 1.0);  
-        skyMat.diffuseColor  = new BABYLON.Color3(0.35, 0.55, 1.0);
-        skyMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        skyMat.ambientColor  = new BABYLON.Color3(0.35, 0.55, 1.0);
+    // Blue "backplane" so holes / silhouettes pop
+    const ground = BABYLON.MeshBuilder.CreateGround(
+        "ground",
+        { width: 200, height: 200 },
+        scene
+    );
+    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
+    groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
+    groundMat.specularColor = BABYLON.Color3.Black();
+    ground.material = groundMat;
+    ground.position.y = -40;
 
+    // Terrain (Marching Cubes)
+    terrain = new MarchingCubesTerrain(scene, {
+        dimX: 32,
+        dimY: 32,
+        dimZ: 32,
+        cellSize: 1.0,
+        isoLevel: 0.0,
+    });
 
-        // UI
-        const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-
-        const title = new BABYLON.GUI.TextBlock();
-        title.text = "Aura – Smooth Terrain Prototype";
-        title.color = "white";
-        title.fontSize = 40;
-        title.top = "-150px";
-        ui.addControl(title);
-
-        const subtitle = new BABYLON.GUI.TextBlock();
-        subtitle.text = "WASD to move, mouse to look, left-click to destroy terrain";
-        subtitle.color = "#ccccff";
-        subtitle.fontSize = 20;
-        subtitle.top = "-100px";
-        ui.addControl(subtitle);
-
-        const playButton = BABYLON.GUI.Button.CreateSimpleButton("playButton", "PLAY");
-        playButton.width = "200px";
-        playButton.height = "60px";
-        playButton.cornerRadius = 12;
-        playButton.color = "white";
-        playButton.thickness = 2;
-        playButton.background = "#4444aa";
-        playButton.top = "20px";
-        ui.addControl(playButton);
-
-        let gameStarted = false;
-        let terrain = null;
-
-        const lockPointer = () => {
-            if (document.pointerLockElement !== canvas) {
-                const req =
-                    canvas.requestPointerLock ||
-                    canvas.msRequestPointerLock ||
-                    canvas.mozRequestPointerLock ||
-                    canvas.webkitRequestPointerLock;
-                if (req) req.call(canvas);
-            }
-        };
-
-        playButton.onPointerUpObservable.add(() => {
-            if (gameStarted) return;
-            gameStarted = true;
-
-            ui.rootContainer.isVisible = false;
-
-            camera.position = new BABYLON.Vector3(0, 14, -35);
-            camera.setTarget(new BABYLON.Vector3(0, 5, 0));
-
-            terrain = new SmoothTerrain(scene);
-            terrain.buildInitialTerrain();
-
-            canvas.addEventListener("click", () => lockPointer());
-
-            scene.onPointerDown = (evt, pickInfo) => {
-                if (!gameStarted || !terrain) return;
-                if (evt.button !== 0) return;
-
-                const pick = scene.pick(
-                    scene.pointerX,
-                    scene.pointerY,
-                    (mesh) => mesh === terrain.mesh
-                );
-
-                if (pick.hit) {
-                    terrain.carveSphere(pick.pickedPoint, 2.8);
+    // Simple input: LMB to carve sphere
+    scene.onPointerObservable.add((pointerInfo) => {
+        switch (pointerInfo.type) {
+            case BABYLON.PointerEventTypes.POINTERDOWN: {
+                if (pointerInfo.event.button === 0 && terrain) {
+                    const pick = scene.pick(
+                        pointerInfo.event.clientX,
+                        pointerInfo.event.clientY
+                    );
+                    if (pick && pick.hit) {
+                        terrain.carveSphere(pick.pickedPoint, 4.0);
+                    }
                 }
-            };
-        });
-
-        return scene;
-    };
-
-    const scene = createScene();
-
-    engine.runRenderLoop(() => {
-        scene.render();
+                break;
+            }
+        }
     });
 
-    window.addEventListener("resize", () => {
-        engine.resize();
-    });
+    return scene;
+};
+
+const scene = createScene();
+
+engine.runRenderLoop(() => {
+    scene.render();
 });
 
-
-
-
-
-
+window.addEventListener("resize", () => {
+    engine.resize();
+});
