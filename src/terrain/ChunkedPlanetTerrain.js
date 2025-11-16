@@ -54,9 +54,17 @@ export class ChunkedPlanetTerrain {
         const dimZ = dimX; // square chunks
         const dimY = this.dimY;
 
-        // World-space size of each chunk
-        const chunkWidth = dimX * this.cellSize;
-        const chunkDepth = dimZ * this.cellSize;
+        // Number of *cells* per chunk
+        const cellsX = dimX - 1;
+        const cellsZ = dimZ - 1;
+        
+        // World-space width of a chunk (edges count, not samples)
+        const chunkWidth = cellsX * this.cellSize;
+        const chunkDepth = cellsZ * this.cellSize;
+        
+        // Overlap so edges match
+        const overlap = 1 * this.cellSize;   // one voxel layer
+
 
         const halfCountX = this.chunkCountX / 2.0;
         const halfCountZ = this.chunkCountZ / 2.0;
@@ -69,10 +77,11 @@ export class ChunkedPlanetTerrain {
 
                 // Origin of this chunk's sampling volume
                 const origin = new BABYLON.Vector3(
-                    gx * chunkWidth - chunkWidth * 0.5,
+                    gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
                     -dimY * this.cellSize * 0.5,
-                    gz * chunkDepth - chunkDepth * 0.5
+                    gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
                 );
+
 
                 const chunk = new MarchingCubesTerrain(this.scene, {
                     dimX,
