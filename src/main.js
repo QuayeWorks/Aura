@@ -60,7 +60,7 @@ const createScene = () => {
         chunkCountX: 3,
         chunkCountZ: 3,
         baseChunkResolution: 24,
-        dimY: 32,
+        dimY: 48,
         cellSize: 1,
         isoLevel: 0,
         radius: 18
@@ -192,6 +192,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
