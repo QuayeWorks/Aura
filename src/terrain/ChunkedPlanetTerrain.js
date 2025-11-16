@@ -51,25 +51,26 @@ export class ChunkedPlanetTerrain {
         this.material = null;
     }
 
-    _rebuildChunks() {
+    _rebuildChunks() { 
         this._disposeChunks();
 
         const lodFactor = this._lodFactor();
+
+        // Sample counts per chunk (LOD affects density, not world size)
         const dimX = Math.max(8, Math.floor(this.baseChunkResolution / lodFactor));
         const dimZ = dimX; // square chunks
-        const dimY = this.dimY;
+        const dimY = Math.max(8, Math.floor(this.dimY / lodFactor));
 
-        // Number of *cells* per chunk
-        const cellsX = dimX - 1;
-        const cellsZ = dimZ - 1;
-        
-        // World-space width of a chunk (edges count, not samples)
-        const chunkWidth = cellsX * this.cellSize;
-        const chunkDepth = cellsZ * this.cellSize;
-        
+        // World-space size of each chunk is based on the *base* resolution
+        // and does NOT change with LOD.
+        const baseCellsX = this.baseChunkResolution - 1;
+        const baseCellsZ = baseCellsX;
+        const chunkWidth  = baseCellsX * this.cellSize;
+        const chunkDepth  = baseCellsZ * this.cellSize;
+        const chunkHeight = (this.dimY - 1) * this.cellSize;
+
         // Overlap so edges match
         const overlap = 1 * this.cellSize;   // one voxel layer
-
 
         const halfCountX = this.chunkCountX / 2.0;
         const halfCountZ = this.chunkCountZ / 2.0;
@@ -80,13 +81,13 @@ export class ChunkedPlanetTerrain {
                 const gx = ix - halfCountX + 0.5;
                 const gz = iz - halfCountZ + 0.5;
 
-                // Origin of this chunk's sampling volume
+                // Origin of this chunk's sampling volume.
+                // NOTE: world footprint stays constant with LOD.
                 const origin = new BABYLON.Vector3(
                     gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
-                    -dimY * this.cellSize * 0.5,
+                    -chunkHeight * 0.5,
                     gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
                 );
-
 
                 const chunk = new MarchingCubesTerrain(this.scene, {
                     dimX,
