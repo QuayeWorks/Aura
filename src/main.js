@@ -1,6 +1,6 @@
 // src/main.js
-import * as BABYLON from "https://cdn.babylonjs.com/babylon.esm.js";
-import * as GUI from "https://cdn.babylonjs.com/gui/babylon.gui.esm.js";
+// Babylon + GUI come from global scripts in index.html
+// We only import our own module.
 import { MarchingCubesTerrain } from "./terrain/MarchingCubesTerrain.js";
 
 const canvas = document.getElementById("renderCanvas");
@@ -68,29 +68,30 @@ const createScene = () => {
     // UI: lighting/material controls
     // -----------------------
 
-    const ui = GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
-    const panel = new GUI.StackPanel();
+    const panel = new BABYLON.GUI.StackPanel();
     panel.width = "260px";
     panel.isVertical = true;
-    panel.horizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    panel.verticalAlignment = GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    panel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    panel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
     panel.paddingRight = "20px";
     panel.paddingTop = "20px";
     panel.background = "rgba(0,0,0,0.4)";
     ui.addControl(panel);
 
     function addSlider(label, min, max, startValue, onChange) {
-        const header = new GUI.TextBlock();
+        const header = new BABYLON.GUI.TextBlock();
         header.text = `${label}: ${startValue.toFixed(2)}`;
         header.height = "26px";
         header.marginTop = "6px";
         header.color = "white";
         header.fontSize = 16;
-        header.textHorizontalAlignment = GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        header.textHorizontalAlignment =
+            BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
         panel.addControl(header);
 
-        const slider = new GUI.Slider();
+        const slider = new BABYLON.GUI.Slider();
         slider.minimum = min;
         slider.maximum = max;
         slider.value = startValue;
@@ -109,25 +110,24 @@ const createScene = () => {
     const baseHemiIntensity = hemi.intensity;
     const baseDirIntensity = dir.intensity;
 
-    // Terrain material reference (created inside MarchingCubesTerrain)
     const terrainMat = terrain.material;
     const baseDiffuse = terrainMat.diffuseColor.clone();
     const baseEmissive = terrainMat.emissiveColor
         ? terrainMat.emissiveColor.clone()
         : new BABYLON.Color3(0, 0, 0);
 
-    // Scene brightness: affects both lights
+    // Scene brightness
     addSlider("Scene brightness", 0.0, 2.0, 1.0, (v) => {
         hemi.intensity = baseHemiIntensity * v;
         dir.intensity = baseDirIntensity * v;
     });
 
-    // Ambient / indirect feel (Hemispheric light only)
+    // Ambient / hemi only
     addSlider("Ambient light", 0.0, 2.0, 1.0, (v) => {
         hemi.intensity = baseHemiIntensity * v;
     });
 
-    // Terrain material brightness (diffuse/emissive scale)
+    // Terrain material brightness
     addSlider("Terrain brightness", 0.0, 3.0, 1.0, (v) => {
         terrainMat.diffuseColor = new BABYLON.Color3(
             baseDiffuse.r * v,
@@ -141,8 +141,8 @@ const createScene = () => {
         );
     });
 
-    // Wireframe toggle for debugging
-    const wireframeButton = GUI.Button.CreateSimpleButton(
+    // Wireframe toggle
+    const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
         "wireBtn",
         "Toggle Wireframe"
     );
