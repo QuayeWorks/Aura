@@ -469,28 +469,28 @@ export class MarchingCubesTerrain {
                         const e0 = triRow[i];
                         const e1 = triRow[i + 1];
                         const e2 = triRow[i + 2];
-
+                    
+                        // end of this configuration
                         if (e0 === -1 || e1 === -1 || e2 === -1) break;
-
+                    
                         const p0 = vertList[e0];
                         const p1 = vertList[e1];
                         const p2 = vertList[e2];
-
+                    
+                        // Defensive: if an edge vertex was never generated (mismatch between
+                        // edgeTable and triTable), skip this triangle instead of crashing.
+                        if (!p0 || !p1 || !p2) {
+                            continue;
+                        }
+                    
                         const baseIndex = positions.length / 3;
-
+                    
                         positions.push(
-                            p0.x,
-                            p0.y,
-                            p0.z,
-                            p1.x,
-                            p1.y,
-                            p1.z,
-                            p2.x,
-                            p2.y,
-                            p2.z
+                            p0.x, p0.y, p0.z,
+                            p1.x, p1.y, p1.z,
+                            p2.x, p2.y, p2.z
                         );
-
-                        // Indices – no vertex sharing for simplicity
+                    
                         indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
                     }
                 }
