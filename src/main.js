@@ -1,7 +1,7 @@
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
 // We only import our own module.
-import { MarchingCubesTerrain } from "./terrain/MarchingCubesTerrain.js";
+import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -186,5 +186,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
