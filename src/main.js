@@ -1,9 +1,5 @@
 // src/main.js
-import "@babylonjs/core/Debug/debugLayer";
-import "@babylonjs/inspector";
-import "@babylonjs/loaders";
-import * as BABYLON from "@babylonjs/core";
-
+import * as BABYLON from "https://cdn.babylonjs.com/babylon.esm.js";
 import { MarchingCubesTerrain } from "./terrain/MarchingCubesTerrain.js";
 
 const canvas = document.getElementById("renderCanvas");
@@ -14,9 +10,10 @@ let terrain = null;
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
 
-    // Nice blue background so terrain silhouettes stand out
+    // blue background
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
+    // simple ArcRotate camera
     const camera = new BABYLON.ArcRotateCamera(
         "camera",
         Math.PI / 4,
@@ -26,60 +23,43 @@ const createScene = () => {
         scene
     );
     camera.attachControl(canvas, true);
-    camera.lowerRadiusLimit = 10;
-    camera.upperRadiusLimit = 200;
 
-    // Lighting
-    const hemi = new BABYLON.HemisphericLight(
-        "hemi",
-        new BABYLON.Vector3(0.3, 1, 0.2),
-        scene
-    );
+    // lighting
+    const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0.3, 1, 0.2), scene);
     hemi.intensity = 0.9;
     hemi.groundColor = new BABYLON.Color3(0.1, 0.1, 0.15);
 
-    const dirLight = new BABYLON.DirectionalLight(
+    const dir = new BABYLON.DirectionalLight(
         "dir",
         new BABYLON.Vector3(-0.5, -1, -0.3),
         scene
     );
-    dirLight.intensity = 0.6;
+    dir.intensity = 0.6;
 
-    // Blue "backplane" so holes / silhouettes pop
-    const ground = BABYLON.MeshBuilder.CreateGround(
-        "ground",
-        { width: 200, height: 200 },
-        scene
-    );
-    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-    groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
-    groundMat.specularColor = BABYLON.Color3.Black();
-    ground.material = groundMat;
+    // blue floor plane
+    const ground = BABYLON.MeshBuilder.CreateGround("g", { width: 200, height: 200 }, scene);
+    const mat = new BABYLON.StandardMaterial("gm", scene);
+    mat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
+    ground.material = mat;
     ground.position.y = -40;
 
-    // Terrain (Marching Cubes)
+    // MARCHING CUBES TERRAIN
     terrain = new MarchingCubesTerrain(scene, {
         dimX: 32,
         dimY: 32,
         dimZ: 32,
-        cellSize: 1.0,
-        isoLevel: 0.0,
+        cellSize: 1,
+        isoLevel: 0,
     });
 
-    // Simple input: LMB to carve sphere
+    // carve with left mouse
     scene.onPointerObservable.add((pointerInfo) => {
-        switch (pointerInfo.type) {
-            case BABYLON.PointerEventTypes.POINTERDOWN: {
-                if (pointerInfo.event.button === 0 && terrain) {
-                    const pick = scene.pick(
-                        pointerInfo.event.clientX,
-                        pointerInfo.event.clientY
-                    );
-                    if (pick && pick.hit) {
-                        terrain.carveSphere(pick.pickedPoint, 4.0);
-                    }
+        if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+            if (pointerInfo.event.button === 0) {
+                const pick = scene.pick(pointerInfo.event.clientX, pointerInfo.event.clientY);
+                if (pick.hit) {
+                    terrain.carveSphere(pick.pickedPoint, 4.0);
                 }
-                break;
             }
         }
     });
@@ -88,11 +68,5 @@ const createScene = () => {
 };
 
 const scene = createScene();
-
-engine.runRenderLoop(() => {
-    scene.render();
-});
-
-window.addEventListener("resize", () => {
-    engine.resize();
-});
+engine.runRenderLoop(() => scene.render());
+window.addEventListener("resize", () => engine.resize());
