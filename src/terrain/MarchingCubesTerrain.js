@@ -1,5 +1,4 @@
 // src/terrain/MarchingCubesTerrain.js
-import * as BABYLON from "https://cdn.babylonjs.com/babylon.esm.js";
 
 //
 // NOTE ABOUT TABLES
