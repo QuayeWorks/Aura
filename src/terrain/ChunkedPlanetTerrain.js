@@ -12,6 +12,8 @@ export class ChunkedPlanetTerrain {
         // Base resolution of a chunk in cells (will be divided by LOD factor)
         this.baseChunkResolution = options.baseChunkResolution ?? 22;
         
+        this.baseDimY = options.dimY ?? 32;   // remember base vertical samples
+        
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
@@ -56,21 +58,34 @@ export class ChunkedPlanetTerrain {
 
         const lodFactor = this._lodFactor();
 
-        // Sample counts per chunk (LOD affects density, not world size)
-        const dimX = Math.max(8, Math.floor(this.baseChunkResolution / lodFactor));
-        const dimZ = dimX; // square chunks
-        const dimY = Math.max(8, Math.floor(this.dimY / lodFactor));
-
-        // World-space size of each chunk is based on the *base* resolution
-        // and does NOT change with LOD.
+        // --- Base world size of a chunk (never changes with LOD) ---
         const baseCellsX = this.baseChunkResolution - 1;
         const baseCellsZ = baseCellsX;
-        const chunkWidth  = baseCellsX * this.cellSize;
-        const chunkDepth  = baseCellsZ * this.cellSize;
-        const chunkHeight = (this.dimY - 1) * this.cellSize;
+        const baseCellsY = this.baseDimY - 1;
 
-        // Overlap so edges match
-        const overlap = 1 * this.cellSize;   // one voxel layer
+        const baseChunkWidth  = baseCellsX * this.cellSize;
+        const baseChunkDepth  = baseCellsZ * this.cellSize;
+        const baseChunkHeight = baseCellsY * this.cellSize;
+
+        // --- Choose how many samples we want at this LOD ---
+        const dimX = Math.max(6, Math.floor(this.baseChunkResolution / lodFactor));
+        const dimZ = dimX; // square chunk
+        // we'll recompute dimY from height in a second
+
+        // Cell size for this LOD: make sure world width stays the same
+        const cellSizeLod = baseChunkWidth / (dimX - 1);
+
+        // Now choose dimY so that vertical world size also matches base height
+        const dimYFloat = baseChunkHeight / cellSizeLod;
+        const dimY = Math.max(6, Math.round(dimYFloat) + 1);
+
+        // World-space chunk size stays constant across LODs
+        const chunkWidth  = baseChunkWidth;
+        const chunkDepth  = baseChunkDepth;
+        const chunkHeight = baseChunkHeight;
+
+        // Overlap so edges match between neighboring chunks
+        const overlap = 1 * this.cellSize;   // one voxel layer at base scale
 
         const halfCountX = this.chunkCountX / 2.0;
         const halfCountZ = this.chunkCountZ / 2.0;
@@ -81,8 +96,7 @@ export class ChunkedPlanetTerrain {
                 const gx = ix - halfCountX + 0.5;
                 const gz = iz - halfCountZ + 0.5;
 
-                // Origin of this chunk's sampling volume.
-                // NOTE: world footprint stays constant with LOD.
+                // Origin of this chunk's sampling volume (world space)
                 const origin = new BABYLON.Vector3(
                     gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
                     -chunkHeight * 0.5,
@@ -93,7 +107,7 @@ export class ChunkedPlanetTerrain {
                     dimX,
                     dimY,
                     dimZ,
-                    cellSize: this.cellSize,
+                    cellSize: cellSizeLod,     // LOD-scaled voxel size
                     isoLevel: this.isoLevel,
                     radius: this.radius,
                     origin
@@ -110,6 +124,7 @@ export class ChunkedPlanetTerrain {
             }
         }
     }
+
 
     // Public API used by main.js ------------------------
 
