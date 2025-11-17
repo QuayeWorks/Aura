@@ -13,7 +13,7 @@ export class ChunkedPlanetTerrain {
         this.baseChunkResolution = options.baseChunkResolution ?? 22;
         
         this.baseDimY = options.dimY ?? 32;   // remember base vertical samples
-        
+
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
@@ -31,6 +31,9 @@ export class ChunkedPlanetTerrain {
         this.chunks = [];
         this.material = null;
         this.meshPool = []; // pool of reusable Babylon meshes
+
+        // Persistent edit history so carves survive streaming / LOD rebuilds
+        this.carveHistory = [];
         // Streaming / grid tracking
         this.gridOffsetX = 0;
         this.gridOffsetZ = 0;
@@ -142,6 +145,11 @@ export class ChunkedPlanetTerrain {
                     chunk.mesh.material = this.material;
                 }
 
+                // Reapply all previous carve operations to this new chunk
+                for (const op of this.carveHistory) {
+                    chunk.carveSphere(op.position, op.radius);
+                }
+
                 this.chunks.push(chunk);
             }
         }
@@ -206,6 +214,13 @@ export class ChunkedPlanetTerrain {
 
     // Carve a sphere out of all chunks
     carveSphere(worldPos, radius) {
+        // Store this carve so it can be replayed after streaming/LOD rebuilds
+        this.carveHistory.push({
+            position: worldPos.clone ? worldPos.clone() : worldPos,
+            radius
+        });
+
+        // Apply immediately to all current chunks
         for (const chunk of this.chunks) {
             chunk.carveSphere(worldPos, radius);
         }
