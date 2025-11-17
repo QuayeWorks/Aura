@@ -349,6 +349,10 @@ const EDGE_CORNER_PAIRS = [
     [3, 7], // 11
 ];
 
+// -------------------------------------------------------------------
+// Marching Cubes terrain class
+// -------------------------------------------------------------------
+
 export class MarchingCubesTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
@@ -360,112 +364,103 @@ export class MarchingCubesTerrain {
 
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
-
+        
         // Approximate radius of the planet (in world units)
         this.radius = options.radius ?? 18.0;
         // Center the volume around the origin
         // but allow an explicit world-space origin via options.origin.
-        this.origin = options.origin || new BABYLON.Vector3(
-            -((this.dimX - 1) * this.cellSize) * 0.5,
-            -((this.dimY - 1) * this.cellSize) * 0.5,
-            -((this.dimZ - 1) * this.cellSize) * 0.5
-        );
+        this.origin =
+            options.origin ||
+            new BABYLON.Vector3(
+                -((this.dimX - 1) * this.cellSize) * 0.5,
+                -((this.dimY - 1) * this.cellSize) * 0.5,
+                -((this.dimZ - 1) * this.cellSize) * 0.5
+            );
 
-        // Optional mesh/material reuse (for chunk pooling)
-        this.mesh = options.mesh ?? null;
-        this.material = options.material ?? null;
-
-        // Scalar field samples at each grid vertex
+        // Allocate scalar field
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
 
-        this._buildInitialField();
+        // Mesh + material
+        this.mesh = null;
+        this.material = null;
+
+        // Build initial terrain
+        this._populateField();
         this._buildMesh();
     }
 
-    // Index helper into 1D field array
     _index(x, y, z) {
-        return x + this.dimX * (y + this.dimY * z);
+        return x + y * this.dimX + z * this.dimX * this.dimY;
     }
 
-    // Signed distance function: planet with layered noise for terrain
+    _worldPosFromIndex(i) {
+        const x = i % this.dimX;
+        const y = Math.floor(i / this.dimX) % this.dimY;
+        const z = Math.floor(i / (this.dimX * this.dimY));
+        return this.origin.add(
+            new BABYLON.Vector3(
+                x * this.cellSize,
+                y * this.cellSize,
+                z * this.cellSize
+            )
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Signed distance field (planet + noise)
+    // ----------------------------------------------------------------
+
     _sampleSdf(worldPos) {
-        // Distance from planet center
-        const center = BABYLON.Vector3.Zero();
-        const toPoint = worldPos.subtract(center);
-        const dist = toPoint.length();
-    
-        // Base perfect sphere
-        const baseSphere = dist - this.radius;
-    
-        // Fake fractal noise using simple sin/cos combos.
-        // This is cheap, deterministic, and enough to get "mountain" shapes.
-        const nx = worldPos.x * 0.12;
-        const ny = worldPos.y * 0.12;
-        const nz = worldPos.z * 0.12;
-    
+        // Distance from center
+        const dist = worldPos.length();
+
+        // Normalized position for noise lookup
+        const nx = worldPos.x / this.radius;
+        const ny = worldPos.y / this.radius;
+        const nz = worldPos.z / this.radius;
+
+        // A few layers of fake "noise" (replace with real 3D noise later)
         const lowFreq =
-            Math.sin(nx) * 0.6 +
-            Math.cos(nz * 0.9 + ny * 0.4) * 0.4;
-    
+            Math.sin(nx * 0.7 + ny * 0.5 + nz * 0.4) * 0.8;
+
         const midFreq =
-            Math.sin(nx * 2.1 + nz * 1.3) * 0.25 +
+            Math.cos(nx * 1.9 + nz * 1.3) * 0.4 +
             Math.cos(ny * 2.0 - nz * 0.7) * 0.2;
-    
+
         const highFreq =
             Math.sin(nx * 4.7 + ny * 3.3 + nz * 2.9) * 0.08;
-    
+
         // Combine and scale to get hills + ridges
         const noise = (lowFreq + midFreq + highFreq);
-    
+
         // Push terrain outwards: negative values are "solid"
         const elevation = noise * 1.2; // tweak for more/less mountains
-    
+
         // Final SDF: below 0 = inside terrain, above 0 = empty
         return (dist - (this.radius + elevation));
     }
 
-
-    _buildInitialField() {
-        for (let z = 0; z < this.dimZ; z++) {
-            for (let y = 0; y < this.dimY; y++) {
-                for (let x = 0; x < this.dimX; x++) {
-                    const worldPos = this.origin.add(
-                        new BABYLON.Vector3(
-                            x * this.cellSize,
-                            y * this.cellSize,
-                            z * this.cellSize
-                        )
-                    );
-                    const v = this._sampleSdf(worldPos);
-                    this.field[this._index(x, y, z)] = v;
-                }
-            }
+    _populateField() {
+        const total = this.dimX * this.dimY * this.dimZ;
+        for (let i = 0; i < total; i++) {
+            const p = this._worldPosFromIndex(i);
+            this.field[i] = this._sampleSdf(p);
         }
     }
 
-    // Public: carve out a ball of emptiness at worldPos
+    // Carve a spherical hole (digging) in the field
     carveSphere(worldPos, radius) {
-        const r2 = radius * radius;
-
-        for (let z = 0; z < this.dimZ; z++) {
-            for (let y = 0; y < this.dimY; y++) {
-                for (let x = 0; x < this.dimX; x++) {
-                    const idx = this._index(x, y, z);
-                    const pos = this.origin.add(
-                        new BABYLON.Vector3(
-                            x * this.cellSize,
-                            y * this.cellSize,
-                            z * this.cellSize
-                        )
-                    );
-
-                    const d2 = BABYLON.Vector3.DistanceSquared(pos, worldPos);
-
-                    // If we’re inside the carving sphere, push field to positive (empty)
-                    if (d2 <= r2 && this.field[idx] < this.isoLevel) {
-                        this.field[idx] = this.isoLevel + 0.01;
-                    }
-                }
+        const radiusSq = radius * radius;
+        const total = this.dimX * this.dimY * this.dimZ;
+        for (let i = 0; i < total; i++) {
+            const p = this._worldPosFromIndex(i);
+            const dx = p.x - worldPos.x;
+            const dy = p.y - worldPos.y;
+            const dz = p.z - worldPos.z;
+            const distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq <= radiusSq) {
+                // Push SDF outward: carve a hole
+                this.field[i] = Math.max(this.field[i], 0.0);
             }
         }
 
@@ -474,60 +469,108 @@ export class MarchingCubesTerrain {
 
     _buildMesh() {
         const positions = [];
-        const indices = [];
         const normals = [];
+        const indices = [];
 
-        // Marching cubes over all cells
-        for (let y = 0; y < this.dimY - 1; y++) {
-            for (let z = 0; z < this.dimZ - 1; z++) {
+        const worldPos = (gx, gy, gz) =>
+            this.origin.add(
+                new BABYLON.Vector3(
+                    gx * this.cellSize,
+                    gy * this.cellSize,
+                    gz * this.cellSize
+                )
+            );
+
+        const vertList = new Array(12);
+
+        // March over all cubes in the grid
+        for (let z = 0; z < this.dimZ - 1; z++) {
+            for (let y = 0; y < this.dimY - 1; y++) {
                 for (let x = 0; x < this.dimX - 1; x++) {
-                    const cube = this._getCube(x, y, z);
-                    const cubeIndex = this._getCubeIndex(cube, this.isoLevel);
+                    const cornerValues = new Array(8);
+                    const cornerPositions = new Array(8);
 
-                    if (cubeIndex === 0 || cubeIndex === 255) {
-                        continue; // no surface in this cube
+                    // Sample the 8 corners of this cube
+                    for (let i = 0; i < 8; i++) {
+                        const [dx, dy, dz] = CORNER_OFFSETS[i];
+                        const gx = x + dx;
+                        const gy = y + dy;
+                        const gz = z + dz;
+
+                        const idx = this._index(gx, gy, gz);
+                        const v = this.field[idx];
+
+                        cornerValues[i] = v;
+                        cornerPositions[i] = worldPos(gx, gy, gz);
                     }
 
-                    const edges = edgeTable[cubeIndex];
-                    const vertList = new Array(12);
+                    // Determine cube index
+                    let cubeIndex = 0;
+                    if (cornerValues[0] < this.isoLevel) cubeIndex |= 1;
+                    if (cornerValues[1] < this.isoLevel) cubeIndex |= 2;
+                    if (cornerValues[2] < this.isoLevel) cubeIndex |= 4;
+                    if (cornerValues[3] < this.isoLevel) cubeIndex |= 8;
+                    if (cornerValues[4] < this.isoLevel) cubeIndex |= 16;
+                    if (cornerValues[5] < this.isoLevel) cubeIndex |= 32;
+                    if (cornerValues[6] < this.isoLevel) cubeIndex |= 64;
+                    if (cornerValues[7] < this.isoLevel) cubeIndex |= 128;
 
-                    // Interpolate intersection points along edges
-                    for (let i = 0; i < 12; i++) {
-                        if (edges & (1 << i)) {
-                            const [a, b] = edgeIndexToVertices[i];
-                            vertList[i] = this._interpolateVertex(cube[a], cube[b]);
+                    const edgeMask = edgeTable[cubeIndex];
+                    if (!edgeMask) continue;
+
+                    // Interpolate along edges where the surface cuts
+                    for (let e = 0; e < 12; e++) {
+                        if (!(edgeMask & (1 << e))) continue;
+
+                        const [aIdx, bIdx] = EDGE_CORNER_PAIRS[e];
+                        const va = cornerValues[aIdx];
+                        const vb = cornerValues[bIdx];
+                        const pa = cornerPositions[aIdx];
+                        const pb = cornerPositions[bIdx];
+
+                        const t =
+                            Math.abs(vb - va) < 1e-6
+                                ? 0.5
+                                : (this.isoLevel - va) / (vb - va);
+
+                        vertList[e] = BABYLON.Vector3.Lerp(pa, pb, t);
+                    }
+
+                    // Build triangles from triTable
+                    const triRow = triTable[cubeIndex];
+                    for (let i = 0; i < 16; i += 3) {
+                        const e0 = triRow[i];
+                        const e1 = triRow[i + 1];
+                        const e2 = triRow[i + 2];
+
+                        // end of this configuration
+                        if (e0 === -1 || e1 === -1 || e2 === -1) break;
+
+                        const p0 = vertList[e0];
+                        const p1 = vertList[e1];
+                        const p2 = vertList[e2];
+
+                        // Defensive: if an edge vertex was never generated (mismatch between
+                        // edgeTable and triTable), skip this triangle instead of crashing.
+                        if (!p0 || !p1 || !p2) {
+                            continue;
                         }
-                    }
-
-                    // Emit triangles
-                    const tri = triTable[cubeIndex];
-                    for (let t = 0; t < tri.length; t += 3) {
-                        const a = vertList[tri[t]];
-                        const b = vertList[tri[t + 1]];
-                        const c = vertList[tri[t + 2]];
 
                         const baseIndex = positions.length / 3;
 
-                        positions.push(a.x, a.y, a.z);
-                        positions.push(b.x, b.y, b.z);
-                        positions.push(c.x, c.y, c.z);
+                        positions.push(
+                            p0.x, p0.y, p0.z,
+                            p1.x, p1.y, p1.z,
+                            p2.x, p2.y, p2.z
+                        );
 
                         indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
-
-                        // Flat normal for this triangle
-                        const ab = b.subtract(a);
-                        const ac = c.subtract(a);
-                        const n = BABYLON.Vector3.Cross(ab, ac).normalize();
-
-                        normals.push(n.x, n.y, n.z);
-                        normals.push(n.x, n.y, n.z);
-                        normals.push(n.x, n.y, n.z);
                     }
                 }
             }
         }
 
-        // 🔴 IMPORTANT: if no triangles, disable the mesh and bail
+        // 🔴 If there are no triangles, disable the mesh (if any) and bail out.
         if (positions.length === 0 || indices.length === 0) {
             if (this.mesh) {
                 this.mesh.setEnabled(false);
@@ -535,7 +578,9 @@ export class MarchingCubesTerrain {
             return;
         }
 
-        // Build vertex data
+        // Compute normals
+        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+
         const vertexData = new BABYLON.VertexData();
         vertexData.positions = positions;
         vertexData.indices = indices;
@@ -544,20 +589,17 @@ export class MarchingCubesTerrain {
         if (!this.mesh) {
             this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
 
-            // If no material was passed in, create a default one
-            if (!this.material) {
-                this.material = new BABYLON.StandardMaterial(
-                    "terrainMat",
-                    this.scene
-                );
-                this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
-                this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-                this.material.backFaceCulling = false;
-            }
+            this.material = new BABYLON.StandardMaterial(
+                "terrainMat",
+                this.scene
+            );
+            this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+            this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            this.material.backFaceCulling = false;
 
             this.mesh.material = this.material;
         } else {
-            // Reusing an existing mesh from the pool – make sure it is visible
+            // Reusing an existing mesh – make sure it is visible.
             this.mesh.setEnabled(true);
         }
 
