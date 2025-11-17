@@ -574,10 +574,15 @@ export class MarchingCubesTerrain {
                 }
             }
         }
-
-        // Compute normals
-        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
-
+        
+        // If no triangles, disable mesh and return
+        if (positions.length === 0 || indices.length === 0) {
+            if (this.mesh) {
+                this.mesh.setEnabled(false);
+            }
+            return;
+        }
+        // Otherwise create/update the mesh normally
         const vertexData = new BABYLON.VertexData();
         vertexData.positions = positions;
         vertexData.indices = indices;
@@ -585,21 +590,17 @@ export class MarchingCubesTerrain {
 
         if (!this.mesh) {
             this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
-
-            this.material = new BABYLON.StandardMaterial(
+        
+            this.material = this.material || new BABYLON.StandardMaterial(
                 "terrainMat",
                 this.scene
             );
-            this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
-            this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-            this.material.backFaceCulling = false;
-
             this.mesh.material = this.material;
-        } else {
-            // Reusing an existing mesh from the pool – make sure it is visible
-            this.mesh.setEnabled(true);
         }
-
+        // ensure mesh is visible
+        this.mesh.setEnabled(true);
+        
+        // apply geometry
         vertexData.applyToMesh(this.mesh, true);
     }
 }
