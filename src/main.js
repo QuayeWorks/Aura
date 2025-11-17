@@ -32,21 +32,27 @@ const createScene = () => {
     // Blue background
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
-    // Camera
-    const camera = new BABYLON.UniversalCamera(
-        "camera",
-        new BABYLON.Vector3(0, 40, -120),
-        scene
-    );
-    camera.setTarget(BABYLON.Vector3.Zero());
-    camera.attachControl(canvas, true);
+    // === Camera Spawn Based on Planet Radius ===
+    const planetRadius = terrain.radius; // from ChunkedPlanetTerrain options
 
-    // Disable built-in WASD so we can manage movement ourselves
+    // Spawn 10% above the planet surface
+    const cameraDistance = planetRadius * 1.1;
+
+    // Position camera on +Z axis looking inward
+    const cameraStartPos = new BABYLON.Vector3(0, 0, cameraDistance);
+
+    const camera = new BABYLON.UniversalCamera("camera", cameraStartPos, scene);
+
+    // Look directly toward planet center
+    camera.setTarget(BABYLON.Vector3.Zero());
+
+    // Disable built-in WASD so we use our custom movement
     camera.keysUp = [];
     camera.keysDown = [];
     camera.keysLeft = [];
     camera.keysRight = [];
 
+    camera.attachControl(canvas, true);
     scene.activeCamera = camera;
 
     // Lights
