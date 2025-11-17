@@ -21,7 +21,8 @@ export class ChunkedPlanetTerrain {
         // Make vertical resolution big enough to fully contain the sphere
         // (2 * radius / cellSize) + a small margin.
         const neededY = Math.ceil((this.radius * 2) / this.cellSize) + 4;
-        this.dimY = options.dimY ?? neededY;
+        this.baseDimY = options.dimY ?? neededY;
+
 
 
         // LOD level: 2 = high, 1 = medium, 0 = low
