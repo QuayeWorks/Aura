@@ -474,115 +474,68 @@ export class MarchingCubesTerrain {
 
     _buildMesh() {
         const positions = [];
-        const normals = [];
         const indices = [];
+        const normals = [];
 
-        const worldPos = (gx, gy, gz) =>
-            this.origin.add(
-                new BABYLON.Vector3(
-                    gx * this.cellSize,
-                    gy * this.cellSize,
-                    gz * this.cellSize
-                )
-            );
-
-        const vertList = new Array(12);
-
-        // March over all cubes in the grid
-        for (let z = 0; z < this.dimZ - 1; z++) {
-            for (let y = 0; y < this.dimY - 1; y++) {
+        // Marching cubes over all cells
+        for (let y = 0; y < this.dimY - 1; y++) {
+            for (let z = 0; z < this.dimZ - 1; z++) {
                 for (let x = 0; x < this.dimX - 1; x++) {
-                    const cornerValues = new Array(8);
-                    const cornerPositions = new Array(8);
+                    const cube = this._getCube(x, y, z);
+                    const cubeIndex = this._getCubeIndex(cube, this.isoLevel);
 
-                    // Sample the 8 corners of this cube
-                    for (let i = 0; i < 8; i++) {
-                        const [dx, dy, dz] = CORNER_OFFSETS[i];
-                        const gx = x + dx;
-                        const gy = y + dy;
-                        const gz = z + dz;
-
-                        const idx = this._index(gx, gy, gz);
-                        const v = this.field[idx];
-
-                        cornerValues[i] = v;
-                        cornerPositions[i] = worldPos(gx, gy, gz);
+                    if (cubeIndex === 0 || cubeIndex === 255) {
+                        continue; // no surface in this cube
                     }
 
-                    // Determine cube index
-                    let cubeIndex = 0;
-                    if (cornerValues[0] < this.isoLevel) cubeIndex |= 1;
-                    if (cornerValues[1] < this.isoLevel) cubeIndex |= 2;
-                    if (cornerValues[2] < this.isoLevel) cubeIndex |= 4;
-                    if (cornerValues[3] < this.isoLevel) cubeIndex |= 8;
-                    if (cornerValues[4] < this.isoLevel) cubeIndex |= 16;
-                    if (cornerValues[5] < this.isoLevel) cubeIndex |= 32;
-                    if (cornerValues[6] < this.isoLevel) cubeIndex |= 64;
-                    if (cornerValues[7] < this.isoLevel) cubeIndex |= 128;
+                    const edges = edgeTable[cubeIndex];
+                    const vertList = new Array(12);
 
-                    const edgeMask = edgeTable[cubeIndex];
-                    if (!edgeMask) continue;
-
-                    // Interpolate along edges where the surface cuts
-                    for (let e = 0; e < 12; e++) {
-                        if (!(edgeMask & (1 << e))) continue;
-
-                        const [aIdx, bIdx] = EDGE_CORNER_PAIRS[e];
-                        const va = cornerValues[aIdx];
-                        const vb = cornerValues[bIdx];
-                        const pa = cornerPositions[aIdx];
-                        const pb = cornerPositions[bIdx];
-
-                        const t =
-                            Math.abs(vb - va) < 1e-6
-                                ? 0.5
-                                : (this.isoLevel - va) / (vb - va);
-
-                        vertList[e] = BABYLON.Vector3.Lerp(pa, pb, t);
-                    }
-
-                    // Build triangles from triTable
-                    const triRow = triTable[cubeIndex];
-                    for (let i = 0; i < 16; i += 3) {
-                        const e0 = triRow[i];
-                        const e1 = triRow[i + 1];
-                        const e2 = triRow[i + 2];
-                    
-                        // end of this configuration
-                        if (e0 === -1 || e1 === -1 || e2 === -1) break;
-                    
-                        const p0 = vertList[e0];
-                        const p1 = vertList[e1];
-                        const p2 = vertList[e2];
-                    
-                        // Defensive: if an edge vertex was never generated (mismatch between
-                        // edgeTable and triTable), skip this triangle instead of crashing.
-                        if (!p0 || !p1 || !p2) {
-                            continue;
+                    // Interpolate intersection points along edges
+                    for (let i = 0; i < 12; i++) {
+                        if (edges & (1 << i)) {
+                            const [a, b] = edgeIndexToVertices[i];
+                            vertList[i] = this._interpolateVertex(cube[a], cube[b]);
                         }
-                    
+                    }
+
+                    // Emit triangles
+                    const tri = triTable[cubeIndex];
+                    for (let t = 0; t < tri.length; t += 3) {
+                        const a = vertList[tri[t]];
+                        const b = vertList[tri[t + 1]];
+                        const c = vertList[tri[t + 2]];
+
                         const baseIndex = positions.length / 3;
-                    
-                        positions.push(
-                            p0.x, p0.y, p0.z,
-                            p1.x, p1.y, p1.z,
-                            p2.x, p2.y, p2.z
-                        );
-                    
+
+                        positions.push(a.x, a.y, a.z);
+                        positions.push(b.x, b.y, b.z);
+                        positions.push(c.x, c.y, c.z);
+
                         indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+
+                        // Flat normal for this triangle
+                        const ab = b.subtract(a);
+                        const ac = c.subtract(a);
+                        const n = BABYLON.Vector3.Cross(ab, ac).normalize();
+
+                        normals.push(n.x, n.y, n.z);
+                        normals.push(n.x, n.y, n.z);
+                        normals.push(n.x, n.y, n.z);
                     }
                 }
             }
         }
-        
-        // If no triangles, disable mesh and return
+
+        // 🔴 IMPORTANT: if no triangles, disable the mesh and bail
         if (positions.length === 0 || indices.length === 0) {
             if (this.mesh) {
                 this.mesh.setEnabled(false);
             }
             return;
         }
-        // Otherwise create/update the mesh normally
+
+        // Build vertex data
         const vertexData = new BABYLON.VertexData();
         vertexData.positions = positions;
         vertexData.indices = indices;
@@ -590,17 +543,24 @@ export class MarchingCubesTerrain {
 
         if (!this.mesh) {
             this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
-        
-            this.material = this.material || new BABYLON.StandardMaterial(
-                "terrainMat",
-                this.scene
-            );
+
+            // If no material was passed in, create a default one
+            if (!this.material) {
+                this.material = new BABYLON.StandardMaterial(
+                    "terrainMat",
+                    this.scene
+                );
+                this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+                this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                this.material.backFaceCulling = false;
+            }
+
             this.mesh.material = this.material;
+        } else {
+            // Reusing an existing mesh from the pool – make sure it is visible
+            this.mesh.setEnabled(true);
         }
-        // ensure mesh is visible
-        this.mesh.setEnabled(true);
-        
-        // apply geometry
+
         vertexData.applyToMesh(this.mesh, true);
     }
 }
