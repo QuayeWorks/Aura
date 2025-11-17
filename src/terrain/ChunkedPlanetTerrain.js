@@ -30,6 +30,7 @@ export class ChunkedPlanetTerrain {
 
         this.chunks = [];
         this.material = null;
+        this.meshPool = []; // pool of reusable Babylon meshes
         // Streaming / grid tracking
         this.gridOffsetX = 0;
         this.gridOffsetZ = 0;
@@ -55,11 +56,13 @@ export class ChunkedPlanetTerrain {
     _disposeChunks() {
         for (const c of this.chunks) {
             if (c.mesh) {
-                c.mesh.dispose();
+                // Disable and keep for reuse instead of destroying
+                c.mesh.setEnabled(false);
+                this.meshPool.push(c.mesh);
             }
         }
         this.chunks = [];
-        this.material = null;
+        // Keep this.material so all future chunks can share it
     }
 
     _rebuildChunks() { 
@@ -116,20 +119,26 @@ export class ChunkedPlanetTerrain {
                     gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
                 );
 
+                // Try to reuse a mesh from the pool
+                const pooledMesh =
+                    this.meshPool.length > 0 ? this.meshPool.pop() : null;
+
                 const chunk = new MarchingCubesTerrain(this.scene, {
                     dimX,
                     dimY,
                     dimZ,
-                    cellSize: cellSizeLod,     // LOD-scaled voxel size
+                    cellSize: cellSizeLod, // LOD-scaled voxel size
                     isoLevel: this.isoLevel,
                     radius: this.radius,
-                    origin
+                    origin,
+                    mesh: pooledMesh,
+                    material: this.material
                 });
 
                 // Share a single material across all chunks so UI can tweak one
                 if (!this.material) {
                     this.material = chunk.material;
-                } else {
+                } else if (chunk.mesh && chunk.mesh.material !== this.material) {
                     chunk.mesh.material = this.material;
                 }
 
