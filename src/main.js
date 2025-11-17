@@ -7,7 +7,7 @@ const EARTH_RADIUS_KM = 6371;
 const HALF_EARTH_RADIUS_KM = EARTH_RADIUS_KM * 0.5;
 
 // How many kilometers correspond to 1 game unit
-const KM_PER_GAME_UNIT = 1; // tweak this if you want "bigger" or "smaller" feel
+const KM_PER_GAME_UNIT = 100; // tweak this if you want "bigger" or "smaller" feel
 
 // Convert half-Earth radius into game units
 const HALF_EARTH_RADIUS_UNITS = HALF_EARTH_RADIUS_KM / KM_PER_GAME_UNIT;
@@ -37,7 +37,6 @@ const createScene = () => {
     const cameraDistance = planetRadius * 1.2;             // 20% above surface
     const cameraHeight   = planetRadius * 0.2;             // some height above equator
 
-
     const cameraStartPos = new BABYLON.Vector3(
         0,
         cameraHeight,
@@ -49,10 +48,6 @@ const createScene = () => {
         cameraStartPos,
         scene
     );
-    camera.setTarget(BABYLON.Vector3.Zero());
-    camera.attachControl(canvas, true);
-
-    // Look directly toward planet center
     camera.setTarget(BABYLON.Vector3.Zero());
 
     // Disable built-in WASD so we use our custom movement
@@ -83,10 +78,10 @@ const createScene = () => {
     // Blue ground plane for contrast
     const ground = BABYLON.MeshBuilder.CreateGround(
         "g",
-        { width: 200, height: 200 },
+        { width: 200, height: 200, subdivisions: 16 },
         scene
     );
-    const groundMat = new BABYLON.StandardMaterial("gm", scene);
+    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
     groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
     groundMat.specularColor = BABYLON.Color3.Black();
     ground.material = groundMat;
@@ -155,65 +150,125 @@ const createScene = () => {
         ? terrainMat.emissiveColor.clone()
         : new BABYLON.Color3(0, 0, 0);
 
-    // Scene brightness
-    addSlider("Scene brightness", 0.0, 2.0, 1.0, (v) => {
-        hemi.intensity = baseHemiIntensity * v;
-        dir.intensity = baseDirIntensity * v;
+    let sceneBrightness = 1.0;
+    let ambientIntensity = 1.0;
+    let terrainBrightness = 1.0;
+    let isWireframe = false;
+    let globalLod = 2;
+
+    addSlider("Scene Brightness", 0.1, 2.0, 1.0, (v) => {
+        sceneBrightness = v;
+        hemi.intensity = baseHemiIntensity * sceneBrightness * ambientIntensity;
+        dir.intensity = baseDirIntensity * sceneBrightness;
     });
 
-    // Ambient / hemi only
-    addSlider("Ambient light", 0.0, 2.0, 1.0, (v) => {
-        hemi.intensity = baseHemiIntensity * v;
+    addSlider("Ambient Light", 0.1, 2.0, 1.0, (v) => {
+        ambientIntensity = v;
+        hemi.intensity = baseHemiIntensity * sceneBrightness * ambientIntensity;
     });
 
-    // Terrain material brightness
-    addSlider("Terrain brightness", 0.0, 3.0, 1.0, (v) => {
-        terrainMat.diffuseColor = new BABYLON.Color3(
-            baseDiffuse.r * v,
-            baseDiffuse.g * v,
-            baseDiffuse.b * v
-        );
-        terrainMat.emissiveColor = new BABYLON.Color3(
-            baseEmissive.r * v,
-            baseEmissive.g * v,
-            baseEmissive.b * v
-        );
+    addSlider("Terrain Brightness", 0.1, 3.0, 1.0, (v) => {
+        terrainBrightness = v;
+        terrainMat.diffuseColor = baseDiffuse.scale(terrainBrightness);
+        // Optionally, make emissive also track brightness
+        terrainMat.emissiveColor = baseEmissive.scale(terrainBrightness * 0.3);
     });
-    // LOD Quality: 0 = Low, 1 = Medium, 2 = High
-    addSlider("LOD quality", 0, 2, 2, (v) => {
-        // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
-        terrain.setLodLevel(v);
-    });
+
     // Wireframe toggle
-    const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
+    const wireHeader = new BABYLON.GUI.TextBlock();
+    wireHeader.text = "Wireframe: OFF";
+    wireHeader.height = "26px";
+    wireHeader.marginTop = "12px";
+    wireHeader.color = "white";
+    wireHeader.fontSize = 16;
+    wireHeader.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    panel.addControl(wireHeader);
+
+    const wireButton = BABYLON.GUI.Button.CreateSimpleButton(
         "wireBtn",
         "Toggle Wireframe"
     );
-    wireframeButton.height = "32px";
-    wireframeButton.color = "white";
-    wireframeButton.background = "#5555aa";
-    wireframeButton.cornerRadius = 6;
-    wireframeButton.thickness = 1;
-    wireframeButton.marginTop = "10px";
-    wireframeButton.onPointerUpObservable.add(() => {
-        terrainMat.wireframe = !terrainMat.wireframe;
+    wireButton.height = "30px";
+    wireButton.color = "white";
+    wireButton.background = "#444444";
+    wireButton.cornerRadius = 6;
+    wireButton.thickness = 1;
+    wireButton.onPointerClickObservable.add(() => {
+        isWireframe = !isWireframe;
+        terrainMat.wireframe = isWireframe;
+        wireHeader.text = `Wireframe: ${isWireframe ? "ON" : "OFF"}`;
     });
-    panel.addControl(wireframeButton);
+    panel.addControl(wireButton);
+
+    // LOD slider (0 = low, 1 = medium, 2 = high)
+    addSlider("Global LOD", 0, 2, 2, (v) => {
+        const level = Math.round(v);
+        globalLod = level;
+        if (terrain) {
+            // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
+            terrain.setLodLevel(level);
+        }
+    });
 
     // -----------------------
-    // Carving input (LMB)
+    // Input handling for free-fly movement
     // -----------------------
-    scene.onPointerObservable.add((pointerInfo) => {
-        if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-            if (pointerInfo.event.button === 0 && terrain) {
-                const pick = scene.pick(
-                    pointerInfo.event.clientX,
-                    pointerInfo.event.clientY
-                );
-                if (pick && pick.hit) {
-                    terrain.carveSphere(pick.pickedPoint, 4.0);
-                }
-            }
+    window.addEventListener("keydown", (ev) => {
+        switch (ev.key) {
+            case "w":
+            case "W":
+                moveState.forward = true;
+                break;
+            case "s":
+            case "S":
+                moveState.back = true;
+                break;
+            case "a":
+            case "A":
+                moveState.left = true;
+                break;
+            case "d":
+            case "D":
+                moveState.right = true;
+                break;
+            case " ":
+                moveState.up = true;
+                break;
+            case "Shift":
+            case "ShiftLeft":
+            case "ShiftRight":
+                moveState.down = true;
+                break;
+        }
+    });
+
+    window.addEventListener("keyup", (ev) => {
+        switch (ev.key) {
+            case "w":
+            case "W":
+                moveState.forward = false;
+                break;
+            case "s":
+            case "S":
+                moveState.back = false;
+                break;
+            case "a":
+            case "A":
+                moveState.left = false;
+                break;
+            case "d":
+            case "D":
+                moveState.right = false;
+                break;
+            case " ":
+                moveState.up = false;
+                break;
+            case "Shift":
+            case "ShiftLeft":
+            case "ShiftRight":
+                moveState.down = false;
+                break;
         }
     });
 
@@ -222,17 +277,19 @@ const createScene = () => {
 
 const scene = createScene();
 
+// Main render loop
 engine.runRenderLoop(() => {
     const camera = scene.activeCamera;
-
-    if (camera) {
-        const dt = engine.getDeltaTime() / 1000;
+    if (camera && camera instanceof BABYLON.UniversalCamera) {
+        const dt = engine.getDeltaTime() / 1000.0;
         const moveSpeed = 40;
 
         let move = BABYLON.Vector3.Zero();
 
         if (moveState.forward) {
-            move = move.add(camera.getDirection(new BABYLON.Vector3(0, 0, 1)));
+            move = move.add(
+                camera.getDirection(new BABYLON.Vector3(0, 0, 1))
+            );
         }
         if (moveState.back) {
             move = move.add(
@@ -240,7 +297,9 @@ engine.runRenderLoop(() => {
             );
         }
         if (moveState.right) {
-            move = move.add(camera.getDirection(new BABYLON.Vector3(1, 0, 0)));
+            move = move.add(
+                camera.getDirection(new BABYLON.Vector3(1, 0, 0))
+            );
         }
         if (moveState.left) {
             move = move.add(
@@ -269,71 +328,6 @@ engine.runRenderLoop(() => {
     scene.render();
 });
 
-window.addEventListener("keydown", (ev) => {
-    switch (ev.key) {
-        case "w":
-        case "W":
-            moveState.forward = true;
-            break;
-        case "s":
-        case "S":
-            moveState.back = true;
-            break;
-        case "a":
-        case "A":
-            moveState.left = true;
-            break;
-        case "d":
-        case "D":
-            moveState.right = true;
-            break;
-        case " ":
-            moveState.up = true;
-            break;
-        case "Shift":
-            moveState.down = true;
-            break;
-    }
-});
-
-window.addEventListener("keyup", (ev) => {
-    switch (ev.key) {
-        case "w":
-        case "W":
-            moveState.forward = false;
-            break;
-        case "s":
-        case "S":
-            moveState.back = false;
-            break;
-        case "a":
-        case "A":
-            moveState.left = false;
-            break;
-        case "d":
-        case "D":
-            moveState.right = false;
-            break;
-        case " ":
-            moveState.up = false;
-            break;
-        case "Shift":
-            moveState.down = false;
-            break;
-    }
-});
-
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
-
-
-
-
-
-
-
-
-
-
