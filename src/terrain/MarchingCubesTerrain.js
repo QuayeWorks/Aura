@@ -360,26 +360,23 @@ export class MarchingCubesTerrain {
 
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
-        
+
         // Approximate radius of the planet (in world units)
         this.radius = options.radius ?? 18.0;
         // Center the volume around the origin
         // but allow an explicit world-space origin via options.origin.
-        if (options.origin) {
-            this.origin = options.origin.clone();
-        } else {
-            this.origin = new BABYLON.Vector3(
-                -this.dimX * this.cellSize * 0.5,
-                -this.dimY * this.cellSize * 0.5,
-                -this.dimZ * this.cellSize * 0.5
-            );
-        }
+        this.origin = options.origin || new BABYLON.Vector3(
+            -((this.dimX - 1) * this.cellSize) * 0.5,
+            -((this.dimY - 1) * this.cellSize) * 0.5,
+            -((this.dimZ - 1) * this.cellSize) * 0.5
+        );
+
+        // Optional mesh/material reuse (for chunk pooling)
+        this.mesh = options.mesh ?? null;
+        this.material = options.material ?? null;
 
         // Scalar field samples at each grid vertex
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
-
-        this.mesh = null;
-        this.material = null;
 
         this._buildInitialField();
         this._buildMesh();
@@ -598,6 +595,9 @@ export class MarchingCubesTerrain {
             this.material.backFaceCulling = false;
 
             this.mesh.material = this.material;
+        } else {
+            // Reusing an existing mesh from the pool – make sure it is visible
+            this.mesh.setEnabled(true);
         }
 
         vertexData.applyToMesh(this.mesh, true);
