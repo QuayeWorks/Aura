@@ -32,16 +32,25 @@ const createScene = () => {
     // Blue background
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
-    // === Camera Spawn Based on Planet Radius ===
-    const planetRadius = terrain.radius; // from ChunkedPlanetTerrain options
+    // Camera - spawn outside the planet based on half-Earth radius
+    const planetRadius = HALF_EARTH_RADIUS_UNITS;          // from the constants at top
+    const cameraDistance = planetRadius * 1.2;             // 20% above surface
+    const cameraHeight   = planetRadius * 0.2;             // some height above equator
 
-    // Spawn 10% above the planet surface
-    const cameraDistance = planetRadius * 1.1;
 
-    // Position camera on +Z axis looking inward
-    const cameraStartPos = new BABYLON.Vector3(0, 0, cameraDistance);
+    const cameraStartPos = new BABYLON.Vector3(
+        0,
+        cameraHeight,
+        cameraDistance
+    );
 
-    const camera = new BABYLON.UniversalCamera("camera", cameraStartPos, scene);
+    const camera = new BABYLON.UniversalCamera(
+        "camera",
+        cameraStartPos,
+        scene
+    );
+    camera.setTarget(BABYLON.Vector3.Zero());
+    camera.attachControl(canvas, true);
 
     // Look directly toward planet center
     camera.setTarget(BABYLON.Vector3.Zero());
@@ -317,6 +326,7 @@ window.addEventListener("keyup", (ev) => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
