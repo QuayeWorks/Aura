@@ -28,12 +28,22 @@ export class ChunkedPlanetTerrain {
         // LOD level: 2 = high, 1 = medium, 0 = low
         this.lodLevel = 2; // start on high quality
 
+        // LOD level: 2 = high, 1 = medium, 0 = low
+        this.lodLevel = 2; // start on high quality
+
         this.chunks = [];
-        this.material = null;
+
+        // Shared terrain material for all chunks (always non-null)
+        this.material = new BABYLON.StandardMaterial("planetTerrainMat", this.scene);
+        this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+        this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        this.material.backFaceCulling = false;
+
         this.meshPool = []; // pool of reusable Babylon meshes
 
         // Persistent edit history so carves survive streaming / LOD rebuilds
         this.carveHistory = [];
+
         // Streaming / grid tracking
         this.gridOffsetX = 0;
         this.gridOffsetZ = 0;
