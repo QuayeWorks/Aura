@@ -30,6 +30,14 @@ export class ChunkedPlanetTerrain {
 
         this.chunks = [];
         this.material = null;
+        // Streaming / grid tracking
+        this.gridOffsetX = 0;
+        this.gridOffsetZ = 0;
+
+        // Cached world-space chunk metrics (set in _rebuildChunks)
+        this.chunkWorldSizeX = 0;
+        this.chunkWorldSizeZ = 0;
+        this.chunkOverlap = 0;
 
         this._rebuildChunks();
     }
@@ -68,6 +76,10 @@ export class ChunkedPlanetTerrain {
         const baseChunkDepth  = baseCellsZ * this.cellSize;
         const baseChunkHeight = baseCellsY * this.cellSize;
 
+        // Cache base world-space chunk sizes so streaming code can reuse them
+        this.chunkWorldSizeX = baseChunkWidth;
+        this.chunkWorldSizeZ = baseChunkDepth;
+
         // --- Choose how many samples we want at this LOD ---
         const dimX = Math.max(6, Math.floor(this.baseChunkResolution / lodFactor));
         const dimZ = dimX; // square chunk
@@ -87,15 +99,15 @@ export class ChunkedPlanetTerrain {
 
         // Overlap so edges match between neighboring chunks
         const overlap = 1 * this.cellSize;   // one voxel layer at base scale
-
+        this.chunkOverlap = overlap;
         const halfCountX = this.chunkCountX / 2.0;
         const halfCountZ = this.chunkCountZ / 2.0;
 
         for (let ix = 0; ix < this.chunkCountX; ix++) {
             for (let iz = 0; iz < this.chunkCountZ; iz++) {
                 // Grid index centered around origin
-                const gx = ix - halfCountX + 0.5;
-                const gz = iz - halfCountZ + 0.5;
+                const gx = (ix - halfCountX + 0.5) + this.gridOffsetX;
+                const gz = (iz - halfCountZ + 0.5) + this.gridOffsetZ;
 
                 // Origin of this chunk's sampling volume (world space)
                 const origin = new BABYLON.Vector3(
@@ -135,6 +147,42 @@ export class ChunkedPlanetTerrain {
         if (clamped === this.lodLevel) return;
         this.lodLevel = clamped;
         this._rebuildChunks();
+    }
+    
+     /**
+     * Basic camera-centered streaming.
+     * Keeps a fixed grid of chunks, but moves their sampling window
+     * in world-space as the camera crosses chunk boundaries.
+     */
+    updateStreaming(cameraPosition) {
+        if (!cameraPosition) {
+            return;
+        }
+
+        // Effective world-space distance between neighboring chunk centers
+        const baseCellsX = this.baseChunkResolution - 1;
+        const baseCellsZ = baseCellsX;
+        const baseChunkWidth  = baseCellsX * this.cellSize;
+        const baseChunkDepth  = baseCellsZ * this.cellSize;
+
+        const overlap = this.chunkOverlap || (1 * this.cellSize);
+        const stepX = (this.chunkWorldSizeX || baseChunkWidth) - overlap;
+        const stepZ = (this.chunkWorldSizeZ || baseChunkDepth) - overlap;
+
+        if (stepX <= 0 || stepZ <= 0) {
+            return;
+        }
+
+        // Which "chunk index" is the camera currently over?
+        const camChunkX = Math.round(cameraPosition.x / stepX);
+        const camChunkZ = Math.round(cameraPosition.z / stepZ);
+
+        // If we've crossed into a new chunk index, shift the grid + rebuild
+        if (camChunkX !== this.gridOffsetX || camChunkZ !== this.gridOffsetZ) {
+            this.gridOffsetX = camChunkX;
+            this.gridOffsetZ = camChunkZ;
+            this._rebuildChunks();
+        }
     }
 
     // Shared material (for brightness, wireframe, etc.)
