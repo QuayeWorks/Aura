@@ -200,7 +200,43 @@ const createScene = () => {
         wireHeader.text = `Wireframe: ${isWireframe ? "ON" : "OFF"}`;
     });
     panel.addControl(wireButton);
+// ---- Terrain grid controls ----
 
+    // Chunk count along X
+    addSlider("Chunks X", 1, 7, terrain.chunkCountX, (v) => {
+        terrain.updateConfig({ chunkCountX: v });
+    });
+
+    // Chunk count along Z
+    addSlider("Chunks Z", 1, 7, terrain.chunkCountZ, (v) => {
+        terrain.updateConfig({ chunkCountZ: v });
+    });
+
+    // Base horizontal resolution (cells per chunk in X/Z)
+    addSlider(
+        "Base resolution",
+        8,
+        48,
+        terrain.baseChunkResolution,
+        (v) => {
+            terrain.updateConfig({ baseChunkResolution: v });
+        }
+    );
+
+    // Vertical samples (dimY)
+    addSlider("Vertical dimY", 16, 96, terrain.baseDimY, (v) => {
+        terrain.updateConfig({ dimY: v });
+    });
+
+    // Cell size (world units between samples)
+    addSlider("Cell size", 0.5, 4.0, terrain.cellSize, (v) => {
+        terrain.updateConfig({ cellSize: v });
+    });
+
+    // Iso-surface level
+    addSlider("Iso level", -1.0, 1.0, terrain.isoLevel, (v) => {
+        terrain.updateConfig({ isoLevel: v });
+    });
     // LOD slider (0 = low, 1 = medium, 2 = high)
     addSlider("Global LOD", 0, 2, 2, (v) => {
         const level = Math.round(v);
@@ -331,4 +367,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
