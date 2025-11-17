@@ -44,6 +44,9 @@ export class ChunkedPlanetTerrain {
         // Last camera position for LOD updates
         this._lastCameraPos = null;
 
+        // Queue of chunks waiting for LOD rebuild
+        this.lodRebuildQueue = [];
+
         // Cached world-space chunk metrics (set in _rebuildChunks)
         this.chunkWorldSizeX = 0;
         this.chunkWorldSizeZ = 0;
@@ -157,19 +160,20 @@ export class ChunkedPlanetTerrain {
             ix,
             iz,
             lodLevel,
+            targetLod: null, // pending LOD rebuild target (if any)
             terrain,
             center
         };
     }
 
     /**
-     * Decide desired LOD for a given distance, using the global LOD bias.
-     * globalLodLevel 2 = highest quality, 0 = lowest.
+     * Decide desired LOD for a given distance and current LOD,
+     * using the global LOD bias and hysteresis so chunks don't flap.
      */
-    _getLodForDistance(distance) {
+    _getLodForDistance(distance, currentLod) {
         const base = this.globalLodLevel;
 
-        // Distance thresholds for high/medium detail
+        // Base thresholds for high/medium rings
         let highRadius;
         let midRadius;
 
@@ -184,18 +188,50 @@ export class ChunkedPlanetTerrain {
             midRadius = 120;
         }
 
-        if (distance < highRadius) {
-            return 2; // high detail
-        } else if (distance < midRadius) {
-            return 1; // medium detail
-        } else {
-            return 0; // low detail
+        // Hysteresis margin: how big the "buffer zone" is
+        const margin = 20;
+
+        // If we don't know the current LOD, fall back to simple thresholds
+        if (currentLod !== 0 && currentLod !== 1 && currentLod !== 2) {
+            if (distance < highRadius) return 2;
+            if (distance < midRadius) return 1;
+            return 0;
         }
+
+        // Hysteresis logic:
+        // - To downgrade quality, distance must go past radius + margin.
+        // - To upgrade quality, distance must go below radius - margin.
+
+        if (currentLod === 2) {
+            // Highest detail; only drop to 1 if we move clearly beyond highRadius
+            if (distance > highRadius + margin) {
+                return 1;
+            }
+            return 2;
+        }
+
+        if (currentLod === 1) {
+            // Mid detail: can go up or down
+            if (distance < highRadius - margin) {
+                return 2; // move closer -> upgrade to high
+            }
+            if (distance > midRadius + margin) {
+                return 0; // move far -> downgrade to low
+            }
+            return 1; // stay mid
+        }
+
+        // currentLod === 0 (lowest detail)
+        if (distance < midRadius - margin) {
+            return 1; // move closer -> upgrade to mid
+        }
+        return 0;
     }
 
     /**
-     * Update each chunk's LOD based on distance to the camera.
-     * Only rebuilds chunks whose LOD actually changes.
+     * Update each chunk's desired LOD based on distance to the camera.
+     * Only enqueues chunks for rebuild; actual rebuilds are processed
+     * separately to spread work across frames.
      */
     _updateLodForCamera(cameraPosition) {
         if (!cameraPosition || this.chunks.length === 0) {
@@ -212,11 +248,40 @@ export class ChunkedPlanetTerrain {
             }
 
             const d = BABYLON.Vector3.Distance(cameraPosition, entry.center);
-            const desiredLod = this._getLodForDistance(d);
+            const desiredLod = this._getLodForDistance(d, entry.lodLevel);
 
-            if (desiredLod !== entry.lodLevel) {
-                this._rebuildChunk(entry, desiredLod);
+            if (desiredLod !== entry.lodLevel && desiredLod !== entry.targetLod) {
+                // Mark target LOD and enqueue for rebuild
+                entry.targetLod = desiredLod;
+                this.lodRebuildQueue.push(entry);
             }
+        }
+    }
+
+    /**
+     * Process a limited number of pending LOD rebuilds per frame
+     * to avoid big hitches.
+     */
+    _processLodQueue(maxPerFrame = 2) {
+        let count = 0;
+
+        while (count < maxPerFrame && this.lodRebuildQueue.length > 0) {
+            const entry = this.lodRebuildQueue.shift();
+            if (!entry) {
+                break;
+            }
+
+            // If targetLod was cleared or already applied, skip
+            if (entry.targetLod == null || entry.targetLod === entry.lodLevel) {
+                continue;
+            }
+
+            const target = entry.targetLod;
+            this._rebuildChunk(entry, target);
+
+            entry.lodLevel = target;
+            entry.targetLod = null;
+            count++;
         }
     }
 
@@ -313,17 +378,13 @@ export class ChunkedPlanetTerrain {
     }
 
     /**
-     * Basic camera-centered streaming + per-chunk LOD.
+     * Basic camera-centered streaming + per-chunk LOD with hysteresis
+     * and a limited rebuild budget per frame.
      */
     updateStreaming(cameraPosition) {
         if (!cameraPosition) {
             return;
         }
-
-        // Store last camera position for LOD updates and slider changes
-        this._lastCameraPos = cameraPosition.clone
-            ? cameraPosition.clone()
-            : cameraPosition;
 
         // Effective world-space distance between neighboring chunk centers
         const baseCellsX = this.baseChunkResolution - 1;
@@ -335,27 +396,26 @@ export class ChunkedPlanetTerrain {
         const stepX = (this.chunkWorldSizeX || baseChunkWidth) - overlap;
         const stepZ = (this.chunkWorldSizeZ || baseChunkDepth) - overlap;
 
-        if (stepX <= 0 || stepZ <= 0) {
-            // Even if streaming is not ready, still update LOD rings.
-            this._updateLodForCamera(cameraPosition);
-            return;
+        if (stepX > 0 && stepZ > 0) {
+            // Which "chunk index" is the camera currently over?
+            const camChunkX = Math.round(cameraPosition.x / stepX);
+            const camChunkZ = Math.round(cameraPosition.z / stepZ);
+
+            // If we've crossed into a new chunk index, shift the grid + rebuild
+            if (camChunkX !== this.gridOffsetX || camChunkZ !== this.gridOffsetZ) {
+                this.gridOffsetX = camChunkX;
+                this.gridOffsetZ = camChunkZ;
+
+                // Rebuild the grid at a baseline LOD, then let LOD logic refine it
+                this._rebuildChunks();
+            }
         }
 
-        // Which "chunk index" is the camera currently over?
-        const camChunkX = Math.round(cameraPosition.x / stepX);
-        const camChunkZ = Math.round(cameraPosition.z / stepZ);
-
-        // If we've crossed into a new chunk index, shift the grid + rebuild
-        if (camChunkX !== this.gridOffsetX || camChunkZ !== this.gridOffsetZ) {
-            this.gridOffsetX = camChunkX;
-            this.gridOffsetZ = camChunkZ;
-
-            // Rebuild the grid at a baseline LOD, then apply per-chunk LOD
-            this._rebuildChunks();
-        }
-
-        // Always update per-chunk LOD based on the current camera position
+        // Update desired LOD per chunk given this camera position
         this._updateLodForCamera(cameraPosition);
+
+        // Actually rebuild a limited number of chunks this frame
+        this._processLodQueue(2);
     }
 
     // Shared material (for brightness, wireframe, etc.)
