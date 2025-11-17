@@ -3,6 +3,15 @@
 // We only import our own module.
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 
+const moveState = {
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    up: false,
+    down: false
+};
+
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
@@ -15,17 +24,21 @@ const createScene = () => {
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
     // Camera
-    const camera = new BABYLON.ArcRotateCamera(
+    const camera = new BABYLON.UniversalCamera(
         "camera",
-        Math.PI / 4,
-        Math.PI / 3,
-        60,
-        BABYLON.Vector3.Zero(),
+        new BABYLON.Vector3(0, 40, -120),
         scene
     );
+    camera.setTarget(BABYLON.Vector3.Zero());
     camera.attachControl(canvas, true);
-    camera.lowerRadiusLimit = 10;
-    camera.upperRadiusLimit = 200;
+
+    // Disable built-in WASD so we can manage movement ourselves
+    camera.keysUp = [];
+    camera.keysDown = [];
+    camera.keysLeft = [];
+    camera.keysRight = [];
+
+    scene.activeCamera = camera;
 
     // Lights
     const hemi = new BABYLON.HemisphericLight(
@@ -186,10 +199,104 @@ const createScene = () => {
 const scene = createScene();
 
 engine.runRenderLoop(() => {
-    if (terrain && scene.activeCamera) {
-        terrain.updateStreaming(scene.activeCamera.position);
+    const camera = scene.activeCamera;
+
+    if (camera) {
+        const dt = engine.getDeltaTime() / 1000;
+        const moveSpeed = 40;
+
+        let move = BABYLON.Vector3.Zero();
+
+        if (moveState.forward) {
+            move = move.add(camera.getDirection(new BABYLON.Vector3(0, 0, 1)));
+        }
+        if (moveState.back) {
+            move = move.add(
+                camera.getDirection(new BABYLON.Vector3(0, 0, -1))
+            );
+        }
+        if (moveState.right) {
+            move = move.add(camera.getDirection(new BABYLON.Vector3(1, 0, 0)));
+        }
+        if (moveState.left) {
+            move = move.add(
+                camera.getDirection(new BABYLON.Vector3(-1, 0, 0))
+            );
+        }
+        if (moveState.up) {
+            move = move.add(new BABYLON.Vector3(0, 1, 0));
+        }
+        if (moveState.down) {
+            move = move.add(new BABYLON.Vector3(0, -1, 0));
+        }
+
+        if (!move.equals(BABYLON.Vector3.Zero())) {
+            move = move.normalize().scale(moveSpeed * dt);
+            camera.position.addInPlace(move);
+        }
+
+        if (terrain) {
+            terrain.updateStreaming(camera.position);
+        }
+    } else if (terrain) {
+        terrain.updateStreaming(null);
     }
+
     scene.render();
+});
+
+window.addEventListener("keydown", (ev) => {
+    switch (ev.key) {
+        case "w":
+        case "W":
+            moveState.forward = true;
+            break;
+        case "s":
+        case "S":
+            moveState.back = true;
+            break;
+        case "a":
+        case "A":
+            moveState.left = true;
+            break;
+        case "d":
+        case "D":
+            moveState.right = true;
+            break;
+        case " ":
+            moveState.up = true;
+            break;
+        case "Shift":
+            moveState.down = true;
+            break;
+    }
+});
+
+window.addEventListener("keyup", (ev) => {
+    switch (ev.key) {
+        case "w":
+        case "W":
+            moveState.forward = false;
+            break;
+        case "s":
+        case "S":
+            moveState.back = false;
+            break;
+        case "a":
+        case "A":
+            moveState.left = false;
+            break;
+        case "d":
+        case "D":
+            moveState.right = false;
+            break;
+        case " ":
+            moveState.up = false;
+            break;
+        case "Shift":
+            moveState.down = false;
+            break;
+    }
 });
 
 window.addEventListener("resize", () => {
