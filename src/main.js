@@ -186,12 +186,16 @@ const createScene = () => {
 const scene = createScene();
 
 engine.runRenderLoop(() => {
+    if (terrain && scene.activeCamera) {
+        terrain.updateStreaming(scene.activeCamera.position);
+    }
     scene.render();
 });
 
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
