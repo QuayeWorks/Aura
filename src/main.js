@@ -3,6 +3,15 @@
 // We only import our own module.
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 
+const EARTH_RADIUS_KM = 6371;
+const HALF_EARTH_RADIUS_KM = EARTH_RADIUS_KM * 0.5;
+
+// How many kilometers correspond to 1 game unit
+const KM_PER_GAME_UNIT = 10; // tweak this if you want "bigger" or "smaller" feel
+
+// Convert half-Earth radius into game units
+const HALF_EARTH_RADIUS_UNITS = HALF_EARTH_RADIUS_KM / KM_PER_GAME_UNIT;
+
 const moveState = {
     forward: false,
     back: false,
@@ -76,7 +85,7 @@ const createScene = () => {
         dimY: 48,
         cellSize: 1,
         isoLevel: 0,
-        radius: 18
+        radius: HALF_EARTH_RADIUS_UNITS
     });
 
     // -----------------------
