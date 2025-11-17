@@ -38,6 +38,12 @@ export class ChunkedPlanetTerrain {
         this.gridOffsetX = 0;
         this.gridOffsetZ = 0;
 
+        // Global LOD quality bias (controlled by UI slider)
+        this.globalLodLevel = 2;
+
+        // Last camera position for LOD updates
+        this._lastCameraPos = null;
+
         // Cached world-space chunk metrics (set in _rebuildChunks)
         this.chunkWorldSizeX = 0;
         this.chunkWorldSizeZ = 0;
@@ -157,6 +163,64 @@ export class ChunkedPlanetTerrain {
     }
 
     /**
+     * Decide desired LOD for a given distance, using the global LOD bias.
+     * globalLodLevel 2 = highest quality, 0 = lowest.
+     */
+    _getLodForDistance(distance) {
+        const base = this.globalLodLevel;
+
+        // Distance thresholds for high/medium detail
+        let highRadius;
+        let midRadius;
+
+        if (base >= 2) {
+            highRadius = 120;
+            midRadius = 260;
+        } else if (base >= 1) {
+            highRadius = 70;
+            midRadius = 180;
+        } else {
+            highRadius = 40;
+            midRadius = 120;
+        }
+
+        if (distance < highRadius) {
+            return 2; // high detail
+        } else if (distance < midRadius) {
+            return 1; // medium detail
+        } else {
+            return 0; // low detail
+        }
+    }
+
+    /**
+     * Update each chunk's LOD based on distance to the camera.
+     * Only rebuilds chunks whose LOD actually changes.
+     */
+    _updateLodForCamera(cameraPosition) {
+        if (!cameraPosition || this.chunks.length === 0) {
+            return;
+        }
+
+        this._lastCameraPos = cameraPosition.clone
+            ? cameraPosition.clone()
+            : cameraPosition;
+
+        for (const entry of this.chunks) {
+            if (!entry.center) {
+                continue;
+            }
+
+            const d = BABYLON.Vector3.Distance(cameraPosition, entry.center);
+            const desiredLod = this._getLodForDistance(d);
+
+            if (desiredLod !== entry.lodLevel) {
+                this._rebuildChunk(entry, desiredLod);
+            }
+        }
+    }
+
+    /**
      * Rebuild an existing chunk entry in-place for a new LOD.
      */
     _rebuildChunk(entry, lodLevel) {
@@ -207,7 +271,7 @@ export class ChunkedPlanetTerrain {
                 const entry = this._createChunkEntry(
                     ix,
                     iz,
-                    this.lodLevel,
+                    this.globalLodLevel,
                     pooledMesh
                 );
 
@@ -231,35 +295,35 @@ export class ChunkedPlanetTerrain {
 
     // Public API used by main.js ------------------------
 
-    // Adjust LOD level: 0 = low, 1 = medium, 2 = high (global bias for now)
+    // UI-controlled global LOD quality bias: 0 = low, 1 = medium, 2 = high.
     setLodLevel(level) {
         const clamped = Math.max(0, Math.min(2, Math.round(level)));
-        if (clamped === this.lodLevel) {
+        if (clamped === this.globalLodLevel) {
             return;
         }
-        this.lodLevel = clamped;
+        this.globalLodLevel = clamped;
 
-        // If we have no chunks yet, build the grid from scratch
-        if (this.chunks.length === 0) {
-            this._rebuildChunks();
+        // If we don't have a camera yet, just remember the setting.
+        if (!this._lastCameraPos) {
             return;
         }
 
-        // Rebuild each existing chunk entry in-place for the new global LOD
-        for (const entry of this.chunks) {
-            this._rebuildChunk(entry, this.lodLevel);
-        }
+        // Re-evaluate desired LOD per chunk using the last known camera position.
+        this._updateLodForCamera(this._lastCameraPos);
     }
-    
-     /**
-     * Basic camera-centered streaming.
-     * Keeps a fixed grid of chunks, but moves their sampling window
-     * in world-space as the camera crosses chunk boundaries.
+
+    /**
+     * Basic camera-centered streaming + per-chunk LOD.
      */
     updateStreaming(cameraPosition) {
         if (!cameraPosition) {
             return;
         }
+
+        // Store last camera position for LOD updates and slider changes
+        this._lastCameraPos = cameraPosition.clone
+            ? cameraPosition.clone()
+            : cameraPosition;
 
         // Effective world-space distance between neighboring chunk centers
         const baseCellsX = this.baseChunkResolution - 1;
@@ -272,6 +336,8 @@ export class ChunkedPlanetTerrain {
         const stepZ = (this.chunkWorldSizeZ || baseChunkDepth) - overlap;
 
         if (stepX <= 0 || stepZ <= 0) {
+            // Even if streaming is not ready, still update LOD rings.
+            this._updateLodForCamera(cameraPosition);
             return;
         }
 
@@ -283,8 +349,13 @@ export class ChunkedPlanetTerrain {
         if (camChunkX !== this.gridOffsetX || camChunkZ !== this.gridOffsetZ) {
             this.gridOffsetX = camChunkX;
             this.gridOffsetZ = camChunkZ;
+
+            // Rebuild the grid at a baseline LOD, then apply per-chunk LOD
             this._rebuildChunks();
         }
+
+        // Always update per-chunk LOD based on the current camera position
+        this._updateLodForCamera(cameraPosition);
     }
 
     // Shared material (for brightness, wireframe, etc.)
