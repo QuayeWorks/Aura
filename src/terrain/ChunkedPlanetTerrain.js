@@ -46,124 +46,209 @@ export class ChunkedPlanetTerrain {
         this._rebuildChunks();
     }
 
-    // Map lodLevel -> resolution divisor
-    _lodFactor() {
-        switch (this.lodLevel) {
-            case 0: return 3; // low (coarse mesh)
-            case 1: return 2; // medium
-            case 2:
-            default: return 1; // high
-        }
-    }
+    /**
+     * Compute all geometric parameters for a given LOD level.
+     */
+    _computeLodParams(lodLevel) {
+        const clamped = Math.max(0, Math.min(2, Math.round(lodLevel)));
+        const lodFactor = clamped === 2 ? 1 : (clamped === 1 ? 2 : 4);
 
-    _disposeChunks() {
-        for (const c of this.chunks) {
-            if (c.mesh) {
-                // Disable and keep for reuse instead of destroying
-                c.mesh.setEnabled(false);
-                this.meshPool.push(c.mesh);
-            }
-        }
-        this.chunks = [];
-        // Keep this.material so all future chunks can share it
-    }
-
-    _rebuildChunks() { 
-        this._disposeChunks();
-
-        const lodFactor = this._lodFactor();
-
-        // --- Base world size of a chunk (never changes with LOD) ---
         const baseCellsX = this.baseChunkResolution - 1;
         const baseCellsZ = baseCellsX;
         const baseCellsY = this.baseDimY - 1;
 
-        const baseChunkWidth  = baseCellsX * this.cellSize;
-        const baseChunkDepth  = baseCellsZ * this.cellSize;
-        const baseChunkHeight = baseCellsY * this.cellSize;
-
-        // Cache base world-space chunk sizes so streaming code can reuse them
-        this.chunkWorldSizeX = baseChunkWidth;
-        this.chunkWorldSizeZ = baseChunkDepth;
-
-        // --- Choose how many samples we want at this LOD ---
         const dimX = Math.max(6, Math.floor(this.baseChunkResolution / lodFactor));
-        const dimZ = dimX; // square chunk
-        // we'll recompute dimY from height in a second
+        const dimZ = dimX;
+        const dimY = this.baseDimY;
 
-        // Cell size for this LOD: make sure world width stays the same
-        const cellSizeLod = baseChunkWidth / (dimX - 1);
+        const cellSizeLod = this.cellSize * lodFactor;
 
-        // Now choose dimY so that vertical world size also matches base height
-        const dimYFloat = baseChunkHeight / cellSizeLod;
-        const dimY = Math.max(6, Math.round(dimYFloat) + 1);
+        const chunkWidth  = (dimX - 1) * cellSizeLod;
+        const chunkDepth  = (dimZ - 1) * cellSizeLod;
+        const chunkHeight = (dimY - 1) * cellSizeLod;
 
-        // World-space chunk size stays constant across LODs
-        const chunkWidth  = baseChunkWidth;
-        const chunkDepth  = baseChunkDepth;
-        const chunkHeight = baseChunkHeight;
+        const overlap = 1 * this.cellSize; // one base voxel as overlap
 
-        // Overlap so edges match between neighboring chunks
-        const overlap = 1 * this.cellSize;   // one voxel layer at base scale
-        this.chunkOverlap = overlap;
+        return {
+            lodLevel: clamped,
+            lodFactor,
+            baseCellsX,
+            baseCellsZ,
+            baseCellsY,
+            dimX,
+            dimY,
+            dimZ,
+            cellSizeLod,
+            chunkWidth,
+            chunkDepth,
+            chunkHeight,
+            overlap
+        };
+    }
+
+    /**
+     * Create a single chunk entry at grid coords (ix, iz) for the given LOD.
+     * Reuses a pooled mesh if provided.
+     */
+    _createChunkEntry(ix, iz, lodLevel, pooledMesh) {
+        const params = this._computeLodParams(lodLevel);
+        const {
+            dimX,
+            dimY,
+            dimZ,
+            cellSizeLod,
+            chunkWidth,
+            chunkDepth,
+            chunkHeight,
+            overlap
+        } = params;
+
         const halfCountX = this.chunkCountX / 2.0;
         const halfCountZ = this.chunkCountZ / 2.0;
 
+        // Grid index centered around origin + current streaming offset
+        const gx = (ix - halfCountX + 0.5) + this.gridOffsetX;
+        const gz = (iz - halfCountZ + 0.5) + this.gridOffsetZ;
+
+        const origin = new BABYLON.Vector3(
+            gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
+            -chunkHeight * 0.5,
+            gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
+        );
+
+        const terrain = new MarchingCubesTerrain(this.scene, {
+            dimX,
+            dimY,
+            dimZ,
+            cellSize: cellSizeLod,
+            isoLevel: this.isoLevel,
+            radius: this.radius,
+            origin,
+            mesh: pooledMesh,
+            material: this.material
+        });
+
+        // Share a single material across all chunks
+        if (!this.material) {
+            this.material = terrain.material;
+        } else if (terrain.mesh && terrain.mesh.material !== this.material) {
+            terrain.mesh.material = this.material;
+        }
+
+        // Re-apply persisted carves to this new chunk
+        for (const op of this.carveHistory) {
+            terrain.carveSphere(op.position, op.radius);
+        }
+
+        // Approximate center of the chunk volume (for later LOD distance checks)
+        const center = origin.add(new BABYLON.Vector3(
+            chunkWidth * 0.5,
+            chunkHeight * 0.5,
+            chunkDepth * 0.5
+        ));
+
+        return {
+            ix,
+            iz,
+            lodLevel,
+            terrain,
+            center
+        };
+    }
+
+    /**
+     * Rebuild an existing chunk entry in-place for a new LOD.
+     */
+    _rebuildChunk(entry, lodLevel) {
+        const pooledMesh = entry.terrain && entry.terrain.mesh
+            ? entry.terrain.mesh
+            : (this.meshPool.length > 0 ? this.meshPool.pop() : null);
+
+        if (pooledMesh) {
+            pooledMesh.setEnabled(false);
+            this.meshPool.push(pooledMesh);
+        }
+
+        const reuseMesh = this.meshPool.length > 0 ? this.meshPool.pop() : null;
+        const newEntry = this._createChunkEntry(entry.ix, entry.iz, lodLevel, reuseMesh);
+
+        entry.lodLevel = lodLevel;
+        entry.terrain = newEntry.terrain;
+        entry.center = newEntry.center;
+    }
+
+    _rebuildChunks() {
+        // Move all current meshes into the pool and clear entries
+        this._disposeChunks();
+        this.chunks = [];
+
+        const params = this._computeLodParams(this.lodLevel);
+        const {
+            dimX,
+            dimY,
+            dimZ,
+            cellSizeLod,
+            chunkWidth,
+            chunkDepth,
+            chunkHeight,
+            overlap
+        } = params;
+
+        // Cache world-space chunk metrics for streaming
+        this.chunkWorldSizeX = chunkWidth;
+        this.chunkWorldSizeZ = chunkDepth;
+        this.chunkOverlap = overlap;
+
         for (let ix = 0; ix < this.chunkCountX; ix++) {
             for (let iz = 0; iz < this.chunkCountZ; iz++) {
-                // Grid index centered around origin
-                const gx = (ix - halfCountX + 0.5) + this.gridOffsetX;
-                const gz = (iz - halfCountZ + 0.5) + this.gridOffsetZ;
-
-                // Origin of this chunk's sampling volume (world space)
-                const origin = new BABYLON.Vector3(
-                    gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
-                    -chunkHeight * 0.5,
-                    gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
-                );
-
-                // Try to reuse a mesh from the pool
                 const pooledMesh =
                     this.meshPool.length > 0 ? this.meshPool.pop() : null;
 
-                const chunk = new MarchingCubesTerrain(this.scene, {
-                    dimX,
-                    dimY,
-                    dimZ,
-                    cellSize: cellSizeLod, // LOD-scaled voxel size
-                    isoLevel: this.isoLevel,
-                    radius: this.radius,
-                    origin,
-                    mesh: pooledMesh,
-                    material: this.material
-                });
+                const entry = this._createChunkEntry(
+                    ix,
+                    iz,
+                    this.lodLevel,
+                    pooledMesh
+                );
 
-                // Share a single material across all chunks so UI can tweak one
-                if (!this.material) {
-                    this.material = chunk.material;
-                } else if (chunk.mesh && chunk.mesh.material !== this.material) {
-                    chunk.mesh.material = this.material;
-                }
-
-                // Reapply all previous carve operations to this new chunk
-                for (const op of this.carveHistory) {
-                    chunk.carveSphere(op.position, op.radius);
-                }
-
-                this.chunks.push(chunk);
+                this.chunks.push(entry);
             }
         }
+    }
+
+
+    _disposeChunks() {
+        for (const entry of this.chunks) {
+            const terrain = entry.terrain;
+            if (terrain && terrain.mesh) {
+                terrain.mesh.setEnabled(false);
+                this.meshPool.push(terrain.mesh);
+            }
+        }
+        // Do not clear this.material; we keep and reuse the shared material.
     }
 
 
     // Public API used by main.js ------------------------
 
-    // Adjust LOD level: 0 = low, 1 = medium, 2 = high
+    // Adjust LOD level: 0 = low, 1 = medium, 2 = high (global bias for now)
     setLodLevel(level) {
         const clamped = Math.max(0, Math.min(2, Math.round(level)));
-        if (clamped === this.lodLevel) return;
+        if (clamped === this.lodLevel) {
+            return;
+        }
         this.lodLevel = clamped;
-        this._rebuildChunks();
+
+        // If we have no chunks yet, build the grid from scratch
+        if (this.chunks.length === 0) {
+            this._rebuildChunks();
+            return;
+        }
+
+        // Rebuild each existing chunk entry in-place for the new global LOD
+        for (const entry of this.chunks) {
+            this._rebuildChunk(entry, this.lodLevel);
+        }
     }
     
      /**
@@ -221,8 +306,8 @@ export class ChunkedPlanetTerrain {
         });
 
         // Apply immediately to all current chunks
-        for (const chunk of this.chunks) {
-            chunk.carveSphere(worldPos, radius);
+        for (const entry of this.chunks) {
+            entry.terrain.carveSphere(worldPos, radius);
         }
     }
 }
