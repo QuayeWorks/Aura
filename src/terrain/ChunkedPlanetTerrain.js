@@ -20,10 +20,14 @@ export class ChunkedPlanetTerrain {
         
         // Make vertical resolution big enough to fully contain the sphere
         // (2 * radius / cellSize) + a small margin.
-        const neededY = Math.ceil((this.radius * 2) / this.cellSize) + 4;
-        this.baseDimY = options.dimY ?? neededY;
-
-
+               // Ensure the sphere fits vertically inside the sampling volume.
+        // If the requested radius is too large for the given dimY / cellSize,
+        // clamp the radius down so we don't cut off the poles.
+        const maxRadiusFromDimY = ((this.baseDimY - 4) * this.cellSize) * 0.5;
+        if (this.radius > maxRadiusFromDimY) {
+            this.radius = maxRadiusFromDimY;
+        }
+        
 
         // LOD level: 2 = high, 1 = medium, 0 = low
         this.lodLevel = 2; // start on high quality
@@ -450,5 +454,58 @@ export class ChunkedPlanetTerrain {
         for (const entry of this.chunks) {
             entry.terrain.carveSphere(worldPos, radius);
         }
+    }
+        /**
+     * Update core grid parameters at runtime and rebuild chunks.
+     * Used by the sliders in main.js to tweak resolution / cell size / isoLevel.
+     */
+    updateConfig({
+        chunkCountX,
+        chunkCountZ,
+        baseChunkResolution,
+        dimY,
+        cellSize,
+        isoLevel
+    } = {}) {
+        if (chunkCountX !== undefined) {
+            this.chunkCountX = Math.max(1, Math.round(chunkCountX));
+            // keep X chunk count odd if possible
+            if (this.chunkCountX % 2 === 0) this.chunkCountX += 1;
+        }
+
+        if (chunkCountZ !== undefined) {
+            this.chunkCountZ = Math.max(1, Math.round(chunkCountZ));
+            // keep Z chunk count odd if possible
+            if (this.chunkCountZ % 2 === 0) this.chunkCountZ += 1;
+        }
+
+        if (baseChunkResolution !== undefined) {
+            this.baseChunkResolution = Math.max(
+                6,
+                Math.round(baseChunkResolution)
+            );
+        }
+
+        if (dimY !== undefined) {
+            this.baseDimY = Math.max(8, Math.round(dimY));
+        }
+
+        if (cellSize !== undefined) {
+            this.cellSize = Math.max(0.1, cellSize);
+        }
+
+        if (isoLevel !== undefined) {
+            this.isoLevel = isoLevel;
+        }
+
+        // Recompute radius clamp so poles aren't cut off with new settings
+        const maxRadiusFromDimY =
+            ((this.baseDimY - 4) * this.cellSize) * 0.5;
+        if (this.radius > maxRadiusFromDimY) {
+            this.radius = maxRadiusFromDimY;
+        }
+
+        // Rebuild all chunks with the new settings
+        this._rebuildChunks();
     }
 }
