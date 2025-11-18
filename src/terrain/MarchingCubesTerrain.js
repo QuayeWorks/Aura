@@ -603,7 +603,14 @@ export class MarchingCubesTerrain {
                 }
             }
         }
-
+        
+        //  NEW: if this chunk has no triangles, disable its mesh and bail
+        if (positions.length === 0 || indices.length === 0) {
+            if (this.mesh) {
+                this.mesh.setEnabled(false);
+            }
+            return;
+        }
         // Compute normals
         BABYLON.VertexData.ComputeNormals(positions, indices, normals);
 
