@@ -602,4 +602,18 @@ export class MarchingCubesTerrain {
 
         vertexData.applyToMesh(this.mesh, true);
     }
+        // Rebuild this chunk at a new world-space origin (used by streaming).
+    // Keeps the same resolution, cellSize, radius, mesh and material.
+    rebuildAtOrigin(newOrigin) {
+        if (newOrigin.clone) {
+            this.origin = newOrigin.clone();
+        } else {
+            this.origin = new BABYLON.Vector3(newOrigin.x, newOrigin.y, newOrigin.z);
+        }
+
+        this._buildInitialField();
+        this._buildMesh();
+    }
+}
+
 }
