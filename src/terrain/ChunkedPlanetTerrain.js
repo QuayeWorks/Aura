@@ -347,12 +347,60 @@ export class ChunkedPlanetTerrain {
                 cellSize: lodDims.cellSize
             });
 
-            // Reapply all carved edits so terrain remains persistent
-            for (const op of this.carveHistory) {
-                job.chunk.carveSphere(op.position, op.radius);
-            }
+            // Reapply only the carve edits that actually touch this chunk
+            this._applyRelevantCarvesToChunk(job.chunk);
 
             count++;
+        }
+    }
+
+
+    /**
+     * Test if a sphere (center, radius) intersects a chunk's AABB.
+     * origin = chunk's origin (min corner), sizes from base metrics.
+     */
+    _sphereIntersectsChunkAabb(center, radius, origin, baseMetrics) {
+        const chunkWidth  = baseMetrics.baseChunkWidth;
+        const chunkDepth  = baseMetrics.baseChunkDepth;
+        const chunkHeight = baseMetrics.baseChunkHeight;
+
+        const minX = origin.x;
+        const maxX = origin.x + chunkWidth;
+        const minY = origin.y;
+        const maxY = origin.y + chunkHeight;
+        const minZ = origin.z;
+        const maxZ = origin.z + chunkDepth;
+
+        const cx = center.x;
+        const cy = center.y;
+        const cz = center.z;
+
+        const closestX = Math.max(minX, Math.min(cx, maxX));
+        const closestY = Math.max(minY, Math.min(cy, maxY));
+        const closestZ = Math.max(minZ, Math.min(cz, maxZ));
+
+        const dx = cx - closestX;
+        const dy = cy - closestY;
+        const dz = cz - closestZ;
+
+        return (dx * dx + dy * dy + dz * dz) <= radius * radius;
+    }
+
+        /**
+     * Reapply only the carve operations that actually intersect
+     * the given chunk's world-space AABB.
+     */
+    _applyRelevantCarvesToChunk(terrain) {
+        if (!this.carveHistory.length || !terrain || !terrain.origin) return;
+
+        const baseMetrics = this._computeBaseChunkMetrics();
+        const origin = terrain.origin;
+
+        for (const op of this.carveHistory) {
+            if (!this._sphereIntersectsChunkAabb(op.position, op.radius, origin, baseMetrics)) {
+                continue;
+            }
+            terrain.carveSphere(op.position, op.radius);
         }
     }
 
@@ -455,11 +503,18 @@ export class ChunkedPlanetTerrain {
             radius
         });
 
-        // Apply immediately to all current chunks
+        const baseMetrics = this._computeBaseChunkMetrics();
+
+        // Apply immediately only to chunks whose AABB intersects the carve
         for (const c of this.chunks) {
-            if (c.terrain) {
-                c.terrain.carveSphere(worldPos, radius);
+            if (!c.terrain || !c.terrain.origin) continue;
+
+            const origin = c.terrain.origin;
+            if (!this._sphereIntersectsChunkAabb(worldPos, radius, origin, baseMetrics)) {
+                continue;
             }
+
+            c.terrain.carveSphere(worldPos, radius);
         }
     }
 }
