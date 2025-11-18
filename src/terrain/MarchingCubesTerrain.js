@@ -470,7 +470,6 @@ export class MarchingCubesTerrain {
     }
 
     _populateField() {
-        let index = 0;
         const r = this.radius || 1.0;
 
         for (let y = 0; y < this.dimY; y++) {
@@ -497,7 +496,8 @@ export class MarchingCubesTerrain {
                     d -= continentHeight;
                     d -= mountainHeight;
 
-                    this.field[index++] = d;
+                    const idx = this._index(x, y, z);
+                    this.field[idx] = d;
                 }
             }
         }
