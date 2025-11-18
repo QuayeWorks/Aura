@@ -447,9 +447,37 @@ export class MarchingCubesTerrain {
     carveSphere(worldPos, radius) {
         const r2 = radius * radius;
 
-        for (let z = 0; z < this.dimZ; z++) {
-            for (let y = 0; y < this.dimY; y++) {
-                for (let x = 0; x < this.dimX; x++) {
+        // Compute the bounds of the sphere in local grid coordinates
+        const minX = Math.max(
+            0,
+            Math.floor((worldPos.x - radius - this.origin.x) / this.cellSize)
+        );
+        const maxX = Math.min(
+            this.dimX - 1,
+            Math.ceil((worldPos.x + radius - this.origin.x) / this.cellSize)
+        );
+
+        const minY = Math.max(
+            0,
+            Math.floor((worldPos.y - radius - this.origin.y) / this.cellSize)
+        );
+        const maxY = Math.min(
+            this.dimY - 1,
+            Math.ceil((worldPos.y + radius - this.origin.y) / this.cellSize)
+        );
+
+        const minZ = Math.max(
+            0,
+            Math.floor((worldPos.z - radius - this.origin.z) / this.cellSize)
+        );
+        const maxZ = Math.min(
+            this.dimZ - 1,
+            Math.ceil((worldPos.z + radius - this.origin.z) / this.cellSize)
+        );
+
+        for (let z = minZ; z <= maxZ; z++) {
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
                     const idx = this._index(x, y, z);
                     const pos = this.origin.add(
                         new BABYLON.Vector3(
@@ -471,6 +499,7 @@ export class MarchingCubesTerrain {
 
         this._buildMesh();
     }
+
 
     _buildMesh() {
         const positions = [];
