@@ -6,7 +6,7 @@ import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-
+const PLANET_RADIUS_UNITS = 72
 let terrain = null;
 
 const createScene = () => {
@@ -64,7 +64,7 @@ const createScene = () => {
         dimY: 148,
         cellSize: 1,
         isoLevel: 0,
-        radius: 72
+        radius: PLANET_RADIUS_UNITS
     });
 	// --- Player capsule that can traverse the planet -------------------------
 	const player = new PlanetPlayer(scene, terrain, {
@@ -192,6 +192,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
