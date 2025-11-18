@@ -2,6 +2,7 @@
 // Babylon + GUI come from global scripts in index.html
 // We only import our own module.
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
+import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -65,6 +66,18 @@ const createScene = () => {
         isoLevel: 0,
         radius: 72
     });
+	// --- Player capsule that can traverse the planet -------------------------
+	const player = new PlanetPlayer(scene, terrain, {
+		planetRadius: PLANET_RADIUS_UNITS,
+		moveSpeed: 25,
+		height: 2.0,
+		capsuleRadius: 0.6
+	});
+
+	// Let the player use the active camera for movement direction
+	if (scene.activeCamera) {
+		player.attachCamera(scene.activeCamera);
+	}
 
     // -----------------------
     // UI: lighting/material controls
@@ -162,11 +175,19 @@ const createScene = () => {
 const scene = createScene();
 
 engine.runRenderLoop(() => {
+    const dt = engine.getDeltaTime() / 1000.0; // seconds
+
     if (terrain && scene.activeCamera) {
         terrain.updateStreaming(scene.activeCamera.position);
     }
+
+    if (player) {
+        player.update(dt);
+    }
+
     scene.render();
 });
+
 
 window.addEventListener("resize", () => {
     engine.resize();
