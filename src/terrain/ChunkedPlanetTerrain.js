@@ -32,6 +32,8 @@ export class ChunkedPlanetTerrain {
         this.material = null;
         this.meshPool = []; // pool of reusable Babylon meshes
 
+         // Queue of pending chunk rebuilds (for smooth streaming)
+        this.buildQueue = [];
         // Persistent edit history so carves survive streaming / LOD rebuilds
         this.carveHistory = [];
         // Streaming / grid tracking
@@ -56,17 +58,20 @@ export class ChunkedPlanetTerrain {
         }
     }
 
-    _disposeChunks() {
+        _disposeChunks() {
         for (const c of this.chunks) {
-            if (c.mesh) {
+            const terrain = c.terrain;
+            if (terrain && terrain.mesh) {
                 // Disable and keep for reuse instead of destroying
-                c.mesh.setEnabled(false);
-                this.meshPool.push(c.mesh);
+                terrain.mesh.setEnabled(false);
+                this.meshPool.push(terrain.mesh);
             }
         }
         this.chunks = [];
+        this.buildQueue = [];
         // Keep this.material so all future chunks can share it
     }
+
 
     _rebuildChunks() { 
         this._disposeChunks();
@@ -150,8 +155,78 @@ export class ChunkedPlanetTerrain {
                     chunk.carveSphere(op.position, op.radius);
                 }
 
-                this.chunks.push(chunk);
+                this.chunks.push({
+                    terrain: chunk,
+                    gridX: gx,
+                    gridZ: gz
+                });
             }
+        }
+    }
+    /**
+     * After gridOffsetX/Z change, schedule all chunks to be rebuilt
+     * at their new world-space origins. The actual heavy rebuild
+     * work is spread over multiple frames via _processBuildQueue.
+     */
+    _scheduleRebuildForNewGrid() {
+        this.buildQueue = [];
+
+        const baseCellsX = this.baseChunkResolution - 1;
+        const baseCellsZ = baseCellsX;
+        const baseChunkWidth  = baseCellsX * this.cellSize;
+        const baseChunkDepth  = baseCellsZ * this.cellSize;
+        const overlap = this.chunkOverlap || (1 * this.cellSize);
+
+        const chunkWidth  = baseChunkWidth;
+        const chunkDepth  = baseChunkDepth;
+
+        const halfCountX = this.chunkCountX / 2.0;
+        const halfCountZ = this.chunkCountZ / 2.0;
+
+        for (let ix = 0; ix < this.chunkCountX; ix++) {
+            for (let iz = 0; iz < this.chunkCountZ; iz++) {
+                const idx = ix + iz * this.chunkCountX;
+                const c = this.chunks[idx];
+                if (!c) continue;
+
+                const gx = (ix - halfCountX + 0.5) + this.gridOffsetX;
+                const gz = (iz - halfCountZ + 0.5) + this.gridOffsetZ;
+
+                const origin = new BABYLON.Vector3(
+                    gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
+                    -this.baseDimY * this.cellSize * 0.5,
+                    gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
+                );
+
+                c.gridX = gx;
+                c.gridZ = gz;
+
+                this.buildQueue.push({
+                    chunk: c.terrain,
+                    origin
+                });
+            }
+        }
+    }
+
+    /**
+     * Process a few pending chunk rebuilds per frame
+     * to avoid big hitches when streaming.
+     */
+    _processBuildQueue(maxPerFrame = 2) {
+        let count = 0;
+        while (count < maxPerFrame && this.buildQueue.length > 0) {
+            const job = this.buildQueue.shift();
+            if (!job || !job.chunk) continue;
+
+            job.chunk.rebuildAtOrigin(job.origin);
+
+            // Reapply all carved edits so terrain remains persistent
+            for (const op of this.carveHistory) {
+                job.chunk.carveSphere(op.position, op.radius);
+            }
+
+            count++;
         }
     }
 
@@ -163,20 +238,26 @@ export class ChunkedPlanetTerrain {
         const clamped = Math.max(0, Math.min(2, Math.round(level)));
         if (clamped === this.lodLevel) return;
         this.lodLevel = clamped;
+
+        // LOD changes alter resolution, so we do a full rebuild
+        this.buildQueue = [];
         this._rebuildChunks();
     }
+
     
-     /**
+    /*
      * Basic camera-centered streaming.
      * Keeps a fixed grid of chunks, but moves their sampling window
      * in world-space as the camera crosses chunk boundaries.
+     * Heavy rebuild work is spread over multiple frames.
      */
     updateStreaming(cameraPosition) {
         if (!cameraPosition) {
+            // Still process any pending chunk rebuilds
+            this._processBuildQueue();
             return;
         }
 
-        // Effective world-space distance between neighboring chunk centers
         const baseCellsX = this.baseChunkResolution - 1;
         const baseCellsZ = baseCellsX;
         const baseChunkWidth  = baseCellsX * this.cellSize;
@@ -187,6 +268,7 @@ export class ChunkedPlanetTerrain {
         const stepZ = (this.chunkWorldSizeZ || baseChunkDepth) - overlap;
 
         if (stepX <= 0 || stepZ <= 0) {
+            this._processBuildQueue();
             return;
         }
 
@@ -194,13 +276,17 @@ export class ChunkedPlanetTerrain {
         const camChunkX = Math.round(cameraPosition.x / stepX);
         const camChunkZ = Math.round(cameraPosition.z / stepZ);
 
-        // If we've crossed into a new chunk index, shift the grid + rebuild
+        // If we've crossed into a new chunk index, shift the grid logically
         if (camChunkX !== this.gridOffsetX || camChunkZ !== this.gridOffsetZ) {
             this.gridOffsetX = camChunkX;
             this.gridOffsetZ = camChunkZ;
-            this._rebuildChunks();
+            this._scheduleRebuildForNewGrid();
         }
+
+        // Each frame, rebuild a few chunks from the queue
+        this._processBuildQueue();
     }
+
 
     // Shared material (for brightness, wireframe, etc.)
     get materialRef() {
@@ -221,8 +307,10 @@ export class ChunkedPlanetTerrain {
         });
 
         // Apply immediately to all current chunks
-        for (const chunk of this.chunks) {
-            chunk.carveSphere(worldPos, radius);
+        for (const c of this.chunks) {
+            if (c.terrain) {
+                c.terrain.carveSphere(worldPos, radius);
+            }
         }
     }
 }
