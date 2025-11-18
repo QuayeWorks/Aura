@@ -320,9 +320,7 @@ const triTable = [
 [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
 ];
 
-
-
-// Corner index -> (dx, dy, dz) within a cube
+// Corner index -> (dx, dy, dz) in cell-local coordinates
 const CORNER_OFFSETS = [
     [0, 0, 0], // 0
     [1, 0, 0], // 1
@@ -350,10 +348,6 @@ const EDGE_CORNER_PAIRS = [
     [3, 7],  // 11
 ];
 
-// -----------------------------------------------------------------------------
-// Marching Cubes terrain class
-// -----------------------------------------------------------------------------
-
 export class MarchingCubesTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
@@ -366,17 +360,17 @@ export class MarchingCubesTerrain {
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
 
-        // Approximate planet radius (world units)
+        // SDF sphere radius
         this.radius = options.radius ?? 18.0;
 
-        // Noise parameters for planetary terrain
+        // Noise parameters (fractions of radius)
+        this.enableNoise = options.enableNoise ?? true;
         this.continentFreq = options.continentFreq ?? 0.6;
-        this.continentAmp  = options.continentAmp  ?? 0.12; // fraction of radius
-
+        this.continentAmp  = options.continentAmp  ?? 0.12;
         this.mountainFreq  = options.mountainFreq ?? 3.0;
-        this.mountainAmp   = options.mountainAmp  ?? 0.04; // fraction of radius
+        this.mountainAmp   = options.mountainAmp  ?? 0.04;
 
-        // World-space origin of grid (corner at node [0,0,0])
+        // World-space origin of the grid (corner at 0,0,0)
         this.origin =
             options.origin ??
             new BABYLON.Vector3(
@@ -388,24 +382,24 @@ export class MarchingCubesTerrain {
         // Scalar field (SDF values)
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
 
-        // Mesh + material (can be provided or created)
+        // Mesh + material (optional reuse)
         this.mesh = options.mesh ?? null;
         this.material = options.material ?? null;
 
-        // Build initial terrain
+        // Populate field and build initial mesh
         this._populateField();
         this._buildMesh();
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Index helpers
+    // ---------------------------------------------------------------------
 
     _index(x, y, z) {
         return x + y * this.dimX + z * this.dimX * this.dimY;
     }
 
-    _worldPosFromIndex(i) {
+    _worldPosForIndex(i) {
         const x = i % this.dimX;
         const y = Math.floor(i / this.dimX) % this.dimY;
         const z = Math.floor(i / (this.dimX * this.dimY));
@@ -418,9 +412,9 @@ export class MarchingCubesTerrain {
         );
     }
 
-    // -------------------------------------------------------------------------
-    // 3D value noise (simple, deterministic)
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Simple 3D value noise
+    // ---------------------------------------------------------------------
 
     _hash3(x, y, z) {
         let h = x * 374761393 + y * 668265263 + z * 2147483647;
@@ -476,56 +470,54 @@ export class MarchingCubesTerrain {
 
     _sampleSdf(pos) {
         const r = this.radius || 1.0;
-
-        // Base sphere distance
         let d = pos.length() - r;
 
-        // Continents (large-scale variation)
-        const c = this._continentNoise(pos); // [-1, 1]
-        const continentHeight = c * (this.continentAmp * r);
+        if (this.enableNoise) {
+            const c = this._continentNoise(pos); // [-1,1]
+            const m = this._mountainNoise(pos);  // [0,1]
 
-        // Mountains (smaller bumps)
-        const m = this._mountainNoise(pos);  // [0, 1]
-        const mountainHeight = m * (this.mountainAmp * r);
+            const continentHeight = c * (this.continentAmp * r);
+            const mountainHeight  = m * (this.mountainAmp * r);
 
-        // Push surface outward by height
-        d -= continentHeight;
-        d -= mountainHeight;
+            d -= continentHeight;
+            d -= mountainHeight;
+        }
 
         return d;
     }
 
-    // -------------------------------------------------------------------------
-    // Field population
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Populate scalar field
+    // ---------------------------------------------------------------------
 
     _populateField() {
-        let index = 0;
+        let idx = 0;
         for (let y = 0; y < this.dimY; y++) {
             for (let z = 0; z < this.dimZ; z++) {
                 for (let x = 0; x < this.dimX; x++) {
-                    const pos = new BABYLON.Vector3(
-                        x * this.cellSize,
-                        y * this.cellSize,
-                        z * this.cellSize
-                    ).add(this.origin);
-
-                    this.field[index++] = this._sampleSdf(pos);
+                    const pos = this.origin.add(
+                        new BABYLON.Vector3(
+                            x * this.cellSize,
+                            y * this.cellSize,
+                            z * this.cellSize
+                        )
+                    );
+                    this.field[idx++] = this._sampleSdf(pos);
                 }
             }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Public: carveSphere (destruction)
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Carving / destruction
+    // ---------------------------------------------------------------------
 
     carveSphere(worldPos, radius) {
         const r2 = radius * radius;
         const total = this.field.length;
 
         for (let i = 0; i < total; i++) {
-            const p = this._worldPosFromIndex(i);
+            const p = this._worldPosForIndex(i);
             const dx = p.x - worldPos.x;
             const dy = p.y - worldPos.y;
             const dz = p.z - worldPos.z;
@@ -540,14 +532,15 @@ export class MarchingCubesTerrain {
         this._buildMesh();
     }
 
-    // -------------------------------------------------------------------------
-    // Mesh building (Marching Cubes)
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Build mesh with Marching Cubes
+    // ---------------------------------------------------------------------
 
     _buildMesh() {
         const positions = [];
         const normals = [];
         const indices = [];
+        const vertList = new Array(12);
 
         const cellWorldPos = (gx, gy, gz) =>
             this.origin.add(
@@ -558,15 +551,13 @@ export class MarchingCubesTerrain {
                 )
             );
 
-        const vertList = new Array(12);
-
         for (let z = 0; z < this.dimZ - 1; z++) {
             for (let y = 0; y < this.dimY - 1; y++) {
                 for (let x = 0; x < this.dimX - 1; x++) {
                     const cornerValues = new Array(8);
                     const cornerPositions = new Array(8);
 
-                    // Sample 8 corners
+                    // Sample 8 corners of this cell
                     for (let i = 0; i < 8; i++) {
                         const [dx, dy, dz] = CORNER_OFFSETS[i];
                         const gx = x + dx;
@@ -574,13 +565,11 @@ export class MarchingCubesTerrain {
                         const gz = z + dz;
 
                         const idx = this._index(gx, gy, gz);
-                        const v = this.field[idx];
-
-                        cornerValues[i] = v;
+                        cornerValues[i] = this.field[idx];
                         cornerPositions[i] = cellWorldPos(gx, gy, gz);
                     }
 
-                    // Determine cube configuration
+                    // Build cubeIndex bitmask
                     let cubeIndex = 0;
                     if (cornerValues[0] < this.isoLevel) cubeIndex |= 1;
                     if (cornerValues[1] < this.isoLevel) cubeIndex |= 2;
@@ -594,7 +583,7 @@ export class MarchingCubesTerrain {
                     const edgeMask = edgeTable[cubeIndex];
                     if (!edgeMask) continue;
 
-                    // Interpolate along edges that cross the surface
+                    // Interpolate edge vertices
                     for (let e = 0; e < 12; e++) {
                         if (!(edgeMask & (1 << e))) continue;
 
@@ -640,7 +629,6 @@ export class MarchingCubesTerrain {
             }
         }
 
-        // No triangles: disable mesh if present
         if (positions.length === 0 || indices.length === 0) {
             if (this.mesh) {
                 this.mesh.setEnabled(false);
