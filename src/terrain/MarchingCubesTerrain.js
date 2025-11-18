@@ -631,7 +631,40 @@ export class MarchingCubesTerrain {
 
         vertexData.applyToMesh(this.mesh, true);
     }
-        // Rebuild this chunk at a new world-space origin (used by streaming).
+        // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
+    rebuildWithSettings(settings) {
+        // Optionally change resolution
+        if (settings.dimX && settings.dimY && settings.dimZ) {
+            this.dimX = settings.dimX;
+            this.dimY = settings.dimY;
+            this.dimZ = settings.dimZ;
+        }
+
+        // Optionally change voxel size
+        if (settings.cellSize) {
+            this.cellSize = settings.cellSize;
+        }
+
+        // Optionally move chunk in world space
+        if (settings.origin) {
+            this.origin = settings.origin.clone
+                ? settings.origin.clone()
+                : new BABYLON.Vector3(
+                      settings.origin.x,
+                      settings.origin.y,
+                      settings.origin.z
+                  );
+        }
+
+        // Recreate field for new resolution
+        this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
+
+        // Assuming you already have this._buildInitialField() that fills field from SDF
+        this._buildInitialField();
+        this._buildMesh();
+    }
+
+    // Rebuild this chunk at a new world-space origin (used by streaming).
     // Keeps the same resolution, cellSize, radius, mesh and material.
     // Convenience: only move origin, keep current resolution
     rebuildAtOrigin(newOrigin) {
