@@ -7,7 +7,7 @@ const EARTH_RADIUS_KM = 6371;
 const HALF_EARTH_RADIUS_KM = EARTH_RADIUS_KM * 0.5;
 
 // How many kilometers correspond to 1 game unit
-const KM_PER_GAME_UNIT = 50; // tweak this if you want "bigger" or "smaller" feel
+const KM_PER_GAME_UNIT = 10; // tweak this if you want "bigger" or "smaller" feel
 
 // Convert half-Earth radius into game units
 const HALF_EARTH_RADIUS_UNITS = HALF_EARTH_RADIUS_KM / KM_PER_GAME_UNIT;
@@ -270,5 +270,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
