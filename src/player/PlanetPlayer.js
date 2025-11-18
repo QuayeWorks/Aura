@@ -7,7 +7,7 @@ export class PlanetPlayer {
 
         // Config
         // Prefer terrain radius so we always match the actual SDF planet.
-        this.planetRadius = options.planetRadius ?? (terrain && terrain.radius ? terrain.radius : 40);
+        this.planetRadius = options.planetRadius ?? (terrain && terrain.radius ? terrain.radius : 72);
 
         this.moveSpeed = options.moveSpeed ?? 20;       // target horizontal speed
         this.moveAccel = options.moveAccel ?? 60;       // accel toward target speed
@@ -358,5 +358,6 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
