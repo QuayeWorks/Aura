@@ -118,30 +118,6 @@ const createScene = () => {
         ? terrainMat.emissiveColor.clone()
         : new BABYLON.Color3(0, 0, 0);
 
-    // Scene brightness
-    addSlider("Scene brightness", 0.0, 2.0, 1.0, (v) => {
-        hemi.intensity = baseHemiIntensity * v;
-        dir.intensity = baseDirIntensity * v;
-    });
-
-    // Ambient / hemi only
-    addSlider("Ambient light", 0.0, 2.0, 1.0, (v) => {
-        hemi.intensity = baseHemiIntensity * v;
-    });
-
-    // Terrain material brightness
-    addSlider("Terrain brightness", 0.0, 3.0, 1.0, (v) => {
-        terrainMat.diffuseColor = new BABYLON.Color3(
-            baseDiffuse.r * v,
-            baseDiffuse.g * v,
-            baseDiffuse.b * v
-        );
-        terrainMat.emissiveColor = new BABYLON.Color3(
-            baseEmissive.r * v,
-            baseEmissive.g * v,
-            baseEmissive.b * v
-        );
-    });
     // LOD Quality: 0 = Low, 1 = Medium, 2 = High
     addSlider("LOD quality", 0, 2, 2, (v) => {
         // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
@@ -195,6 +171,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
