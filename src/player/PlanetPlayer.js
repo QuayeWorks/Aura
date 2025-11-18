@@ -160,13 +160,18 @@ export class PlanetPlayer {
 
         const right = BABYLON.Vector3.Cross(forward, up).normalize();
 
-        const m = BABYLON.Matrix.FromXYZAxes(right, up, forward);
-        if (!this.mesh.rotationQuaternion) {
-            this.mesh.rotationQuaternion = BABYLON.Quaternion.Identity();
-        }
-        this.mesh.rotationQuaternion.copyFrom(
-            BABYLON.Quaternion.FromRotationMatrix(m)
+        // Construct a rotation matrix manually from Right / Up / Forward
+        const m = BABYLON.Matrix.FromValues(
+            right.x,   right.y,   right.z,   0,
+            up.x,      up.y,      up.z,      0,
+            forward.x, forward.y, forward.z, 0,
+            0,         0,         0,         1
         );
+        
+        if (!this.mesh.rotationQuaternion) {
+            this.mesh.rotationQuaternion = new BABYLON.Quaternion();
+        }
+        BABYLON.Quaternion.FromRotationMatrixToRef(m, this.mesh.rotationQuaternion);
     }
 
     update(dtSeconds) {
@@ -221,3 +226,4 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
