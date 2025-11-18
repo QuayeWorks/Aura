@@ -616,4 +616,3 @@ export class MarchingCubesTerrain {
     }
 }
 
-}
