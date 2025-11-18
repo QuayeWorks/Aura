@@ -285,6 +285,47 @@ export class ChunkedPlanetTerrain {
             }
         }
     }
+    /**
+     * Check all chunks against current camera distance and, if their
+     * desired LOD has changed, schedule a rebuild for that chunk only.
+     */
+    _scheduleLodAdjustments() {
+        if (!this.lastCameraPosition) return;
+
+        const camPos = this.lastCameraPosition;
+        const baseMetrics = this._computeBaseChunkMetrics();
+        const chunkWidth  = baseMetrics.baseChunkWidth;
+        const chunkDepth  = baseMetrics.baseChunkDepth;
+        const chunkHeight = baseMetrics.baseChunkHeight; // y not used here, but kept for completeness
+
+        for (const c of this.chunks) {
+            if (!c || !c.terrain || !c.terrain.origin) continue;
+
+            const origin = c.terrain.origin;
+
+            const chunkCenter = new BABYLON.Vector3(
+                origin.x + chunkWidth * 0.5,
+                0,
+                origin.z + chunkDepth * 0.5
+            );
+
+            const dist = BABYLON.Vector3.Distance(camPos, chunkCenter);
+            const desiredLod = this._lodForDistance(dist);
+
+            if (desiredLod === c.lodLevel) {
+                continue; // no change for this chunk
+            }
+
+            c.lodLevel = desiredLod;
+
+            // Schedule a rebuild of just this chunk at its current origin
+            this.buildQueue.push({
+                chunk: c.terrain,
+                origin: origin.clone ? origin.clone() : origin,
+                lodLevel: desiredLod
+            });
+        }
+    }
 
     /**
      * Process a few pending chunk rebuilds per frame
@@ -331,9 +372,10 @@ export class ChunkedPlanetTerrain {
     }
 
     /*
-     * Basic camera-centered streaming.
+     * Basic camera-centered streaming + dynamic LOD rings.
      * Keeps a fixed grid of chunks, but moves their sampling window
      * in world-space as the camera crosses chunk boundaries.
+     * Also adjusts LOD per chunk based on distance from the camera.
      * Heavy rebuild work is spread over multiple frames.
      */
     updateStreaming(cameraPosition) {
@@ -378,9 +420,13 @@ export class ChunkedPlanetTerrain {
             this._scheduleRebuildForNewGrid();
         }
 
+        // Even if the grid didn't move, some chunks may need LOD changes
+        this._scheduleLodAdjustments();
+
         // Each frame, rebuild a few chunks from the queue
         this._processBuildQueue();
     }
+
 
     // Shared material (for brightness, wireframe, etc.)
     get materialRef() {
