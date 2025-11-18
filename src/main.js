@@ -1,19 +1,14 @@
 // src/main.js
-// Babylon + GUI come from global scripts in index.html
-// We only import our own module.
+// Babylon.js + Babylon.GUI are loaded globally via index.html.
+// We only import our own terrain module.
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 
-const EARTH_RADIUS_KM = 6371;
-const HALF_EARTH_RADIUS_KM = EARTH_RADIUS_KM * 0.5;
+// Simple gameplay-scale radius.
+// With dimY = 32 and cellSize = 0.5, this radius fits fully
+// inside the sampled volume so you see a full globe, not a slice.
+const PLANET_RADIUS_UNITS = 7.0;
 
-// This is just conceptual: how many kilometers per game unit.
-// Use this in design docs, not in the SDF radius directly (for now).
-const KM_PER_GAME_UNIT = 80; // e.g. 1 unit = 80 km (tweak as desired)
-
-// A nice visual radius that fits comfortably in our chunk grid
-// but conceptually we treat it as "half an Earth".
-const PLANET_RADIUS_UNITS = 40;
-
+// Movement state for free-fly camera controls
 const moveState = {
     forward: false,
     back: false,
@@ -31,18 +26,20 @@ let terrain = null;
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
 
-    // Blue background
+    // Background color
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
-    // Camera - start comfortably outside the visual planet radius
+    // ---------------------------------------------------------------------
+    // Camera: free-fly UniversalCamera
+    // ---------------------------------------------------------------------
     const camera = new BABYLON.UniversalCamera(
         "camera",
-        new BABYLON.Vector3(0, 40, -120),
+        new BABYLON.Vector3(0, 20, -60),
         scene
     );
     camera.setTarget(BABYLON.Vector3.Zero());
 
-    // Disable built-in WASD so we use our custom movement
+    // Disable built-in WASD so we handle movement manually
     camera.keysUp = [];
     camera.keysDown = [];
     camera.keysLeft = [];
@@ -51,10 +48,12 @@ const createScene = () => {
     camera.attachControl(canvas, true);
     scene.activeCamera = camera;
 
-    // Lights
+    // ---------------------------------------------------------------------
+    // Lighting
+    // ---------------------------------------------------------------------
     const hemi = new BABYLON.HemisphericLight(
         "hemi",
-        new BABYLON.Vector3(0.3, 1, 0.2),
+        new BABYLON.Vector3(0.3, 1.0, 0.2),
         scene
     );
     hemi.intensity = 0.9;
@@ -62,14 +61,14 @@ const createScene = () => {
 
     const dir = new BABYLON.DirectionalLight(
         "dir",
-        new BABYLON.Vector3(-0.5, -1, -0.3),
+        new BABYLON.Vector3(-0.5, -1.0, -0.3),
         scene
     );
     dir.intensity = 0.6;
 
-    // Blue ground plane for contrast
+    // Simple ground plane for visual reference
     const ground = BABYLON.MeshBuilder.CreateGround(
-        "g",
+        "ground",
         { width: 200, height: 200, subdivisions: 16 },
         scene
     );
@@ -79,20 +78,22 @@ const createScene = () => {
     ground.material = groundMat;
     ground.position.y = -40;
 
-    // Chunked marching-cubes planet terrain
+    // ---------------------------------------------------------------------
+    // Chunked marching-cubes planet terrain (static grid)
+    // ---------------------------------------------------------------------
     terrain = new ChunkedPlanetTerrain(scene, {
         chunkCountX: 4,
         chunkCountZ: 4,
         baseChunkResolution: 48,
         dimY: 32,
         cellSize: 0.5,
-        radius: PLANET_RADIUS_UNITS
+        radius: PLANET_RADIUS_UNITS,
+        enableNoise: true
     });
 
-    // -----------------------
-    // UI: lighting/material controls
-    // -----------------------
-
+    // ---------------------------------------------------------------------
+    // UI: LOD slider (integer 0–2)
+    // ---------------------------------------------------------------------
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
     const panel = new BABYLON.GUI.StackPanel();
@@ -102,49 +103,43 @@ const createScene = () => {
     panel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
     panel.paddingRight = "20px";
     panel.paddingTop = "20px";
-    panel.background = "rgba(0,0,0,0.4)";
+    panel.background = "rgba(0, 0, 0, 0.4)";
     ui.addControl(panel);
 
-    function addSlider(label, min, max, startValue, onChange) {
-        const header = new BABYLON.GUI.TextBlock();
-        header.text = `${label}: ${startValue}`;
-        header.height = "26px";
-        header.marginTop = "6px";
-        header.color = "white";
-        header.fontSize = 16;
-        header.textHorizontalAlignment =
-            BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-        panel.addControl(header);
+    const lodLabel = new BABYLON.GUI.TextBlock();
+    lodLabel.text = "LOD: 2";
+    lodLabel.height = "26px";
+    lodLabel.marginTop = "6px";
+    lodLabel.color = "white";
+    lodLabel.fontSize = 16;
+    lodLabel.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    panel.addControl(lodLabel);
 
-        const slider = new BABYLON.GUI.Slider();
-        slider.minimum = min;
-        slider.maximum = max;
-        slider.value = startValue;
-        slider.step = 1;
-        slider.height = "20px";
-        slider.color = "#88ff88";
-        slider.background = "#333333";
-        slider.borderColor = "#aaaaaa";
-        slider.onValueChangedObservable.add((v) => {
-            const rounded = Math.round(v);
-            if (slider.value !== rounded) {
-                slider.value = rounded;
-            }
-            header.text = `${label}: ${rounded}`;
-            onChange(rounded);
-        });
-        panel.addControl(slider);
-    }
-
-    addSlider("LOD", 0, 2, 2, (v) => {
+    const lodSlider = new BABYLON.GUI.Slider();
+    lodSlider.minimum = 0;
+    lodSlider.maximum = 2;
+    lodSlider.value = 2;
+    lodSlider.step = 1;
+    lodSlider.height = "20px";
+    lodSlider.color = "#88ff88";
+    lodSlider.background = "#333333";
+    lodSlider.borderColor = "#aaaaaa";
+    lodSlider.onValueChangedObservable.add((v) => {
+        const rounded = Math.round(v);
+        if (lodSlider.value !== rounded) {
+            lodSlider.value = rounded;
+        }
+        lodLabel.text = `LOD: ${rounded}`;
         if (terrain) {
-            terrain.setLodLevel(v);
+            terrain.setLodLevel(rounded);
         }
     });
+    panel.addControl(lodSlider);
 
-    // -----------------------
-    // Input handling for free-fly movement
-    // -----------------------
+    // ---------------------------------------------------------------------
+    // Input handling for free-fly movement (WASD + Space/Shift)
+    // ---------------------------------------------------------------------
     window.addEventListener("keydown", (ev) => {
         switch (ev.key) {
             case "w":
@@ -208,9 +203,12 @@ const createScene = () => {
 
 const scene = createScene();
 
+// -------------------------------------------------------------------------
 // Main render loop
+// -------------------------------------------------------------------------
 engine.runRenderLoop(() => {
     const camera = scene.activeCamera;
+
     if (camera && camera instanceof BABYLON.UniversalCamera) {
         const dt = engine.getDeltaTime() / 1000.0;
         const moveSpeed = 40;
@@ -250,7 +248,7 @@ engine.runRenderLoop(() => {
         }
 
         if (terrain) {
-            terrain.updateStreaming(camera.position);
+            terrain.updateStreaming(camera.position); // static grid hook
         }
     } else if (terrain) {
         terrain.updateStreaming(null);
@@ -262,6 +260,3 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
-
-
