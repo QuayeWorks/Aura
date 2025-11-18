@@ -25,7 +25,7 @@ const createScene = () => {
     );
     camera.attachControl(canvas, true);
     camera.lowerRadiusLimit = 10;
-    camera.upperRadiusLimit = 200;
+    camera.upperRadiusLimit = 400;
 
     // Lights
     const hemi = new BABYLON.HemisphericLight(
@@ -57,10 +57,10 @@ const createScene = () => {
 
     // Chunked marching-cubes planet terrain
     terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 4,
-        chunkCountZ: 4,
+        chunkCountX: 8,
+        chunkCountZ: 8,
         baseChunkResolution: 48,
-        dimY: 144,
+        dimY: 108,
         cellSize: 1,
         isoLevel: 0,
         radius: 72
@@ -195,6 +195,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
