@@ -5,31 +5,26 @@ export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
 
-        // Chunk layout (grid in X/Z)
+        // How many chunks along X/Z
         this.chunkCountX = options.chunkCountX ?? 3;
         this.chunkCountZ = options.chunkCountZ ?? 3;
 
-        // Base resolution of chunk (cells along X/Z at highest LOD)
+        // Base resolution of a chunk (cells along X/Z at highest LOD)
         this.baseChunkResolution = options.baseChunkResolution ?? 32;
 
-        // Vertical samples
+        // Vertical resolution
         this.baseDimY = options.dimY ?? 32;
 
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
 
-        // Noise params (forwarded into MarchingCubesTerrain)
+        // Noise parameters forwarded to MarchingCubesTerrain
+        this.enableNoise   = options.enableNoise   ?? true;
         this.continentFreq = options.continentFreq ?? 0.6;
         this.continentAmp  = options.continentAmp  ?? 0.12;
         this.mountainFreq  = options.mountainFreq  ?? 3.0;
         this.mountainAmp   = options.mountainAmp   ?? 0.04;
-
-        // Clamp radius so the sphere fits vertically in our sampling volume
-        const maxRadiusFromDimY = ((this.baseDimY - 4) * this.cellSize) * 0.5;
-        if (this.radius > maxRadiusFromDimY) {
-            this.radius = maxRadiusFromDimY;
-        }
 
         // Global LOD level: 2 = high, 1 = medium, 0 = low
         this.lodLevel = 2;
@@ -40,26 +35,26 @@ export class ChunkedPlanetTerrain {
         this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         this.material.backFaceCulling = false;
 
-        // Chunk list
+        // All chunks (entries: { ix, iz, lodLevel, terrain, center })
         this.chunks = [];
 
         // Persisted carve operations
         this.carveHistory = [];
 
-        // Cached per-chunk sizes
+        // Cached per-chunk size (for reference)
         this.chunkWorldSizeX = 0;
         this.chunkWorldSizeZ = 0;
 
-        // Last camera position (for future streaming / LOD if needed)
+        // Last camera position (for gravity/orientation helpers etc.)
         this._lastCameraPos = null;
 
         // Build initial grid
         this._rebuildChunks();
     }
 
-    // -------------------------------------------------------------------------
-    // LOD params
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // LOD parameter helper
+    // ---------------------------------------------------------------------
 
     _computeLodParams(lodLevel) {
         const clamped = Math.max(0, Math.min(2, Math.round(lodLevel)));
@@ -88,15 +83,14 @@ export class ChunkedPlanetTerrain {
         };
     }
 
-    // -------------------------------------------------------------------------
-    // Chunk creation / rebuild
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Chunk management
+    // ---------------------------------------------------------------------
 
     _disposeChunks() {
         for (const entry of this.chunks) {
-            const terrain = entry.terrain;
-            if (terrain && terrain.mesh) {
-                terrain.mesh.dispose();
+            if (entry.terrain && entry.terrain.mesh) {
+                entry.terrain.mesh.dispose();
             }
         }
         this.chunks = [];
@@ -113,18 +107,16 @@ export class ChunkedPlanetTerrain {
             chunkHeight
         } = lodParams;
 
-        const halfCountX = this.chunkCountX / 2.0;
-        const halfCountZ = this.chunkCountZ / 2.0;
+        // Total size of grid in X/Z
+        const totalWidth  = this.chunkCountX * chunkWidth;
+        const totalDepth  = this.chunkCountZ * chunkDepth;
 
-        // Position chunks in a grid around origin
-        const gx = ix - halfCountX + 0.5;
-        const gz = iz - halfCountZ + 0.5;
+        // Origin so that grid is centered at world origin
+        const originX = -totalWidth * 0.5 + ix * chunkWidth;
+        const originZ = -totalDepth * 0.5 + iz * chunkDepth;
+        const originY = -chunkHeight * 0.5;
 
-        const origin = new BABYLON.Vector3(
-            gx * chunkWidth - chunkWidth * 0.5,
-            -chunkHeight * 0.5,
-            gz * chunkDepth - chunkDepth * 0.5
-        );
+        const origin = new BABYLON.Vector3(originX, originY, originZ);
 
         const terrain = new MarchingCubesTerrain(this.scene, {
             dimX,
@@ -135,18 +127,19 @@ export class ChunkedPlanetTerrain {
             radius: this.radius,
             origin,
             material: this.material,
+            enableNoise: this.enableNoise,
             continentFreq: this.continentFreq,
             continentAmp: this.continentAmp,
             mountainFreq: this.mountainFreq,
             mountainAmp: this.mountainAmp
         });
 
-        // Make sure material is shared
+        // Ensure shared material
         if (terrain.mesh) {
             terrain.mesh.material = this.material;
         }
 
-        // Re-apply any previous carve operations to this new chunk
+        // Replay previous carves on this chunk
         for (const op of this.carveHistory) {
             terrain.carveSphere(op.position, op.radius);
         }
@@ -183,11 +176,11 @@ export class ChunkedPlanetTerrain {
         }
     }
 
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
     // Public API
-    // -------------------------------------------------------------------------
+    // ---------------------------------------------------------------------
 
-    // LOD slider hook (0, 1, 2)
+    // LOD: 0 (low), 1 (medium), 2 (high) – rebuilds entire grid
     setLodLevel(level) {
         const clamped = Math.max(0, Math.min(2, Math.round(level)));
         if (clamped === this.lodLevel) {
@@ -197,21 +190,20 @@ export class ChunkedPlanetTerrain {
         this._rebuildChunks();
     }
 
-    // Stub for now; keeps main.js code working.
-    // Later we can add true camera-centered streaming here again.
+    // Called from main render loop; static grid for now
     updateStreaming(cameraPosition) {
         this._lastCameraPos = cameraPosition
             ? (cameraPosition.clone ? cameraPosition.clone() : cameraPosition)
             : null;
-        // No streaming yet; static grid around origin.
+        // No streaming / LOD rings yet – just a hook.
     }
 
-    // Shared material reference (for external tweaks if needed)
+    // Shared material (if you ever want to tweak uniforms externally)
     get materialRef() {
         return this.material;
     }
 
-    // Gravity direction = toward planet center
+    // Gravity direction (toward origin)
     getGravityDirection(worldPos) {
         if (!worldPos) {
             return new BABYLON.Vector3(0, -1, 0);
@@ -223,7 +215,7 @@ export class ChunkedPlanetTerrain {
         return dir.normalize().scale(-1);
     }
 
-    // Surface up = away from planet center
+    // "Up" direction (away from origin)
     getSurfaceUp(worldPos) {
         if (!worldPos) {
             return new BABYLON.Vector3(0, 1, 0);
@@ -248,7 +240,7 @@ export class ChunkedPlanetTerrain {
         }
     }
 
-    // Optional runtime config update (if you still use it)
+    // Optional: runtime config update (if you still use it)
     updateConfig({
         chunkCountX,
         chunkCountZ,
@@ -260,31 +252,20 @@ export class ChunkedPlanetTerrain {
         if (chunkCountX !== undefined) {
             this.chunkCountX = Math.max(1, Math.round(chunkCountX));
         }
-
         if (chunkCountZ !== undefined) {
             this.chunkCountZ = Math.max(1, Math.round(chunkCountZ));
         }
-
         if (baseChunkResolution !== undefined) {
             this.baseChunkResolution = Math.max(6, Math.round(baseChunkResolution));
         }
-
         if (dimY !== undefined) {
             this.baseDimY = Math.max(8, Math.round(dimY));
         }
-
         if (cellSize !== undefined) {
             this.cellSize = Math.max(0.1, cellSize);
         }
-
         if (isoLevel !== undefined) {
             this.isoLevel = isoLevel;
-        }
-
-        const maxRadiusFromDimY =
-            ((this.baseDimY - 4) * this.cellSize) * 0.5;
-        if (this.radius > maxRadiusFromDimY) {
-            this.radius = maxRadiusFromDimY;
         }
 
         this._rebuildChunks();
