@@ -89,12 +89,11 @@ const createScene = () => {
 
     // Chunked marching-cubes planet terrain
     terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 3,
-        chunkCountZ: 3,
-        baseChunkResolution: 24,
-        dimY: 48,
-        cellSize: 1,
-        isoLevel: 0,
+        chunkCountX: 4,
+        chunkCountZ: 4,
+        baseChunkResolution: 48,
+        dimY: 32,
+        cellSize: 0.5,
         radius: HALF_EARTH_RADIUS_UNITS
     });
 
@@ -116,7 +115,7 @@ const createScene = () => {
 
     function addSlider(label, min, max, startValue, onChange) {
         const header = new BABYLON.GUI.TextBlock();
-        header.text = `${label}: ${startValue.toFixed(2)}`;
+        header.text = `${label}: ${startValue}`;
         header.height = "26px";
         header.marginTop = "6px";
         header.color = "white";
@@ -129,121 +128,25 @@ const createScene = () => {
         slider.minimum = min;
         slider.maximum = max;
         slider.value = startValue;
+        slider.step = 1;
         slider.height = "20px";
         slider.color = "#88ff88";
         slider.background = "#333333";
         slider.borderColor = "#aaaaaa";
         slider.onValueChangedObservable.add((v) => {
-            header.text = `${label}: ${v.toFixed(2)}`;
-            onChange(v);
+            const rounded = Math.round(v);
+            if (slider.value !== rounded) {
+                slider.value = rounded;
+            }
+            header.text = `${label}: ${rounded}`;
+            onChange(rounded);
         });
         panel.addControl(slider);
     }
 
-    // Cache base values so sliders act as multipliers
-    const baseHemiIntensity = hemi.intensity;
-    const baseDirIntensity = dir.intensity;
-
-    const terrainMat = terrain.material;
-    const baseDiffuse = terrainMat.diffuseColor.clone();
-    const baseEmissive = terrainMat.emissiveColor
-        ? terrainMat.emissiveColor.clone()
-        : new BABYLON.Color3(0, 0, 0);
-
-    let sceneBrightness = 1.0;
-    let ambientIntensity = 1.0;
-    let terrainBrightness = 1.0;
-    let isWireframe = false;
-    let globalLod = 2;
-
-    addSlider("Scene Brightness", 0.1, 2.0, 1.0, (v) => {
-        sceneBrightness = v;
-        hemi.intensity = baseHemiIntensity * sceneBrightness * ambientIntensity;
-        dir.intensity = baseDirIntensity * sceneBrightness;
-    });
-
-    addSlider("Ambient Light", 0.1, 2.0, 1.0, (v) => {
-        ambientIntensity = v;
-        hemi.intensity = baseHemiIntensity * sceneBrightness * ambientIntensity;
-    });
-
-    addSlider("Terrain Brightness", 0.1, 3.0, 1.0, (v) => {
-        terrainBrightness = v;
-        terrainMat.diffuseColor = baseDiffuse.scale(terrainBrightness);
-        // Optionally, make emissive also track brightness
-        terrainMat.emissiveColor = baseEmissive.scale(terrainBrightness * 0.3);
-    });
-
-    // Wireframe toggle
-    const wireHeader = new BABYLON.GUI.TextBlock();
-    wireHeader.text = "Wireframe: OFF";
-    wireHeader.height = "26px";
-    wireHeader.marginTop = "12px";
-    wireHeader.color = "white";
-    wireHeader.fontSize = 16;
-    wireHeader.textHorizontalAlignment =
-        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    panel.addControl(wireHeader);
-
-    const wireButton = BABYLON.GUI.Button.CreateSimpleButton(
-        "wireBtn",
-        "Toggle Wireframe"
-    );
-    wireButton.height = "30px";
-    wireButton.color = "white";
-    wireButton.background = "#444444";
-    wireButton.cornerRadius = 6;
-    wireButton.thickness = 1;
-    wireButton.onPointerClickObservable.add(() => {
-        isWireframe = !isWireframe;
-        terrainMat.wireframe = isWireframe;
-        wireHeader.text = `Wireframe: ${isWireframe ? "ON" : "OFF"}`;
-    });
-    panel.addControl(wireButton);
-// ---- Terrain grid controls ----
-
-    // Chunk count along X
-    addSlider("Chunks X", 1, 7, terrain.chunkCountX, (v) => {
-        terrain.updateConfig({ chunkCountX: v });
-    });
-
-    // Chunk count along Z
-    addSlider("Chunks Z", 1, 7, terrain.chunkCountZ, (v) => {
-        terrain.updateConfig({ chunkCountZ: v });
-    });
-
-    // Base horizontal resolution (cells per chunk in X/Z)
-    addSlider(
-        "Base resolution",
-        8,
-        48,
-        terrain.baseChunkResolution,
-        (v) => {
-            terrain.updateConfig({ baseChunkResolution: v });
-        }
-    );
-
-    // Vertical samples (dimY)
-    addSlider("Vertical dimY", 16, 96, terrain.baseDimY, (v) => {
-        terrain.updateConfig({ dimY: v });
-    });
-
-    // Cell size (world units between samples)
-    addSlider("Cell size", 0.5, 4.0, terrain.cellSize, (v) => {
-        terrain.updateConfig({ cellSize: v });
-    });
-
-    // Iso-surface level
-    addSlider("Iso level", -1.0, 1.0, terrain.isoLevel, (v) => {
-        terrain.updateConfig({ isoLevel: v });
-    });
-    // LOD slider (0 = low, 1 = medium, 2 = high)
-    addSlider("Global LOD", 0, 2, 2, (v) => {
-        const level = Math.round(v);
-        globalLod = level;
+    addSlider("LOD", 0, 2, 2, (v) => {
         if (terrain) {
-            // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
-            terrain.setLodLevel(level);
+            terrain.setLodLevel(v);
         }
     });
 
