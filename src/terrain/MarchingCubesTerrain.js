@@ -369,10 +369,11 @@ export class MarchingCubesTerrain {
         this.radius = options.radius ?? 18.0;
 
         // Noise parameters for planetary terrain
-        this.continentFreq = options.continentFreq ?? 0.4;
-        this.continentAmp  = options.continentAmp  ?? 0.08;
-        this.mountainFreq  = options.mountainFreq  ?? 2.0;
-        this.mountainAmp   = options.mountainAmp   ?? 0.02;
+        this.continentFreq = options.continentFreq ?? 0.6;   // a bit higher freq
+        this.continentAmp  = options.continentAmp  ?? 0.12;  // 12% of radius
+
+        this.mountainFreq  = options.mountainFreq  ?? 3.0;
+        this.mountainAmp   = options.mountainAmp   ?? 0.04;  // 4% of radius
         // Center the volume around the origin
         // but allow an explicit world-space origin via options.origin.
         this.origin =

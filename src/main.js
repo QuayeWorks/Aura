@@ -6,11 +6,13 @@ import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 const EARTH_RADIUS_KM = 6371;
 const HALF_EARTH_RADIUS_KM = EARTH_RADIUS_KM * 0.5;
 
-// How many kilometers correspond to 1 game unit
-const KM_PER_GAME_UNIT = 10; // tweak this if you want "bigger" or "smaller" feel
+// This is just conceptual: how many kilometers per game unit.
+// Use this in design docs, not in the SDF radius directly (for now).
+const KM_PER_GAME_UNIT = 80; // e.g. 1 unit = 80 km (tweak as desired)
 
-// Convert half-Earth radius into game units
-const HALF_EARTH_RADIUS_UNITS = HALF_EARTH_RADIUS_KM / KM_PER_GAME_UNIT;
+// A nice visual radius that fits comfortably in our chunk grid
+// but conceptually we treat it as "half an Earth".
+const PLANET_RADIUS_UNITS = 40;
 
 const moveState = {
     forward: false,
@@ -32,20 +34,10 @@ const createScene = () => {
     // Blue background
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
 
-    // Camera - spawn outside the planet based on half-Earth radius
-    const planetRadius = HALF_EARTH_RADIUS_UNITS;          // from the constants at top
-    const cameraDistance = planetRadius * 1.2;             // 20% above surface
-    const cameraHeight   = planetRadius * 0.2;             // some height above equator
-
-    const cameraStartPos = new BABYLON.Vector3(
-        0,
-        cameraHeight,
-        cameraDistance
-    );
-
+    // Camera - start comfortably outside the visual planet radius
     const camera = new BABYLON.UniversalCamera(
         "camera",
-        cameraStartPos,
+        new BABYLON.Vector3(0, 40, -120),
         scene
     );
     camera.setTarget(BABYLON.Vector3.Zero());
@@ -94,7 +86,7 @@ const createScene = () => {
         baseChunkResolution: 48,
         dimY: 32,
         cellSize: 0.5,
-        radius: HALF_EARTH_RADIUS_UNITS
+        radius: PLANET_RADIUS_UNITS
     });
 
     // -----------------------
