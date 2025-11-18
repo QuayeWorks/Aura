@@ -7,17 +7,30 @@ export class PlanetPlayer {
 
         // Config
         this.planetRadius = options.planetRadius ?? 40; // world units
-        this.moveSpeed = options.moveSpeed ?? 20;       // units / second
-        this.height = options.height ?? 2.0;            // distance from ground to "eyes"
+        this.moveSpeed = options.moveSpeed ?? 20;       // target horizontal speed
+        this.moveAccel = options.moveAccel ?? 60;       // accel toward target speed
+        this.groundFriction = options.groundFriction ?? 12;
+        this.airFriction = options.airFriction ?? 1;
+        this.gravity = options.gravity ?? 30;           // units/s^2 toward center
+        this.jumpSpeed = options.jumpSpeed ?? 15;       // initial jump speed
+
+        this.height = options.height ?? 2.0;            // eye-to-ground distance
         this.capsuleRadius = options.capsuleRadius ?? 0.6;
 
-        // Input state
+        this.groundCheckExtra = options.groundCheckExtra ?? 0.6;
+        this.groundSnapDistance = options.groundSnapDistance ?? 0.5;
+
+        // Movement state
         this.input = {
             forward: false,
             back: false,
             left: false,
             right: false
         };
+
+        this.velocity = BABYLON.Vector3.Zero(); // world-space velocity
+        this.isGrounded = false;
+        this.jumpQueued = false;
 
         // Create capsule mesh
         this.mesh = BABYLON.MeshBuilder.CreateCapsule(
@@ -30,14 +43,13 @@ export class PlanetPlayer {
             },
             scene
         );
-
-        this.mesh.checkCollisions = false; // we manage movement manually
+        this.mesh.checkCollisions = false; // we handle our own
 
         // Start somewhere above the planet near +Z
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
         this.mesh.position = startDir.scale(this.planetRadius + this.height);
 
-        // Optional: a simple material so we can see the player
+        // Simple debug material
         const mat = new BABYLON.StandardMaterial("playerMat", scene);
         mat.diffuseColor = new BABYLON.Color3(1, 0.8, 0.2);
         mat.specularColor = BABYLON.Color3.Black();
@@ -71,6 +83,10 @@ export class PlanetPlayer {
                 case "D":
                     this.input.right = true;
                     break;
+                case " ":
+                    // queue jump (handled once in update)
+                    this.jumpQueued = true;
+                    break;
                 default:
                     break;
             }
@@ -94,6 +110,10 @@ export class PlanetPlayer {
                 case "D":
                     this.input.right = false;
                     break;
+                case " ":
+                    // don't keep jump held forever
+                    this.jumpQueued = false;
+                    break;
                 default:
                     break;
             }
@@ -106,17 +126,18 @@ export class PlanetPlayer {
         return v.subtract(n.scale(dot));
     }
 
-    // Snap player to terrain using a ray toward planet center
-    _stickToGround() {
+    // Ground ray + snapping
+    _checkGroundAndSnap() {
         const pos = this.mesh.position;
         if (pos.lengthSquared() === 0) return;
 
         const up = pos.normalize();
-        const rayOrigin = pos.add(up.scale(5));          // a bit above
-        const rayDir = up.scale(-1);                     // toward planet
-        const rayLength = 30;
 
-        const ray = new BABYLON.Ray(rayOrigin, rayDir, rayLength);
+        const rayOrigin = pos.add(up.scale(this.capsuleRadius + 0.5));
+        const rayDir = up.scale(-1);
+        const rayLen = this.height + this.capsuleRadius + this.groundCheckExtra;
+
+        const ray = new BABYLON.Ray(rayOrigin, rayDir, rayLen);
 
         const pick = this.scene.pickWithRay(
             ray,
@@ -127,23 +148,81 @@ export class PlanetPlayer {
         );
 
         if (pick.hit && pick.pickedPoint) {
-            // Stand a bit above the hit point
             const targetPos = pick.pickedPoint.add(up.scale(this.height));
-            this.mesh.position.copyFrom(targetPos);
-        } else {
-            // Fallback to perfect sphere surface if no mesh was hit
-            const fallbackPos = up.scale(this.planetRadius + this.height);
-            this.mesh.position.copyFrom(fallbackPos);
+            const distToGround = BABYLON.Vector3.Distance(targetPos, pos);
+
+            if (distToGround <= this.groundSnapDistance) {
+                this.isGrounded = true;
+                this.mesh.position.copyFrom(targetPos);
+
+                // Remove downward component of velocity
+                const vDotUp = BABYLON.Vector3.Dot(this.velocity, up);
+                if (vDotUp < 0) {
+                    this.velocity = this.velocity.subtract(up.scale(vDotUp));
+                }
+                return;
+            }
         }
+
+        this.isGrounded = false;
     }
 
-    // Optional: orient capsule so "up" aligns with planet normal
+    // Simple wall collision: cast ray along movement, stop/slide on hit
+    _resolveHorizontalCollisions(pos, displacement) {
+        const dispLenSq = displacement.lengthSquared();
+        if (dispLenSq < 1e-6) {
+            return pos;
+        }
+
+        const dispLen = Math.sqrt(dispLenSq);
+        const dir = displacement.scale(1 / dispLen);
+
+        const ray = new BABYLON.Ray(
+            pos,
+            dir,
+            dispLen + this.capsuleRadius * 1.1
+        );
+
+        const pick = this.scene.pickWithRay(
+            ray,
+            (mesh) =>
+                mesh &&
+                mesh.name &&
+                mesh.name.startsWith("marchingCubesTerrain")
+        );
+
+        if (!pick.hit || !pick.pickedPoint) {
+            return pos.add(displacement);
+        }
+
+        // Move to just outside the wall
+        const hitPoint = pick.pickedPoint;
+        const hitNormal =
+            pick.getNormal && pick.getNormal(true)
+                ? pick.getNormal(true)
+                : dir.scale(-1);
+
+        const newPos = hitPoint.add(
+            hitNormal.scale(this.capsuleRadius * 1.01)
+        );
+
+        // Remove velocity component into the wall to "slide" along it
+        const vDotN = BABYLON.Vector3.Dot(this.velocity, hitNormal);
+        if (vDotN < 0) {
+            this.velocity = this.velocity.subtract(hitNormal.scale(vDotN));
+        }
+
+        return newPos;
+    }
+
+    // Orient capsule so "up" aligns with planet normal and forward follows camera
     _orientToSurface() {
         const pos = this.mesh.position;
         if (pos.lengthSquared() === 0) return;
 
         const up = pos.normalize();
 
+        // Determine forward direction (camera-relative if possible)
         let forwardWorld = new BABYLON.Vector3(0, 0, 1);
         if (this.camera && this.camera.getDirection) {
             forwardWorld = this.camera.getDirection(
@@ -151,7 +230,7 @@ export class PlanetPlayer {
             );
         }
 
-        // Make forward tangent to surface
+        // Project forward onto tangent plane
         let forward = this._projectOntoPlane(forwardWorld, up);
         if (forward.lengthSquared() < 1e-4) {
             forward = BABYLON.Vector3.Cross(up, BABYLON.Axis.X);
@@ -160,18 +239,21 @@ export class PlanetPlayer {
 
         const right = BABYLON.Vector3.Cross(forward, up).normalize();
 
-        // Construct a rotation matrix manually from Right / Up / Forward
+        // Construct rotation matrix from Right / Up / Forward
         const m = BABYLON.Matrix.FromValues(
             right.x,   right.y,   right.z,   0,
             up.x,      up.y,      up.z,      0,
             forward.x, forward.y, forward.z, 0,
             0,         0,         0,         1
         );
-        
+
         if (!this.mesh.rotationQuaternion) {
             this.mesh.rotationQuaternion = new BABYLON.Quaternion();
         }
-        BABYLON.Quaternion.FromRotationMatrixToRef(m, this.mesh.rotationQuaternion);
+        BABYLON.Quaternion.FromRotationMatrixToRef(
+            m,
+            this.mesh.rotationQuaternion
+        );
     }
 
     update(dtSeconds) {
@@ -195,28 +277,75 @@ export class PlanetPlayer {
             );
         }
 
-        // Project onto the tangent plane so movement hugs the sphere
+        // Project onto tangent plane so movement hugs the sphere
         let forward = this._projectOntoPlane(forwardWorld, up);
         let right = this._projectOntoPlane(rightWorld, up);
 
         if (forward.lengthSquared() > 1e-4) forward.normalize();
         if (right.lengthSquared() > 1e-4) right.normalize();
 
-        // Build movement vector from input
-        let move = BABYLON.Vector3.Zero();
-        if (this.input.forward) move = move.add(forward);
-        if (this.input.back) move = move.subtract(forward);
-        if (this.input.right) move = move.add(right);
-        if (this.input.left) move = move.subtract(right);
+        // Decompose velocity into vertical (along up) and horizontal
+        const vDotUp = BABYLON.Vector3.Dot(this.velocity, up);
+        let vVert = up.scale(vDotUp);
+        let vHor = this.velocity.subtract(vVert);
 
-        if (move.lengthSquared() > 0) {
-            move.normalize();
-            const displacement = move.scale(this.moveSpeed * dtSeconds);
-            this.mesh.position.addInPlace(displacement);
+        // Desired horizontal direction from input
+        let inputDir = BABYLON.Vector3.Zero();
+        if (this.input.forward) inputDir = inputDir.add(forward);
+        if (this.input.back)    inputDir = inputDir.subtract(forward);
+        if (this.input.right)   inputDir = inputDir.add(right);
+        if (this.input.left)    inputDir = inputDir.subtract(right);
+
+        if (inputDir.lengthSquared() > 0) {
+            inputDir.normalize();
         }
 
-        // Keep the player stuck to the terrain
-        this._stickToGround();
+        // Accelerate toward target horizontal velocity
+        let targetHor = BABYLON.Vector3.Zero();
+        if (inputDir.lengthSquared() > 0) {
+            targetHor = inputDir.scale(this.moveSpeed);
+        }
+
+        const horDelta = targetHor.subtract(vHor);
+        const maxChange = this.moveAccel * dtSeconds;
+        const horDeltaLen = horDelta.length();
+
+        if (horDeltaLen > maxChange) {
+            vHor = vHor.add(horDelta.scale(maxChange / horDeltaLen));
+        } else {
+            vHor = targetHor;
+        }
+
+        // Friction (stronger on ground)
+        const friction =
+            this.isGrounded ? this.groundFriction : this.airFriction;
+        const frictionFactor = Math.max(0, 1 - friction * dtSeconds);
+        vHor = vHor.scale(frictionFactor);
+
+        // Gravity toward planet center
+        const gravityVec = up.scale(-this.gravity);
+        vVert = vVert.add(gravityVec.scale(dtSeconds));
+
+        // Jump
+        if (this.jumpQueued && this.isGrounded) {
+            vVert = up.scale(this.jumpSpeed);
+            this.isGrounded = false;
+            this.jumpQueued = false; // consume the jump press
+        }
+
+        // Combine velocities
+        this.velocity = vHor.add(vVert);
+
+        // Integrate movement
+        const displacement = this.velocity.scale(dtSeconds);
+
+        // Resolve horizontal collisions against terrain
+        const newPos = this._resolveHorizontalCollisions(pos, displacement);
+
+        this.mesh.position.copyFrom(newPos);
+
+        // Ground test + snap once movement is applied
+        this._checkGroundAndSnap();
 
         // Align capsule orientation with surface normal
         this._orientToSurface();
@@ -226,4 +355,3 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
-
