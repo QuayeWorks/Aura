@@ -266,98 +266,56 @@ export class PlanetPlayer {
     update(dtSeconds) {
         if (!this.mesh) return;
 
-        const pos = this.mesh.position;
-        if (pos.lengthSquared() === 0) return;
-
-        const up = pos.normalize();
-
-        // Determine movement basis (camera-relative if possible)
+        // Movement basis from camera if available
         let forwardWorld = new BABYLON.Vector3(0, 0, 1);
-        let rightWorld = new BABYLON.Vector3(1, 0, 0);
+        let rightWorld   = new BABYLON.Vector3(1, 0, 0);
+        let upWorld      = new BABYLON.Vector3(0, 1, 0);
 
         if (this.camera && this.camera.getDirection) {
-            forwardWorld = this.camera.getDirection(
-                new BABYLON.Vector3(0, 0, 1)
+            forwardWorld = this.camera.getDirection(new BABYLON.Vector3(0, 0, 1));
+            rightWorld   = this.camera.getDirection(new BABYLON.Vector3(1, 0, 0));
+            upWorld      = this.camera.getDirection(new BABYLON.Vector3(0, 1, 0));
+        }
+
+        // Build movement vector from input (WASD)
+        let move = BABYLON.Vector3.Zero();
+        if (this.input.forward) move = move.add(forwardWorld);
+        if (this.input.back)    move = move.subtract(forwardWorld);
+        if (this.input.right)   move = move.add(rightWorld);
+        if (this.input.left)    move = move.subtract(rightWorld);
+        // (Space / jump is ignored for now)
+
+        if (move.lengthSquared() > 0) {
+            move.normalize();
+            const displacement = move.scale(this.moveSpeed * dtSeconds);
+            this.mesh.position.addInPlace(displacement);
+
+            // Orient capsule to face movement direction, keep a consistent "up"
+            const forward = move.clone().normalize();
+            const up = upWorld.normalize();
+            const right = BABYLON.Vector3.Cross(forward, up).normalize();
+
+            const m = BABYLON.Matrix.FromValues(
+                right.x,   right.y,   right.z,   0,
+                up.x,      up.y,      up.z,      0,
+                forward.x, forward.y, forward.z, 0,
+                0,         0,         0,         1
             );
-            rightWorld = this.camera.getDirection(
-                new BABYLON.Vector3(1, 0, 0)
-            );
+
+            if (!this.mesh.rotationQuaternion) {
+                this.mesh.rotationQuaternion = new BABYLON.Quaternion();
+            }
+            BABYLON.Quaternion.FromRotationMatrixToRef(m, this.mesh.rotationQuaternion);
         }
-
-        // Project onto tangent plane so movement hugs the sphere
-        let forward = this._projectOntoPlane(forwardWorld, up);
-        let right = this._projectOntoPlane(rightWorld, up);
-
-        if (forward.lengthSquared() > 1e-4) forward.normalize();
-        if (right.lengthSquared() > 1e-4) right.normalize();
-
-        // Decompose velocity into vertical (along up) and horizontal
-        const vDotUp = BABYLON.Vector3.Dot(this.velocity, up);
-        let vVert = up.scale(vDotUp);
-        let vHor = this.velocity.subtract(vVert);
-
-        // Desired horizontal direction from input
-        let inputDir = BABYLON.Vector3.Zero();
-        if (this.input.forward) inputDir = inputDir.add(forward);
-        if (this.input.back)    inputDir = inputDir.subtract(forward);
-        if (this.input.right)   inputDir = inputDir.add(right);
-        if (this.input.left)    inputDir = inputDir.subtract(right);
-
-        if (inputDir.lengthSquared() > 0) {
-            inputDir.normalize();
-        }
-
-        // Accelerate toward target horizontal velocity
-        let targetHor = BABYLON.Vector3.Zero();
-        if (inputDir.lengthSquared() > 0) {
-            targetHor = inputDir.scale(this.moveSpeed);
-        }
-
-        const horDelta = targetHor.subtract(vHor);
-        const maxChange = this.moveAccel * dtSeconds;
-        const horDeltaLen = horDelta.length();
-
-        if (horDeltaLen > maxChange) {
-            vHor = vHor.add(horDelta.scale(maxChange / horDeltaLen));
-        } else {
-            vHor = targetHor;
-        }
-
-        // Friction (stronger on ground)
-        const friction =
-            this.isGrounded ? this.groundFriction : this.airFriction;
-        const frictionFactor = Math.max(0, 1 - friction * dtSeconds);
-        vHor = vHor.scale(frictionFactor);
-
-        // Gravity toward planet center
-        const gravityVec = up.scale(-this.gravity);
-        vVert = vVert.add(gravityVec.scale(dtSeconds));
-
-        // Jump
-        if (this.jumpQueued && this.isGrounded) {
-            vVert = up.scale(this.jumpSpeed);
-            this.isGrounded = false;
-            this.jumpQueued = false; // consume the jump press
-        }
-        // Combine velocities
-        this.velocity = vHor.add(vVert);
-        
-        // Integrate movement (no wall collision yet – just move)
-        const displacement = this.velocity.scale(dtSeconds);
-        this.mesh.position.addInPlace(displacement);
-        
-        // Ground test + snap once movement is applied
-        this._checkGroundAndSnap();
-        
-        // Align capsule orientation with surface normal
-        this._orientToSurface();
 
     }
+
 
     getPosition() {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
