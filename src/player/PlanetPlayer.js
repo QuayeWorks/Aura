@@ -6,7 +6,9 @@ export class PlanetPlayer {
         this.terrain = terrain;
 
         // Config
-        this.planetRadius = options.planetRadius ?? 40; // world units
+        // Prefer terrain radius so we always match the actual SDF planet.
+        this.planetRadius = options.planetRadius ?? (terrain && terrain.radius ? terrain.radius : 40);
+
         this.moveSpeed = options.moveSpeed ?? 20;       // target horizontal speed
         this.moveAccel = options.moveAccel ?? 60;       // accel toward target speed
         this.groundFriction = options.groundFriction ?? 12;
@@ -48,6 +50,11 @@ export class PlanetPlayer {
         // Start somewhere above the planet near +Z
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
         this.mesh.position = startDir.scale(this.planetRadius + this.height);
+        // Do an initial ground snap so we start exactly on the surface
+        // once terrain meshes exist.
+        this._checkGroundAndSnap();
+        this._orientToSurface();
+
 
         // Simple debug material
         const mat = new BABYLON.StandardMaterial("playerMat", scene);
@@ -355,3 +362,4 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
