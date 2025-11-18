@@ -339,27 +339,24 @@ export class PlanetPlayer {
             this.isGrounded = false;
             this.jumpQueued = false; // consume the jump press
         }
-
         // Combine velocities
         this.velocity = vHor.add(vVert);
-
-        // Integrate movement
+        
+        // Integrate movement (no wall collision yet – just move)
         const displacement = this.velocity.scale(dtSeconds);
-
-        // Resolve horizontal collisions against terrain
-        const newPos = this._resolveHorizontalCollisions(pos, displacement);
-
-        this.mesh.position.copyFrom(newPos);
-
+        this.mesh.position.addInPlace(displacement);
+        
         // Ground test + snap once movement is applied
         this._checkGroundAndSnap();
-
+        
         // Align capsule orientation with surface normal
         this._orientToSurface();
+
     }
 
     getPosition() {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
