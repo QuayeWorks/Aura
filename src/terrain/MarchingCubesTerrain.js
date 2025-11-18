@@ -320,7 +320,8 @@ const triTable = [
 [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]
 ];
 
-// Corner index -> (dx, dy, dz) in cell-local coordinates
+
+// Corner index -> (dx, dy, dz) within a cube
 const CORNER_OFFSETS = [
     [0, 0, 0], // 0
     [1, 0, 0], // 1
@@ -334,25 +335,25 @@ const CORNER_OFFSETS = [
 
 // Edge index -> [cornerA, cornerB]
 const EDGE_CORNER_PAIRS = [
-    [0, 1],  // 0
-    [1, 2],  // 1
-    [2, 3],  // 2
-    [3, 0],  // 3
-    [4, 5],  // 4
-    [5, 6],  // 5
-    [6, 7],  // 6
-    [7, 4],  // 7
-    [0, 4],  // 8
-    [1, 5],  // 9
-    [2, 6],  // 10
-    [3, 7],  // 11
+    [0, 1], // 0
+    [1, 2], // 1
+    [2, 3], // 2
+    [3, 0], // 3
+    [4, 5], // 4
+    [5, 6], // 5
+    [6, 7], // 6
+    [7, 4], // 7
+    [0, 4], // 8
+    [1, 5], // 9
+    [2, 6], // 10
+    [3, 7], // 11
 ];
 
 export class MarchingCubesTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
 
-        // Grid resolution
+        // Grid resolution – tweak these if perf is bad / mesh too coarse
         this.dimX = options.dimX ?? 32;
         this.dimY = options.dimY ?? 32;
         this.dimZ = options.dimZ ?? 32;
@@ -360,141 +361,96 @@ export class MarchingCubesTerrain {
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
 
-        // SDF sphere radius
+        // Approximate radius of the planet (in world units)
         this.radius = options.radius ?? 18.0;
+        // Center the volume around the origin
+        // but allow an explicit world-space origin via options.origin.
+        this.origin = options.origin || new BABYLON.Vector3(
+            -((this.dimX - 1) * this.cellSize) * 0.5,
+            -((this.dimY - 1) * this.cellSize) * 0.5,
+            -((this.dimZ - 1) * this.cellSize) * 0.5
+        );
 
-        // Noise parameters (fractions of radius)
-        this.enableNoise = options.enableNoise ?? true;
-        this.continentFreq = options.continentFreq ?? 0.6;
-        this.continentAmp  = options.continentAmp  ?? 0.12;
-        this.mountainFreq  = options.mountainFreq ?? 3.0;
-        this.mountainAmp   = options.mountainAmp  ?? 0.04;
-
-        // World-space origin of the grid (corner at 0,0,0)
-        this.origin =
-            options.origin ??
-            new BABYLON.Vector3(
-                -((this.dimX - 1) * this.cellSize) * 0.5,
-                -((this.dimY - 1) * this.cellSize) * 0.5,
-                -((this.dimZ - 1) * this.cellSize) * 0.5
-            );
-
-        // Scalar field (SDF values)
-        this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
-
-        // Mesh + material (optional reuse)
+        // Optional mesh/material reuse (for chunk pooling)
         this.mesh = options.mesh ?? null;
         this.material = options.material ?? null;
 
-        // Populate field and build initial mesh
-        this._populateField();
+        // Scalar field samples at each grid vertex
+        this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
+
+        this._buildInitialField();
         this._buildMesh();
     }
 
-    // ---------------------------------------------------------------------
-    // Index helpers
-    // ---------------------------------------------------------------------
-
+    // Index helper into 1D field array
     _index(x, y, z) {
-        return x + y * this.dimX + z * this.dimX * this.dimY;
+        return x + this.dimX * (y + this.dimY * z);
     }
 
-    _worldPosForIndex(i) {
-        const x = i % this.dimX;
-        const y = Math.floor(i / this.dimX) % this.dimY;
-        const z = Math.floor(i / (this.dimX * this.dimY));
-        return this.origin.add(
-            new BABYLON.Vector3(
-                x * this.cellSize,
-                y * this.cellSize,
-                z * this.cellSize
-            )
-        );
+    // Signed distance function: planet with layered noise for terrain
+    _sampleSdf(worldPos) {
+        // Distance from planet center
+        const center = BABYLON.Vector3.Zero();
+        const toPoint = worldPos.subtract(center);
+        const dist = toPoint.length();
+    
+        // Base perfect sphere
+        const baseSphere = dist - this.radius;
+    
+        // Fake fractal noise using simple sin/cos combos.
+        // This is cheap, deterministic, and enough to get "mountain" shapes.
+        const nx = worldPos.x * 0.12;
+        const ny = worldPos.y * 0.12;
+        const nz = worldPos.z * 0.12;
+    
+        const lowFreq =
+            Math.sin(nx) * 0.6 +
+            Math.cos(nz * 0.9 + ny * 0.4) * 0.4;
+    
+        const midFreq =
+            Math.sin(nx * 2.1 + nz * 1.3) * 0.25 +
+            Math.cos(ny * 2.0 - nz * 0.7) * 0.2;
+    
+        const highFreq =
+            Math.sin(nx * 4.7 + ny * 3.3 + nz * 2.9) * 0.08;
+    
+        // Combine and scale to get hills + ridges
+        const noise = (lowFreq + midFreq + highFreq);
+    
+        // Push terrain outwards: negative values are "solid"
+        const elevation = noise * 1.2; // tweak for more/less mountains
+    
+        // Final SDF: below 0 = inside terrain, above 0 = empty
+        return (dist - (this.radius + elevation));
     }
 
-    // ---------------------------------------------------------------------
-    // Simple 3D value noise
-    // ---------------------------------------------------------------------
 
-    _hash3(x, y, z) {
-        let h = x * 374761393 + y * 668265263 + z * 2147483647;
-        h = (h ^ (h >> 13)) * 1274126177;
-        return ((h ^ (h >> 16)) & 0xffff) / 0xffff; // [0, 1]
-    }
-
-    _valueNoise3(x, y, z) {
-        const xi = Math.floor(x);
-        const yi = Math.floor(y);
-        const zi = Math.floor(z);
-
-        const xf = x - xi;
-        const yf = y - yi;
-        const zf = z - zi;
-
-        const v000 = this._hash3(xi,     yi,     zi);
-        const v100 = this._hash3(xi + 1, yi,     zi);
-        const v010 = this._hash3(xi,     yi + 1, zi);
-        const v110 = this._hash3(xi + 1, yi + 1, zi);
-        const v001 = this._hash3(xi,     yi,     zi + 1);
-        const v101 = this._hash3(xi + 1, yi,     zi + 1);
-        const v011 = this._hash3(xi,     yi + 1, zi + 1);
-        const v111 = this._hash3(xi + 1, yi + 1, zi + 1);
-
-        const uxf = xf * xf * (3 - 2 * xf);
-        const uyf = yf * yf * (3 - 2 * yf);
-        const uzf = zf * zf * (3 - 2 * zf);
-
-        const x00 = v000 * (1 - uxf) + v100 * uxf;
-        const x10 = v010 * (1 - uxf) + v110 * uxf;
-        const x01 = v001 * (1 - uxf) + v101 * uxf;
-        const x11 = v011 * (1 - uxf) + v111 * uxf;
-
-        const y0 = x00 * (1 - uyf) + x10 * uyf;
-        const y1 = x01 * (1 - uyf) + x11 * uyf;
-
-        const v = y0 * (1 - uzf) + y1 * uzf;
-        return v * 2.0 - 1.0; // [-1, 1]
-    }
-
-    _continentNoise(pos) {
-        const r = this.radius || 1.0;
-        const scaled = pos.scale(this.continentFreq / r);
-        return this._valueNoise3(scaled.x, scaled.y, scaled.z);
-    }
-
-    _mountainNoise(pos) {
-        const r = this.radius || 1.0;
-        const scaled = pos.scale(this.mountainFreq / r);
-        return Math.abs(this._valueNoise3(scaled.x, scaled.y, scaled.z));
-    }
-
-    _sampleSdf(pos) {
-        const r = this.radius || 1.0;
-        let d = pos.length() - r;
-
-        if (this.enableNoise) {
-            const c = this._continentNoise(pos); // [-1,1]
-            const m = this._mountainNoise(pos);  // [0,1]
-
-            const continentHeight = c * (this.continentAmp * r);
-            const mountainHeight  = m * (this.mountainAmp * r);
-
-            d -= continentHeight;
-            d -= mountainHeight;
-        }
-
-        return d;
-    }
-
-    // ---------------------------------------------------------------------
-    // Populate scalar field
-    // ---------------------------------------------------------------------
-
-    _populateField() {
-        let idx = 0;
-        for (let y = 0; y < this.dimY; y++) {
-            for (let z = 0; z < this.dimZ; z++) {
+    _buildInitialField() {
+        for (let z = 0; z < this.dimZ; z++) {
+            for (let y = 0; y < this.dimY; y++) {
                 for (let x = 0; x < this.dimX; x++) {
+                    const worldPos = this.origin.add(
+                        new BABYLON.Vector3(
+                            x * this.cellSize,
+                            y * this.cellSize,
+                            z * this.cellSize
+                        )
+                    );
+                    const v = this._sampleSdf(worldPos);
+                    this.field[this._index(x, y, z)] = v;
+                }
+            }
+        }
+    }
+
+    // Public: carve out a ball of emptiness at worldPos
+    carveSphere(worldPos, radius) {
+        const r2 = radius * radius;
+
+        for (let z = 0; z < this.dimZ; z++) {
+            for (let y = 0; y < this.dimY; y++) {
+                for (let x = 0; x < this.dimX; x++) {
+                    const idx = this._index(x, y, z);
                     const pos = this.origin.add(
                         new BABYLON.Vector3(
                             x * this.cellSize,
@@ -502,47 +458,26 @@ export class MarchingCubesTerrain {
                             z * this.cellSize
                         )
                     );
-                    this.field[idx++] = this._sampleSdf(pos);
+
+                    const d2 = BABYLON.Vector3.DistanceSquared(pos, worldPos);
+
+                    // If we’re inside the carving sphere, push field to positive (empty)
+                    if (d2 <= r2 && this.field[idx] < this.isoLevel) {
+                        this.field[idx] = this.isoLevel + 0.01;
+                    }
                 }
-            }
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Carving / destruction
-    // ---------------------------------------------------------------------
-
-    carveSphere(worldPos, radius) {
-        const r2 = radius * radius;
-        const total = this.field.length;
-
-        for (let i = 0; i < total; i++) {
-            const p = this._worldPosForIndex(i);
-            const dx = p.x - worldPos.x;
-            const dy = p.y - worldPos.y;
-            const dz = p.z - worldPos.z;
-            const dist2 = dx * dx + dy * dy + dz * dz;
-
-            if (dist2 <= r2) {
-                // Raise SDF above isoLevel to remove material
-                this.field[i] = Math.max(this.field[i], this.isoLevel + 0.001);
             }
         }
 
         this._buildMesh();
     }
 
-    // ---------------------------------------------------------------------
-    // Build mesh with Marching Cubes
-    // ---------------------------------------------------------------------
-
     _buildMesh() {
         const positions = [];
         const normals = [];
         const indices = [];
-        const vertList = new Array(12);
 
-        const cellWorldPos = (gx, gy, gz) =>
+        const worldPos = (gx, gy, gz) =>
             this.origin.add(
                 new BABYLON.Vector3(
                     gx * this.cellSize,
@@ -551,13 +486,16 @@ export class MarchingCubesTerrain {
                 )
             );
 
+        const vertList = new Array(12);
+
+        // March over all cubes in the grid
         for (let z = 0; z < this.dimZ - 1; z++) {
             for (let y = 0; y < this.dimY - 1; y++) {
                 for (let x = 0; x < this.dimX - 1; x++) {
                     const cornerValues = new Array(8);
                     const cornerPositions = new Array(8);
 
-                    // Sample 8 corners of this cell
+                    // Sample the 8 corners of this cube
                     for (let i = 0; i < 8; i++) {
                         const [dx, dy, dz] = CORNER_OFFSETS[i];
                         const gx = x + dx;
@@ -565,11 +503,13 @@ export class MarchingCubesTerrain {
                         const gz = z + dz;
 
                         const idx = this._index(gx, gy, gz);
-                        cornerValues[i] = this.field[idx];
-                        cornerPositions[i] = cellWorldPos(gx, gy, gz);
+                        const v = this.field[idx];
+
+                        cornerValues[i] = v;
+                        cornerPositions[i] = worldPos(gx, gy, gz);
                     }
 
-                    // Build cubeIndex bitmask
+                    // Determine cube index
                     let cubeIndex = 0;
                     if (cornerValues[0] < this.isoLevel) cubeIndex |= 1;
                     if (cornerValues[1] < this.isoLevel) cubeIndex |= 2;
@@ -583,7 +523,7 @@ export class MarchingCubesTerrain {
                     const edgeMask = edgeTable[cubeIndex];
                     if (!edgeMask) continue;
 
-                    // Interpolate edge vertices
+                    // Interpolate along edges where the surface cuts
                     for (let e = 0; e < 12; e++) {
                         if (!(edgeMask & (1 << e))) continue;
 
@@ -601,41 +541,41 @@ export class MarchingCubesTerrain {
                         vertList[e] = BABYLON.Vector3.Lerp(pa, pb, t);
                     }
 
+                    // Build triangles from triTable
                     const triRow = triTable[cubeIndex];
                     for (let i = 0; i < 16; i += 3) {
                         const e0 = triRow[i];
                         const e1 = triRow[i + 1];
                         const e2 = triRow[i + 2];
-
+                    
+                        // end of this configuration
                         if (e0 === -1 || e1 === -1 || e2 === -1) break;
-
+                    
                         const p0 = vertList[e0];
                         const p1 = vertList[e1];
                         const p2 = vertList[e2];
-
-                        if (!p0 || !p1 || !p2) continue;
-
-                        const base = positions.length / 3;
-
+                    
+                        // Defensive: if an edge vertex was never generated (mismatch between
+                        // edgeTable and triTable), skip this triangle instead of crashing.
+                        if (!p0 || !p1 || !p2) {
+                            continue;
+                        }
+                    
+                        const baseIndex = positions.length / 3;
+                    
                         positions.push(
                             p0.x, p0.y, p0.z,
                             p1.x, p1.y, p1.z,
                             p2.x, p2.y, p2.z
                         );
-
-                        indices.push(base, base + 1, base + 2);
+                    
+                        indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
                     }
                 }
             }
         }
 
-        if (positions.length === 0 || indices.length === 0) {
-            if (this.mesh) {
-                this.mesh.setEnabled(false);
-            }
-            return;
-        }
-
+        // Compute normals
         BABYLON.VertexData.ComputeNormals(positions, indices, normals);
 
         const vertexData = new BABYLON.VertexData();
@@ -645,17 +585,20 @@ export class MarchingCubesTerrain {
 
         if (!this.mesh) {
             this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
-        }
 
-        if (!this.material) {
-            this.material = new BABYLON.StandardMaterial("terrainMat", this.scene);
+            this.material = new BABYLON.StandardMaterial(
+                "terrainMat",
+                this.scene
+            );
             this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
             this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
             this.material.backFaceCulling = false;
-        }
 
-        this.mesh.material = this.material;
-        this.mesh.setEnabled(true);
+            this.mesh.material = this.material;
+        } else {
+            // Reusing an existing mesh from the pool – make sure it is visible
+            this.mesh.setEnabled(true);
+        }
 
         vertexData.applyToMesh(this.mesh, true);
     }
