@@ -364,9 +364,15 @@ export class MarchingCubesTerrain {
 
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
-        
+
         // Approximate radius of the planet (in world units)
         this.radius = options.radius ?? 18.0;
+
+        // Noise parameters for planetary terrain
+        this.continentFreq = options.continentFreq ?? 0.4;
+        this.continentAmp  = options.continentAmp  ?? 0.08;
+        this.mountainFreq  = options.mountainFreq  ?? 2.0;
+        this.mountainAmp   = options.mountainAmp   ?? 0.02;
         // Center the volume around the origin
         // but allow an explicit world-space origin via options.origin.
         this.origin =
@@ -406,45 +412,94 @@ export class MarchingCubesTerrain {
         );
     }
 
-    // ----------------------------------------------------------------
-    // Signed distance field (planet + noise)
-    // ----------------------------------------------------------------
+    // --- Simple 3D value noise with trilinear interpolation ---
 
-    _sampleSdf(worldPos) {
-        // Distance from center
-        const dist = worldPos.length();
+    _hash3(x, y, z) {
+        // Deterministic pseudo-random hash based on integer coordinates
+        let h = x * 374761393 + y * 668265263 + z * 2147483647;
+        h = (h ^ (h >> 13)) * 1274126177;
+        return ((h ^ (h >> 16)) & 0xffff) / 0xffff; // [0,1]
+    }
 
-        // Normalized position for noise lookup
-        const nx = worldPos.x / this.radius;
-        const ny = worldPos.y / this.radius;
-        const nz = worldPos.z / this.radius;
+    _valueNoise3(x, y, z) {
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        const zi = Math.floor(z);
 
-        // A few layers of fake "noise" (replace with real 3D noise later)
-        const lowFreq =
-            Math.sin(nx * 0.7 + ny * 0.5 + nz * 0.4) * 0.8;
+        const xf = x - xi;
+        const yf = y - yi;
+        const zf = z - zi;
 
-        const midFreq =
-            Math.cos(nx * 1.9 + nz * 1.3) * 0.4 +
-            Math.cos(ny * 2.0 - nz * 0.7) * 0.2;
+        const v000 = this._hash3(xi,     yi,     zi);
+        const v100 = this._hash3(xi + 1, yi,     zi);
+        const v010 = this._hash3(xi,     yi + 1, zi);
+        const v110 = this._hash3(xi + 1, yi + 1, zi);
+        const v001 = this._hash3(xi,     yi,     zi + 1);
+        const v101 = this._hash3(xi + 1, yi,     zi + 1);
+        const v011 = this._hash3(xi,     yi + 1, zi + 1);
+        const v111 = this._hash3(xi + 1, yi + 1, zi + 1);
 
-        const highFreq =
-            Math.sin(nx * 4.7 + ny * 3.3 + nz * 2.9) * 0.08;
+        const uxf = xf * xf * (3 - 2 * xf);
+        const uyf = yf * yf * (3 - 2 * yf);
+        const uzf = zf * zf * (3 - 2 * zf);
 
-        // Combine and scale to get hills + ridges
-        const noise = (lowFreq + midFreq + highFreq);
+        const x00 = v000 * (1 - uxf) + v100 * uxf;
+        const x10 = v010 * (1 - uxf) + v110 * uxf;
+        const x01 = v001 * (1 - uxf) + v101 * uxf;
+        const x11 = v011 * (1 - uxf) + v111 * uxf;
 
-        // Push terrain outwards: negative values are "solid"
-        const elevation = noise * 1.2; // tweak for more/less mountains
+        const y0 = x00 * (1 - uyf) + x10 * uyf;
+        const y1 = x01 * (1 - uyf) + x11 * uyf;
 
-        // Final SDF: below 0 = inside terrain, above 0 = empty
-        return (dist - (this.radius + elevation));
+        const v = y0 * (1 - uzf) + y1 * uzf;
+        return v * 2.0 - 1.0; // [-1, 1]
+    }
+
+    _continentNoise(pos) {
+        // pos in world units; normalize by radius
+        const r = this.radius || 1.0;
+        const scaled = pos.scale(this.continentFreq / r);
+        return this._valueNoise3(scaled.x, scaled.y, scaled.z);
+    }
+
+    _mountainNoise(pos) {
+        const r = this.radius || 1.0;
+        const scaled = pos.scale(this.mountainFreq / r);
+        // absolute value to get more "ridged" features
+        return Math.abs(this._valueNoise3(scaled.x, scaled.y, scaled.z));
     }
 
     _populateField() {
-        const total = this.dimX * this.dimY * this.dimZ;
-        for (let i = 0; i < total; i++) {
-            const p = this._worldPosFromIndex(i);
-            this.field[i] = this._sampleSdf(p);
+        let index = 0;
+        const r = this.radius || 1.0;
+
+        for (let y = 0; y < this.dimY; y++) {
+            for (let z = 0; z < this.dimZ; z++) {
+                for (let x = 0; x < this.dimX; x++) {
+                    const pos = new BABYLON.Vector3(
+                        x * this.cellSize,
+                        y * this.cellSize,
+                        z * this.cellSize
+                    ).add(this.origin);
+
+                    // Base spherical SDF
+                    let d = pos.length() - r;
+
+                    // Continents: long-wavelength height changes
+                    const c = this._continentNoise(pos);   // [-1, 1]
+                    const continentHeight = c * (this.continentAmp * r);
+
+                    // Mountains: higher frequency detail, always outward
+                    const m = this._mountainNoise(pos);    // [0, 1]
+                    const mountainHeight = m * (this.mountainAmp * r);
+
+                    // Subtract height from distance to "push out" terrain
+                    d -= continentHeight;
+                    d -= mountainHeight;
+
+                    this.field[index++] = d;
+                }
+            }
         }
     }
 

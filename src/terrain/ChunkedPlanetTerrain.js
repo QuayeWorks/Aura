@@ -11,12 +11,20 @@ export class ChunkedPlanetTerrain {
 
         // Base resolution of a chunk in cells (will be divided by LOD factor)
         this.baseChunkResolution = options.baseChunkResolution ?? 22;
-        
+
         this.baseDimY = options.dimY ?? 32;   // remember base vertical samples
 
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
+
+        // --- Noise / terrain shape parameters ---
+        // Scaled in "planet radius" space; tweak as desired.
+        this.continentFreq = options.continentFreq ?? 0.4;  // low freq = big continents
+        this.continentAmp  = options.continentAmp  ?? 0.08; // % of radius
+
+        this.mountainFreq  = options.mountainFreq  ?? 2.0;
+        this.mountainAmp   = options.mountainAmp   ?? 0.02;
         
         // Make vertical resolution big enough to fully contain the sphere
         // (2 * radius / cellSize) + a small margin.
@@ -148,7 +156,13 @@ export class ChunkedPlanetTerrain {
             radius: this.radius,
             origin,
             mesh: pooledMesh,
-            material: this.material
+            material: this.material,
+
+            // pass noise params
+            continentFreq: this.continentFreq,
+            continentAmp: this.continentAmp,
+            mountainFreq: this.mountainFreq,
+            mountainAmp: this.mountainAmp
         });
 
         // Share a single material across all chunks
@@ -440,6 +454,37 @@ export class ChunkedPlanetTerrain {
     // For compatibility with old code that accessed terrain.material
     get materialAlias() {
         return this.material;
+    }
+
+    /**
+     * Get the gravity direction at a world position:
+     * a vector pointing **toward** the planet center.
+     */
+    getGravityDirection(worldPos) {
+        if (!worldPos) {
+            return new BABYLON.Vector3(0, -1, 0);
+        }
+        const dir = worldPos.clone();
+        if (dir.lengthSquared() === 0) {
+            return new BABYLON.Vector3(0, -1, 0);
+        }
+        return dir.normalize().scale(-1); // toward center
+    }
+
+    /**
+     * Approximate "up" direction at a world position:
+     * a vector pointing **away** from the planet center.
+     * For a pure sphere, this is the surface normal.
+     */
+    getSurfaceUp(worldPos) {
+        if (!worldPos) {
+            return new BABYLON.Vector3(0, 1, 0);
+        }
+        const dir = worldPos.clone();
+        if (dir.lengthSquared() === 0) {
+            return new BABYLON.Vector3(0, 1, 0);
+        }
+        return dir.normalize(); // away from center
     }
 
     // Carve a sphere out of all chunks
