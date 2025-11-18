@@ -476,24 +476,6 @@ export class ChunkedPlanetTerrain {
     }
 
 
-    // Shared material (for brightness, wireframe, etc.)
-    get materialRef() {
-        return this.material;
-    }
-
-    // For compatibility with old code that accessed terrain.material
-    get materialAlias() {
-        return this.material;
-    }
-
-    get materialObj() {
-        return this.material;
-    }
-
-    // Convenience used by main.js in your current version
-    get material() {
-        return this.materialRef;
-    }
 
     // Carve a sphere out of all chunks
     carveSphere(worldPos, radius) {
