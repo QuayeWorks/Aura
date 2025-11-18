@@ -13,7 +13,7 @@ export class PlanetPlayer {
         this.moveAccel = options.moveAccel ?? 60;       // accel toward target speed
         this.groundFriction = options.groundFriction ?? 12;
         this.airFriction = options.airFriction ?? 1;
-        this.gravity = options.gravity ?? 30;           // units/s^2 toward center
+        this.gravity = options.gravity ?? 10;           // units/s^2 toward center
         this.jumpSpeed = options.jumpSpeed ?? 15;       // initial jump speed
 
         this.height = options.height ?? 2.0;            // eye-to-ground distance
@@ -358,6 +358,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
