@@ -49,11 +49,22 @@ export class PlanetPlayer {
 
         // Start just above the planet surface (on +Z)
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
-        
-        // Small extra margin so we're clearly outside the marching-cubes surface
-        const spawnRadius = this.planetRadius + this.height + this.capsuleRadius * 0.5;
-        
+
+        const spawnRadius =
+            this.planetRadius +
+            this.height +
+            this.capsuleRadius * 0.5;
+
         this.mesh.position = startDir.scale(spawnRadius);
+
+        // Debug in console so we KNOW what was used:
+        console.log(
+            "[PlanetPlayer] spawn:",
+            "planetRadius =", this.planetRadius,
+            "spawnRadius =", spawnRadius,
+            "position =", this.mesh.position.toString()
+        );
+
 
         // Do an initial ground snap so we start exactly on the surface
         // once terrain meshes exist.
@@ -271,6 +282,31 @@ export class PlanetPlayer {
     update(dtSeconds) {
         if (!this.mesh) return;
 
+        // --- One-time spawn radius correction ---
+        if (!this._spawnFixed) {
+            const desiredRadius =
+                this.planetRadius +
+                this.height +
+                this.capsuleRadius * 0.5;
+
+            let pos = this.mesh.position;
+            if (pos.lengthSquared() < 1e-6) {
+                // If something left us at (0,0,0), choose +Z as a fallback
+                pos = new BABYLON.Vector3(0, 0, 1);
+            }
+
+            const dir = pos.normalize();
+            this.mesh.position = dir.scale(desiredRadius);
+
+            console.log(
+                "[PlanetPlayer] spawn fix:",
+                "desiredRadius =", desiredRadius,
+                "newPos =", this.mesh.position.toString()
+            );
+
+            this._spawnFixed = true;
+        }
+        
         // Movement basis from camera if available
         let forwardWorld = new BABYLON.Vector3(0, 0, 1);
         let rightWorld   = new BABYLON.Vector3(1, 0, 0);
@@ -322,6 +358,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
