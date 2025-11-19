@@ -47,9 +47,11 @@ export class PlanetPlayer {
         );
         this.mesh.checkCollisions = false; // we handle our own
 
-        // Start somewhere above the planet near +Z
+        // Start just above the planet surface (on +Z)
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
-        this.mesh.position = startDir.scale(this.planetRadius + this.height);
+        const spawnRadius = this.planetRadius + this.height + this.capsuleRadius * 0.5;
+        this.mesh.position = startDir.scale(spawnRadius);
+
         // Do an initial ground snap so we start exactly on the surface
         // once terrain meshes exist.
         this._checkGroundAndSnap();
@@ -315,6 +317,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
