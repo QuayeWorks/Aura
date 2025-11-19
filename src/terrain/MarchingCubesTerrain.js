@@ -377,7 +377,10 @@ export class MarchingCubesTerrain {
 
         // Scalar field samples at each grid vertex
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
-
+        
+        // If true, caller will build field/mesh later via rebuildWithSettings()
+        this.deferBuild = !!options.deferBuild;
+        
         this._buildInitialField();
         this._buildMesh();
     }
@@ -444,7 +447,9 @@ export class MarchingCubesTerrain {
     }
 
     // Public: carve out a ball of emptiness at worldPos
-    carveSphere(worldPos, radius) {
+    // options.deferRebuild === true  => only change field, caller will rebuild mesh
+    carveSphere(worldPos, radius, options = {}) {
+        const deferRebuild = !!options.deferRebuild;
         const r2 = radius * radius;
 
         // Compute the bounds of the sphere in local grid coordinates
@@ -497,8 +502,16 @@ export class MarchingCubesTerrain {
             }
         }
 
+        if (!deferRebuild) {
+            this._buildMesh();
+        }
+    }
+
+    // Rebuild mesh from current field without touching the field
+    rebuildMeshOnly() {
         this._buildMesh();
     }
+
 
 
     _buildMesh() {
@@ -576,41 +589,41 @@ export class MarchingCubesTerrain {
                         const e0 = triRow[i];
                         const e1 = triRow[i + 1];
                         const e2 = triRow[i + 2];
-                    
+
                         // end of this configuration
                         if (e0 === -1 || e1 === -1 || e2 === -1) break;
-                    
+
                         const p0 = vertList[e0];
                         const p1 = vertList[e1];
                         const p2 = vertList[e2];
-                    
-                        // Defensive: if an edge vertex was never generated (mismatch between
-                        // edgeTable and triTable), skip this triangle instead of crashing.
+
+                        // Defensive: skip malformed triangles
                         if (!p0 || !p1 || !p2) {
                             continue;
                         }
-                    
+
                         const baseIndex = positions.length / 3;
-                    
+
                         positions.push(
                             p0.x, p0.y, p0.z,
                             p1.x, p1.y, p1.z,
                             p2.x, p2.y, p2.z
                         );
-                    
+
                         indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
                     }
                 }
             }
         }
-        
-        //  NEW: if this chunk has no triangles, disable its mesh and bail
+
+        // If this chunk is empty, disable its mesh and bail
         if (positions.length === 0 || indices.length === 0) {
             if (this.mesh) {
                 this.mesh.setEnabled(false);
             }
             return;
         }
+
         // Compute normals
         BABYLON.VertexData.ComputeNormals(positions, indices, normals);
 
@@ -622,13 +635,16 @@ export class MarchingCubesTerrain {
         if (!this.mesh) {
             this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
 
-            this.material = new BABYLON.StandardMaterial(
-                "terrainMat",
-                this.scene
-            );
-            this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
-            this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-            this.material.backFaceCulling = false;
+            // Use shared material if provided, otherwise create one
+            if (!this.material) {
+                this.material = new BABYLON.StandardMaterial(
+                    "terrainMat",
+                    this.scene
+                );
+                this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+                this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+                this.material.backFaceCulling = false;
+            }
 
             this.mesh.material = this.material;
         } else {
@@ -636,8 +652,12 @@ export class MarchingCubesTerrain {
             this.mesh.setEnabled(true);
         }
 
+        // Make terrain collideable for Babylon’s picking/collision system
+        this.mesh.checkCollisions = true;
+
         vertexData.applyToMesh(this.mesh, true);
     }
+
         // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
     rebuildWithSettings(settings) {
         // Optionally change resolution
