@@ -9,6 +9,7 @@ const engine = new BABYLON.Engine(canvas, true);
 const PLANET_RADIUS_UNITS = 1800
 let terrain = null;
 let player = null;
+let playerInfoText = null;   // <-- add this
 
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
@@ -142,6 +143,19 @@ const createScene = () => {
         // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
         terrain.setLodLevel(v);
     });
+
+	// --- Player debug info text (top-left) ---
+playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
+playerInfoText.text = "Player: (0, 0, 0) r=0";
+playerInfoText.color = "white";
+playerInfoText.fontSize = 18;
+playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+playerInfoText.paddingLeft = "10px";
+playerInfoText.paddingTop = "10px";
+
+advancedTexture.addControl(playerInfoText);
+
     // Wireframe toggle
     const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
         "wireBtn",
@@ -181,7 +195,7 @@ const createScene = () => {
 const scene = createScene();
 
 engine.runRenderLoop(() => {
-    const dt = engine.getDeltaTime() / 1000.0; // seconds
+    const dt = engine.getDeltaTime() / 1000;
 
     if (terrain && scene.activeCamera) {
         terrain.updateStreaming(scene.activeCamera.position);
@@ -191,13 +205,24 @@ engine.runRenderLoop(() => {
         player.update(dt);
     }
 
+    // Update player debug HUD
+    if (player && player.mesh && playerInfoText) {
+        const p = player.mesh.position;
+        const r = p.length();
+        playerInfoText.text =
+            `Player: x=${p.x.toFixed(1)}  y=${p.y.toFixed(1)}  ` +
+            `z=${p.z.toFixed(1)}  r=${r.toFixed(1)}`;
+    }
+
     scene.render();
 });
+
 
 
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
