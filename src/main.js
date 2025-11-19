@@ -91,6 +91,15 @@ const createScene = () => {
     // -----------------------
 
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+		// --- Player debug info text (top-left) ---
+	playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
+	playerInfoText.text = "Player: (0, 0, 0) r=0";
+	playerInfoText.color = "white";
+	playerInfoText.fontSize = 18;
+	playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+	playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+	playerInfoText.paddingLeft = "10px";
+	playerInfoText.paddingTop = "10px";
 
     const panel = new BABYLON.GUI.StackPanel();
     panel.width = "260px";
@@ -144,15 +153,6 @@ const createScene = () => {
         terrain.setLodLevel(v);
     });
 
-	// --- Player debug info text (top-left) ---
-	playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
-	playerInfoText.text = "Player: (0, 0, 0) r=0";
-	playerInfoText.color = "white";
-	playerInfoText.fontSize = 18;
-	playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-	playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
-	playerInfoText.paddingLeft = "10px";
-	playerInfoText.paddingTop = "10px";
 	
 	ui.addControl(playerInfoText);
 
@@ -222,6 +222,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
