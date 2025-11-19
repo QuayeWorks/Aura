@@ -145,16 +145,16 @@ const createScene = () => {
     });
 
 	// --- Player debug info text (top-left) ---
-playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
-playerInfoText.text = "Player: (0, 0, 0) r=0";
-playerInfoText.color = "white";
-playerInfoText.fontSize = 18;
-playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
-playerInfoText.paddingLeft = "10px";
-playerInfoText.paddingTop = "10px";
-
-advancedTexture.addControl(playerInfoText);
+	playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
+	playerInfoText.text = "Player: (0, 0, 0) r=0";
+	playerInfoText.color = "white";
+	playerInfoText.fontSize = 18;
+	playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+	playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+	playerInfoText.paddingLeft = "10px";
+	playerInfoText.paddingTop = "10px";
+	
+	ui.addControl(playerInfoText);
 
     // Wireframe toggle
     const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
@@ -222,6 +222,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
