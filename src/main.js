@@ -6,12 +6,13 @@ import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const PLANET_RADIUS_UNITS = 360
+const PLANET_RADIUS_UNITS = 1800
 let terrain = null;
 let player = null;
 
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
+	scene.collisionsEnabled = true;
 
     // Blue background
     scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
@@ -62,7 +63,7 @@ const createScene = () => {
         chunkCountX: 8,
         chunkCountZ: 8,
         baseChunkResolution: 48,
-        dimY: 740,
+        dimY: 3700,
         cellSize: 1,
         isoLevel: 0,
         radius: PLANET_RADIUS_UNITS
@@ -197,6 +198,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
