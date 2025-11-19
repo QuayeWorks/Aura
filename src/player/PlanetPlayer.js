@@ -290,7 +290,10 @@ export class PlanetPlayer {
         if (move.lengthSquared() > 0) {
             move.normalize();
             const displacement = move.scale(this.moveSpeed * dtSeconds);
-            this.mesh.position.addInPlace(displacement);
+
+            // *** NEW: resolve collisions against marching-cubes terrain ***
+            const newPos = this._resolveHorizontalCollisions(this.mesh.position, displacement);
+            this.mesh.position.copyFrom(newPos);
 
             // Orient capsule to face movement direction, keep a consistent "up"
             const forward = move.clone().normalize();
@@ -309,7 +312,6 @@ export class PlanetPlayer {
             }
             BABYLON.Quaternion.FromRotationMatrixToRef(m, this.mesh.rotationQuaternion);
         }
-
     }
 
 
@@ -317,9 +319,3 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
-
-
-
-
-
-
