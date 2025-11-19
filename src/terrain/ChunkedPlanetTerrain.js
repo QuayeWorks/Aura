@@ -32,7 +32,13 @@ export class ChunkedPlanetTerrain {
         this.lodMid  = options.lodMid  ?? this.radius * 3.0;
 
         this.chunks = [];         // { terrain, gridX, gridZ, lodLevel }
-        this.material = null;
+        
+        // Shared terrain material across all chunks
+        this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
+        this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+        this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        this.material.backFaceCulling = false;
+        
         this.meshPool = [];       // pool of reusable Babylon meshes
 
         // Queue of pending chunk rebuilds (for smooth streaming / LOD changes)
@@ -167,6 +173,9 @@ export class ChunkedPlanetTerrain {
             this.lastCameraPosition ||
             new BABYLON.Vector3(0, 0, this.radius * 2);
 
+        // We’ll build everything lazily via the build queue
+        this.buildQueue = [];
+
         for (let ix = 0; ix < this.chunkCountX; ix++) {
             for (let iz = 0; iz < this.chunkCountZ; iz++) {
                 // Grid index centered around origin
@@ -194,6 +203,7 @@ export class ChunkedPlanetTerrain {
                 const pooledMesh =
                     this.meshPool.length > 0 ? this.meshPool.pop() : null;
 
+                // IMPORTANT: deferBuild = true so no heavy work in constructor
                 const terrain = new MarchingCubesTerrain(this.scene, {
                     dimX: lodDims.dimX,
                     dimY: lodDims.dimY,
@@ -203,25 +213,21 @@ export class ChunkedPlanetTerrain {
                     radius: this.radius,
                     origin,
                     mesh: pooledMesh,
-                    material: this.material
+                    material: this.material,
+                    deferBuild: true
                 });
-
-                // Share a single material across all chunks so UI can tweak one
-                if (!this.material) {
-                    this.material = terrain.material;
-                } else if (terrain.mesh && terrain.mesh.material !== this.material) {
-                    terrain.mesh.material = this.material;
-                }
-
-                // Reapply all previous carve operations to this new chunk
-                for (const op of this.carveHistory) {
-                    terrain.carveSphere(op.position, op.radius);
-                }
 
                 this.chunks.push({
                     terrain,
                     gridX: gx,
                     gridZ: gz,
+                    lodLevel: lodForChunk
+                });
+
+                // Schedule initial build for this chunk
+                this.buildQueue.push({
+                    chunk: terrain,
+                    origin,
                     lodLevel: lodForChunk
                 });
             }
@@ -331,7 +337,7 @@ export class ChunkedPlanetTerrain {
      * Process a few pending chunk rebuilds per frame
      * to avoid big hitches when streaming / LOD changes.
      */
-    _processBuildQueue(maxPerFrame = 2) {
+    _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
         while (count < maxPerFrame && this.buildQueue.length > 0) {
             const job = this.buildQueue.shift();
@@ -396,11 +402,19 @@ export class ChunkedPlanetTerrain {
         const baseMetrics = this._computeBaseChunkMetrics();
         const origin = terrain.origin;
 
+        let touched = false;
+
         for (const op of this.carveHistory) {
             if (!this._sphereIntersectsChunkAabb(op.position, op.radius, origin, baseMetrics)) {
                 continue;
             }
-            terrain.carveSphere(op.position, op.radius);
+            // Update field only; defer mesh rebuild
+            terrain.carveSphere(op.position, op.radius, { deferRebuild: true });
+            touched = true;
+        }
+
+        if (touched) {
+            terrain.rebuildMeshOnly();
         }
     }
 
