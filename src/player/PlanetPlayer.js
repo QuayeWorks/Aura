@@ -49,7 +49,10 @@ export class PlanetPlayer {
 
         // Start just above the planet surface (on +Z)
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
-        const spawnRadius = (this.planetRadius * 2) + this.height + this.capsuleRadius * 0.5;
+        
+        // Small extra margin so we're clearly outside the marching-cubes surface
+        const spawnRadius = this.planetRadius + this.height + this.capsuleRadius * 0.5;
+        
         this.mesh.position = startDir.scale(spawnRadius);
 
         // Do an initial ground snap so we start exactly on the surface
@@ -319,5 +322,6 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
