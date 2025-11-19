@@ -22,7 +22,7 @@ const createScene = () => {
         Math.PI / 4,
         Math.PI / 3,
         60,
-        BABYLON.Vector3.Zero(),
+        new BABYLON.Vector3.Zero(),
         scene
     );
     camera.attachControl(canvas, true);
@@ -69,7 +69,7 @@ const createScene = () => {
     });
 	// --- Player capsule that can traverse the planet -------------------------
 	player = new PlanetPlayer(scene, terrain, {
-		planetRadius: PLANET_RADIUS_UNITS,
+		planetRadius: 73,
 		moveSpeed: 25,
 		height: 2.0,
 		capsuleRadius: 0.6
@@ -78,6 +78,10 @@ const createScene = () => {
 	// Let the player use the active camera for movement direction
 	if (scene.activeCamera) {
 		player.attachCamera(scene.activeCamera);
+		// Make the orbit camera follow the capsule instead of the world origin
+		camera.lockedTarget = player.mesh;
+		// Optional: tweak distance so you see more of the planet
+		camera.radius = camera.radius || 80;
 	}
 
     // -----------------------
@@ -193,6 +197,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
