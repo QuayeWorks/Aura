@@ -92,14 +92,14 @@ const createScene = () => {
 
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 		// --- Player debug info text (top-left) ---
-	playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
+	/*playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
 	playerInfoText.text = "Player: (0, 0, 0) r=0";
 	playerInfoText.color = "white";
 	playerInfoText.fontSize = 18;
 	playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
 	playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
 	playerInfoText.paddingLeft = "10px";
-	playerInfoText.paddingTop = "10px";
+	playerInfoText.paddingTop = "10px";*/
 
     const panel = new BABYLON.GUI.StackPanel();
     panel.width = "260px";
@@ -154,7 +154,7 @@ const createScene = () => {
     });
 
 	
-	ui.addControl(playerInfoText);
+	//ui.addControl(playerInfoText);
 
     // Wireframe toggle
     const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
@@ -204,7 +204,7 @@ engine.runRenderLoop(() => {
     if (player) {
         player.update(dt);
     }
-
+	/*
     // Update player debug HUD
     if (player && player.mesh && playerInfoText) {
         const p = player.mesh.position;
@@ -212,7 +212,7 @@ engine.runRenderLoop(() => {
         playerInfoText.text =
             `Player: x=${p.x.toFixed(1)}  y=${p.y.toFixed(1)}  ` +
             `z=${p.z.toFixed(1)}  r=${r.toFixed(1)}`;
-    }
+    }*/
 
     scene.render();
 });
@@ -222,6 +222,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
