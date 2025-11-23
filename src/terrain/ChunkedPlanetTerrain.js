@@ -85,25 +85,56 @@ export class ChunkedPlanetTerrain {
         return Math.min(desired, this.lodLevel);
     }
 
-    // Base chunk metrics that do NOT depend on LOD
+    /**
+     * Compute the base world-space size of a chunk and base grid dimensions,
+     * from the planet radius and the requested chunkCount / baseChunkResolution.
+     *
+     * We ensure that the total voxel volume fully encloses the sphere:
+     *   worldSpan ≈ 2 * radius * marginFactor   (margin ≈ 10%)
+     * and that the same cellSize is used in X/Y/Z so the SDF is sampled isotropically.
+     */
     _computeBaseChunkMetrics() {
-        const baseCellsX = this.baseChunkResolution - 1;
-        const baseCellsZ = baseCellsX;
-        const baseCellsY = this.baseDimY - 1;
+        // Full diameter of the planet in world units
+        const diameter = this.radius * 2.0;
 
-        const baseChunkWidth  = baseCellsX * this.cellSize;
-        const baseChunkDepth  = baseCellsZ * this.cellSize;
-        const baseChunkHeight = baseCellsY * this.cellSize;
+        // Slightly larger cube so we don't accidentally clip the sphere at the edges
+        const marginFactor = 1.1;
+        const worldSpan = diameter * marginFactor;     // size of the cube edge
+
+        // Split that span into chunkCountX/Z tiles
+        const chunkWorldSizeX = worldSpan / this.chunkCountX;
+        const chunkWorldSizeZ = worldSpan / this.chunkCountZ;
+
+        // How many samples (cells+1) per chunk in X/Z at base LOD
+        const baseDimX = this.baseChunkResolution;
+        const baseDimZ = this.baseChunkResolution;
+
+        // Choose a cellSize that exactly makes baseDimX samples fit chunkWorldSizeX
+        // (minus 1 because cells = samples-1)
+        const cellSize = chunkWorldSizeX / (baseDimX - 1);
+
+        // Compute vertical dimension so Y also spans the same worldSpan
+        const baseDimY = Math.round(worldSpan / cellSize) + 1;
+        const chunkWorldSizeY = (baseDimY - 1) * cellSize;
+
+        // Save for other code that relies on these
+        this.cellSize = cellSize;
+        this.baseDimY = baseDimY;
+        this.chunkWorldSizeX = chunkWorldSizeX;
+        this.chunkWorldSizeZ = chunkWorldSizeZ;
+        this.chunkWorldSizeY = chunkWorldSizeY;
 
         return {
-            baseCellsX,
-            baseCellsZ,
-            baseCellsY,
-            baseChunkWidth,
-            baseChunkDepth,
-            baseChunkHeight
+            baseChunkWidth:  chunkWorldSizeX,
+            baseChunkDepth:  chunkWorldSizeZ,
+            baseChunkHeight: chunkWorldSizeY,
+            baseDimX,
+            baseDimY,
+            baseDimZ,
+            cellSize
         };
     }
+
 
     // Given an LOD level, compute grid resolution + cellSize that keep world size fixed
     _computeLodDimensions(lodLevel) {
@@ -155,15 +186,19 @@ export class ChunkedPlanetTerrain {
         this._disposeChunks();
 
         const baseMetrics = this._computeBaseChunkMetrics();
-        this.chunkWorldSizeX = baseMetrics.baseChunkWidth;
-        this.chunkWorldSizeZ = baseMetrics.baseChunkDepth;
+		
 
         const chunkWidth  = baseMetrics.baseChunkWidth;
         const chunkDepth  = baseMetrics.baseChunkDepth;
         const chunkHeight = baseMetrics.baseChunkHeight;
 
+        const worldSpan = this.radius * 2.0 * 1.1; // must match marginFactor in _computeBaseChunkMetrics()
+		
+        this.chunkWorldSizeX = baseMetrics.baseChunkWidth;
+        this.chunkWorldSizeZ = baseMetrics.baseChunkDepth;
+
         // Overlap so edges match between neighboring chunks
-        const overlap = 1 * this.cellSize; // one voxel layer at base scale
+        const overlap = this.cellSize; // one voxel layer at base scale
         this.chunkOverlap = overlap;
 
         const halfCountX = this.chunkCountX / 2.0;
@@ -182,12 +217,16 @@ export class ChunkedPlanetTerrain {
                 const gx = (ix - halfCountX + 0.5) + this.gridOffsetX;
                 const gz = (iz - halfCountZ + 0.5) + this.gridOffsetZ;
 
-                // Origin of this chunk's sampling volume (world space)
+                // Center the whole chunk grid around world origin so the planet
+                // (also centered at origin) is fully enclosed.
+                const halfSpan = worldSpan * 0.5;  // same worldSpan as in _computeBaseChunkMetrics
+
                 const origin = new BABYLON.Vector3(
-                    gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
-                    -chunkHeight * 0.5,
-                    gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
+                    -halfSpan + ix * chunkWidth,
+                    -halfSpan,
+                    -halfSpan + iz * chunkDepth
                 );
+
 
                 // Chunk center (approx) for distance based LOD
                 const chunkCenter = new BABYLON.Vector3(
