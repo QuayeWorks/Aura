@@ -61,9 +61,9 @@ const createScene = () => {
 
     // Chunked marching-cubes planet terrain
     const terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 8,
-        chunkCountZ: 8,
-        baseChunkResolution: 48,
+        chunkCountX: 16,
+        chunkCountZ: 16,
+        baseChunkResolution: 32,
         dimY: 740,
         cellSize: 1,
         isoLevel: 0,
@@ -222,6 +222,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
