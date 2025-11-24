@@ -25,6 +25,12 @@
 //   0xf00
 // ];
 //
+
+import SimplexNoise from "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js";
+
+const Noise = new SimplexNoise(Math.random());
+
+
 // --- Marching Cubes lookup tables (standard) -----------------------------
 //marching cubes table data
 const edgeTable = [
@@ -390,42 +396,65 @@ export class MarchingCubesTerrain {
         return x + this.dimX * (y + this.dimY * z);
     }
 
-    // Signed distance function: planet with layered noise for terrain
-    _sampleSdf(worldPos) {
-        // Distance from planet center
-        const center = BABYLON.Vector3.Zero();
-        const toPoint = worldPos.subtract(center);
-        const dist = toPoint.length();
-    
-        // Base perfect sphere
-        const baseSphere = dist - this.radius;
-    
-        // Fake fractal noise using simple sin/cos combos.
-        // This is cheap, deterministic, and enough to get "mountain" shapes.
-        const nx = worldPos.x * 0.12;
-        const ny = worldPos.y * 0.12;
-        const nz = worldPos.z * 0.12;
-    
-        const lowFreq =
-            Math.sin(nx) * 0.6 +
-            Math.cos(nz * 0.9 + ny * 0.4) * 0.4;
-    
-        const midFreq =
-            Math.sin(nx * 2.1 + nz * 1.3) * 0.25 +
-            Math.cos(ny * 2.0 - nz * 0.7) * 0.2;
-    
-        const highFreq =
-            Math.sin(nx * 4.7 + ny * 3.3 + nz * 2.9) * 0.08;
-    
-        // Combine and scale to get hills + ridges
-        const noise = (lowFreq + midFreq + highFreq);
-    
-        // Push terrain outwards: negative values are "solid"
-        const elevation = noise * 1.2; // tweak for more/less mountains
-    
-        // Final SDF: below 0 = inside terrain, above 0 = empty
-        return (dist - (this.radius + elevation));
-    }
+	// ====== NEW TERRAIN SDF GENERATION ======
+	_sampleSdf(pos) {
+		const p = pos; // world-space local to chunk
+
+		// Planet radius
+		const R = this.radius;
+
+		// Distance from center
+		const dist = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+
+		// Base sphere SDF
+		let d = dist - R;
+
+		// Normalize position onto unit sphere for biome sampling
+		const nx = p.x / (dist + 1e-6);
+		const ny = p.y / (dist + 1e-6);
+		const nz = p.z / (dist + 1e-6);
+
+		// ------------ BIOME MASKS -------------
+		// Each biome uses a different noise frequency/intensity
+		// seed-based noise
+		const seed = 1337;
+		const biomeNoise = Noise.simplex3(nx * 2 + seed, ny * 2, nz * 2);
+
+		let biome = "temperate";
+
+		if (ny > 0.55) biome = "frozen";            // near poles
+		else if (biomeNoise > 0.25) biome = "jungle";
+		else if (biomeNoise < -0.15) biome = "desert";
+		else if (biomeNoise > 0.55) biome = "tropic";
+
+		// ------------ CONTINENT SHAPE -----------
+		const continent = Noise.simplex3(nx * 0.8, ny * 0.8, nz * 0.8);
+		d += continent * 40;  // continent height variation
+
+		// ------------ MOUNTAIN RANGE ------------
+		let mountain = 0;
+		if (biome !== "desert") {
+			mountain = Math.max(0, Noise.simplex3(p.x * 0.0004, p.y * 0.0004, p.z * 0.0004));
+			mountain = Math.pow(mountain, 2.8) * 180;   // height scale
+			d -= mountain;
+		}
+
+		// ------------ VALLEYS -------------------
+		let valley = Noise.simplex3(p.x * 0.0008, p.y * 0.0008, p.z * 0.0008);
+		valley = (valley - 0.5) * 20;
+		d += valley;
+
+		// ------------ CAVES ---------------------
+		const caveFreq = 0.003;
+		const caveNoise =
+			Noise.simplex3(p.x * caveFreq, p.y * caveFreq, p.z * caveFreq);
+
+		if (caveNoise > 0.35) {
+			d += (caveNoise - 0.35) * 40;   // Widens caves
+		}
+
+		return d;
+	}
 
 
     _buildInitialField() {
@@ -513,11 +542,104 @@ export class MarchingCubesTerrain {
     }
 
 
+    /**
+     * Compute terrain color at a given world-space position.
+     * Handles:
+     * - surface grass/sand
+     * - underground brown → dark brown → glowing core
+     * - mountains: rock → snow
+     */
+    _getColorForWorldPos(worldPos) {
+        const R = this.radius;                     // planet radius already on this class
+        const dist = worldPos.length();
+        const h = dist - R;                        // height above surface (can be negative)
+
+        // Normalize direction for simple "latitude" info
+        let nx = 0, ny = 1, nz = 0;
+        if (dist > 1e-6) {
+            nx = worldPos.x / dist;
+            ny = worldPos.y / dist;
+            nz = worldPos.z / dist;
+        }
+
+        // --- BELOW SURFACE: soil / rock / magma ---
+        if (h < 0) {
+            const depth = -h; // meters below nominal surface
+
+            // Shallow dig: lighter brown
+            if (depth < 30) {
+                return new BABYLON.Color3(0.45, 0.30, 0.15);
+            }
+
+            // Medium depth: darker brown
+            if (depth < 200) {
+                const t = (depth - 30) / (200 - 30); // 0..1
+                const a = new BABYLON.Color3(0.35, 0.22, 0.10);
+                const b = new BABYLON.Color3(0.18, 0.10, 0.05);
+                return BABYLON.Color3.Lerp(a, b, t);
+            }
+
+            // Deep: transition to glowing core (orange)
+            const maxDepth = 800;
+            const clamped = Math.min(depth, maxDepth);
+            const t = (clamped - 200) / (maxDepth - 200); // 0..1
+            const rock = new BABYLON.Color3(0.18, 0.10, 0.05);
+            const lava = new BABYLON.Color3(1.0, 0.4, 0.05);
+            return BABYLON.Color3.Lerp(rock, lava, t);
+        }
+
+        // --- ABOVE SURFACE: biomes + mountains ---
+
+        // Basic pseudo-noise from world pos (no library needed)
+        const n = Math.sin(worldPos.x * 0.001 + worldPos.z * 0.0015) *
+                  Math.cos(worldPos.z * 0.0008 + worldPos.y * 0.0013);
+
+        // lowlands: 0–50m above surface
+        if (h < 50) {
+            // mix sand + grass based on pseudo-noise
+            const sand = new BABYLON.Color3(0.92, 0.85, 0.55);
+            const grass = new BABYLON.Color3(0.20, 0.75, 0.30);
+
+            // more sand near coasts (slightly below 0) and low altitude
+            const sandFactor = 0.5 + 0.5 * n;      // 0..1
+            const t = Math.min(1, h / 50);         // 0 at h=0, 1 at h=50
+
+            const base = BABYLON.Color3.Lerp(sand, grass, t);
+            const mixed = BABYLON.Color3.Lerp(sand, base, sandFactor);
+            return mixed;
+        }
+
+        // mid-altitude hills: 50–100m → greener, less sand
+        if (h < 100) {
+            const lowGrass = new BABYLON.Color3(0.18, 0.65, 0.28);
+            const midGrass = new BABYLON.Color3(0.15, 0.55, 0.25);
+            const t = (h - 50) / 50;
+            return BABYLON.Color3.Lerp(lowGrass, midGrass, t);
+        }
+
+        // 100–400m: rocky grey-brown
+        if (h < 400) {
+            const rockBrown = new BABYLON.Color3(0.45, 0.40, 0.35);
+            const rockGrey  = new BABYLON.Color3(0.60, 0.60, 0.60);
+            const t = (h - 100) / 300;
+            return BABYLON.Color3.Lerp(rockBrown, rockGrey, t);
+        }
+
+        // >400m: snow / ice. More snow at poles (high |ny|).
+        const snowBase = new BABYLON.Color3(0.8, 0.8, 0.85);
+        const snowPure = new BABYLON.Color3(1.0, 1.0, 1.0);
+        const heightT = Math.min(1, (h - 400) / 600); // 0 at 400, 1 at 1000
+        const latT = Math.min(1, Math.abs(ny));       // more white toward poles
+
+        const snowMix = BABYLON.Color3.Lerp(snowBase, snowPure, heightT);
+        return BABYLON.Color3.Lerp(snowMix, snowPure, latT * 0.5);
+    }
 
     _buildMesh() {
         const positions = [];
         const normals = [];
         const indices = [];
+        const colors = []; // <--- NEW
 
         const worldPos = (gx, gy, gz) =>
             this.origin.add(
@@ -597,20 +719,28 @@ export class MarchingCubesTerrain {
                         const p1 = vertList[e1];
                         const p2 = vertList[e2];
 
-                        // Defensive: skip malformed triangles
-                        if (!p0 || !p1 || !p2) {
-                            continue;
-                        }
+                        if (!p0 || !p1 || !p2) continue;
 
                         const baseIndex = positions.length / 3;
 
+                        // Positions
                         positions.push(
                             p0.x, p0.y, p0.z,
                             p1.x, p1.y, p1.z,
                             p2.x, p2.y, p2.z
                         );
 
+                        // Indices
                         indices.push(baseIndex, baseIndex + 1, baseIndex + 2);
+
+                        // Colors per vertex
+                        const c0 = this._getColorForWorldPos(p0);
+                        const c1 = this._getColorForWorldPos(p1);
+                        const c2 = this._getColorForWorldPos(p2);
+
+                        colors.push(c0.r, c0.g, c0.b, 1.0);
+                        colors.push(c1.r, c1.g, c1.b, 1.0);
+                        colors.push(c2.r, c2.g, c2.b, 1.0);
                     }
                 }
             }
@@ -632,31 +762,39 @@ export class MarchingCubesTerrain {
         vertexData.indices = indices;
         vertexData.normals = normals;
 
+        if (colors.length > 0) {
+            vertexData.colors = colors; // <--- NEW
+        }
+
         if (!this.mesh) {
             this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
 
-            // Use shared material if provided, otherwise create one
             if (!this.material) {
                 this.material = new BABYLON.StandardMaterial(
                     "terrainMat",
                     this.scene
                 );
-                this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+                this.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
                 this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
                 this.material.backFaceCulling = false;
             }
 
             this.mesh.material = this.material;
         } else {
-            // Reusing an existing mesh from the pool – make sure it is visible
             this.mesh.setEnabled(true);
         }
 
-        // Make terrain collideable for Babylon’s picking/collision system
+        // IMPORTANT: enable vertex color usage
+        if (this.mesh.material) {
+            this.mesh.material.useVertexColors = true;
+        }
+
+        // Make terrain collideable
         this.mesh.checkCollisions = true;
 
         vertexData.applyToMesh(this.mesh, true);
     }
+
 
         // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
     rebuildWithSettings(settings) {
@@ -698,4 +836,3 @@ export class MarchingCubesTerrain {
         this.rebuildWithSettings({ origin: newOrigin });
     }
 }
-
