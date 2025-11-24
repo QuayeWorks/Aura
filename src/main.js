@@ -6,7 +6,7 @@ import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const PLANET_RADIUS_UNITS = 360;
+const PLANET_RADIUS_UNITS = 3600;
 let terrain = null;
 let player = null;
 let playerInfoText = null;   // <-- optional HUD text (currently unused)
@@ -54,7 +54,7 @@ const createScene = () => {
         chunkCountX: 16,
         chunkCountZ: 16,
         baseChunkResolution: 32,
-        dimY: 740,
+        dimY: 7400,
         cellSize: 1,
         isoLevel: 0,
         radius: PLANET_RADIUS_UNITS
@@ -226,3 +226,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
