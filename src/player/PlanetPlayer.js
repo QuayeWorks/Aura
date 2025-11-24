@@ -22,7 +22,7 @@ export class PlanetPlayer {
 
         this.gravityStrength = options.gravityStrength ?? 10.0;     // m/s^2 toward planet center
         this.maxFallSpeed   = options.maxFallSpeed ?? 250.0;       // clamp downward velocity
-        this.jumpSpeed      = options.jumpSpeed ?? 120.0;          // initial jump impulse
+        this.jumpSpeed      = options.jumpSpeed ?? 10.0;          // initial jump impulse
 
         // Ground probing / snap
         this.groundProbeLength  = options.groundProbeLength ?? (this.height + 10);
@@ -359,6 +359,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
