@@ -97,16 +97,16 @@ export class PlanetPlayer {
     _registerInput() {
         window.addEventListener("keydown", (ev) => {
             switch (ev.code) {
-                case "KeyW":
+                case "w":
                     this.inputForward = true;
                     break;
-                case "KeyS":
+                case "s":
                     this.inputBackward = true;
                     break;
-                case "KeyA":
+                case "a":
                     this.inputLeft = true;
                     break;
-                case "KeyD":
+                case "d":
                     this.inputRight = true;
                     break;
                 case "Space":
@@ -117,16 +117,16 @@ export class PlanetPlayer {
 
         window.addEventListener("keyup", (ev) => {
             switch (ev.code) {
-                case "KeyW":
+                case "w":
                     this.inputForward = false;
                     break;
-                case "KeyS":
+                case "s":
                     this.inputBackward = false;
                     break;
-                case "KeyA":
+                case "a":
                     this.inputLeft = false;
                     break;
-                case "KeyD":
+                case "d":
                     this.inputRight = false;
                     break;
             }
@@ -353,6 +353,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
