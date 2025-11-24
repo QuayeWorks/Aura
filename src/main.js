@@ -51,8 +51,8 @@ const createScene = () => {
     // Chunked marching-cubes planet terrain
     // IMPORTANT: assign to the outer 'terrain' (no 'const' here)
     terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 16,
-        chunkCountZ: 16,
+        chunkCountX: 24,
+        chunkCountZ: 24,
         baseChunkResolution: 32,
         dimY: 7400,
         cellSize: 1,
@@ -66,7 +66,7 @@ const createScene = () => {
     // --- Player capsule that can traverse the planet -------------------------
     player = new PlanetPlayer(scene, terrain, {
         planetRadius: PLANET_RADIUS_UNITS + 1,
-        moveSpeed: 25,
+        moveSpeed: 75,
         height: 2.0,
         capsuleRadius: 0.6
     });
@@ -226,4 +226,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
