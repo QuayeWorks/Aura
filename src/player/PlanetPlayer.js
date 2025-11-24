@@ -20,7 +20,7 @@ export class PlanetPlayer {
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
 
-        this.gravityStrength = options.gravityStrength ?? 1.0;     // m/s^2 toward planet center
+        this.gravityStrength = options.gravityStrength ?? 10.0;     // m/s^2 toward planet center
         this.maxFallSpeed   = options.maxFallSpeed ?? 250.0;       // clamp downward velocity
         this.jumpSpeed      = options.jumpSpeed ?? 120.0;          // initial jump impulse
 
@@ -97,16 +97,16 @@ export class PlanetPlayer {
     _registerInput() {
         window.addEventListener("keydown", (ev) => {
             switch (ev.code) {
-                case "w":
+                case "KeyW":
                     this.inputForward = true;
                     break;
-                case "s":
+                case "KeyS":
                     this.inputBackward = true;
                     break;
-                case "a":
+                case "KeyA":
                     this.inputLeft = true;
                     break;
-                case "d":
+                case "KeyD":
                     this.inputRight = true;
                     break;
                 case "Space":
@@ -117,16 +117,16 @@ export class PlanetPlayer {
 
         window.addEventListener("keyup", (ev) => {
             switch (ev.code) {
-                case "w":
+                case "KeyW":
                     this.inputForward = false;
                     break;
-                case "s":
+                case "KeyS":
                     this.inputBackward = false;
                     break;
-                case "a":
+                case "KeyA":
                     this.inputLeft = false;
                     break;
-                case "d":
+                case "KeyD":
                     this.inputRight = false;
                     break;
             }
@@ -359,6 +359,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
