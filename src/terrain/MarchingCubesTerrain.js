@@ -395,60 +395,60 @@ export class MarchingCubesTerrain {
 	// ====== NEW TERRAIN SDF GENERATION ======
     // ====== NEW TERRAIN SDF USING BUILT-IN HASH NOISE ======
     // ====== SMOOTH PLANET TERRAIN SDF (no blocky hash steps) ======
+    // ====== STRONGER, SMOOTH PLANET TERRAIN SDF ======
     _sampleSdf(pos) {
-        const p = pos; // world-space position
-        const R = this.radius;
+        const p = pos;          // world-space position
+        const R = this.radius;  // base planet radius
 
         // Distance from planet center
         const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-        let d = dist - R; // base sphere SDF
-
         if (dist < 1e-6) {
-            return d;
+            return dist - R;
         }
 
-        // Unit direction (for latitude-style effects later if needed)
-        const nx = p.x / dist;
-        const ny = p.y / dist;
-        const nz = p.z / dist;
-
-        // Smooth, continuous 3D "wave noise" – no floors, no snapping
+        // Simple smooth "wave noise" in [-1, 1] – continuous, no stair steps
         const wave = (fx, fy, fz, freq) => {
             const a = Math.sin(fx * freq + 1.37);
             const b = Math.sin(fy * freq + 5.28);
             const c = Math.sin(fz * freq + 9.17);
-            return (a + b + c) / 3.0; // in [-1, 1]
+            return (a + b + c) / 3.0;
         };
 
-        // ---------- CONTINENTS (large scale) ----------
+        // ---------- CONTINENTS (large-scale bulges) ----------
         // Big slow variations to break the sphere
-        const cont = wave(p.x, p.y, p.z, 0.0010);
-        d += cont * 40.0; // +/- 40m
+        const cont = wave(p.x, p.y, p.z, 0.0006);           // very low freq
+        const contHeight = cont * 80.0;                     // +/- 80m
 
-        // Approx "height above surface" after continents
-        const hApprox = d;
+        // ---------- MOUNTAINS (ridged noise) ----------
+        // Medium-scale ridged noise for mountain chains
+        let ridge = wave(p.x + 200.0, p.y - 100.0, p.z + 300.0, 0.0025);
+        ridge = Math.abs(ridge);                            // ridged
+        ridge = ridge * ridge * ridge;                      // sharpen peaks
+        const mountainHeight = ridge * 800.0;               // up to ~800m peaks
 
-        // ---------- HILLS / MOUNTAINS (medium scale) ----------
-        // Only add strong mountains where the surface is near or above sea level
-        if (hApprox < 80.0) {
-            let m = wave(p.x + 200.0, p.y - 100.0, p.z + 300.0, 0.0035);
-            // make peaks sharper: |m|^3, keep sign
-            const sign = m < 0 ? -1 : 1;
-            m = sign * Math.pow(Math.abs(m), 2.8);
-            const mountainHeight = m * 120.0; // up to ~120m peaks
-            d -= mountainHeight;
-        }
+        // ---------- VALLEYS / LARGE DEPRESSIONS ----------
+        let v = wave(p.x - 400.0, p.y + 50.0, p.z - 250.0, 0.0015);
+        const valleyDepth = v * 40.0;                       // +/- 40m
 
-        // ---------- VALLEYS / DIPS (medium scale) ----------
-        let v = wave(p.x - 400.0, p.y + 50.0, p.z - 250.0, 0.0020);
-        d += v * 20.0; // small +/- 20m undulation
+        // Effective radius of the surface at this point
+        const effectiveRadius = R + contHeight + mountainHeight + valleyDepth;
+
+        // Base SDF: distance from this effective terrain radius
+        let d = dist - effectiveRadius;
 
         // ---------- CAVES (higher frequency inside) ----------
-        // Use a higher freq wave to punch tunnels inside the planet
-        const cave = wave(p.x + 800.0, p.y + 600.0, p.z - 500.0, 0.0100);
-        if (cave > 0.55) {
-            // When cave noise is high, push the SDF positive to create empty pockets
-            d += (cave - 0.55) * 35.0;
+        // Only carve caves when we're well inside the planet to avoid surface noise
+        if (dist < R - 20.0) {
+            const cave = wave(
+                p.x + 800.0,
+                p.y + 600.0,
+                p.z - 500.0,
+                0.0100
+            );
+            if (cave > 0.55) {
+                // When cave noise is high, push SDF positive => empty pockets
+                d += (cave - 0.55) * 60.0;
+            }
         }
 
         return d;
