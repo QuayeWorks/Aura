@@ -111,6 +111,7 @@ export class PlanetPlayer {
                     break;
                 case "Space":
                     this.jumpRequested = true; // one-shot, consumed in update()
+                default:
                     break;
             }
         });
@@ -128,6 +129,7 @@ export class PlanetPlayer {
                     break;
                 case "KeyD":
                     this.inputRight = false;
+                default:
                     break;
             }
         });
@@ -360,6 +362,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
