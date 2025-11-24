@@ -226,11 +226,16 @@ export class PlanetPlayer {
     }
 
     // Orient capsule so "up" aligns with planet normal and forward follows camera
-    _orientToSurface() {
+    _orientToSurface(upFromUpdate) {
+        if (!this.mesh) return;
+
         const pos = this.mesh.position;
         if (pos.lengthSquared() === 0) return;
 
-        const up = pos.normalize();
+        // Use up vector from update() if provided, otherwise derive it safely
+        const up = upFromUpdate
+            ? upFromUpdate.clone()
+            : pos.clone().normalize(); // NOTE: clone() so we don't mutate position
 
         // Determine forward direction (camera-relative if possible)
         let forwardWorld = new BABYLON.Vector3(0, 0, 1);
@@ -265,6 +270,7 @@ export class PlanetPlayer {
             this.mesh.rotationQuaternion
         );
     }
+
 
     //update(dtSeconds)
         update(deltaTime) {
@@ -353,6 +359,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
