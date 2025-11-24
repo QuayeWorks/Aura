@@ -398,6 +398,14 @@ export class MarchingCubesTerrain {
     // ====== STRONGER, SMOOTH PLANET TERRAIN SDF ======
 
 	    // ---- 3D value noise + FBM helpers (no external libs needed) ----
+    // Very small deterministic fake-noise (fast, stable, no import required)
+    _hashNoise(x, y, z) {
+        // large prime constants
+        const a = 1103515245, b = 12345, c = 3141592653;
+        let n = x * a ^ y * b ^ z * c;
+        n = (n << 13) ^ n;
+        return (1.0 - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
+    }
 
     // Hash integer lattice coord -> [0,1]
     _hash3(ix, iy, iz) {
