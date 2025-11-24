@@ -25,11 +25,12 @@ export class ChunkedPlanetTerrain {
         this.lodLevel = 2;
 
         // Distance thresholds for LOD rings (in world units)
-        // dist < near  -> high (2)
-        // < mid        -> medium (1)
-        // else         -> low (0)
-        this.lodNear = options.lodNear ?? this.radius * 1.5;
-        this.lodMid  = options.lodMid  ?? this.radius * 3.0;
+        // dist < lodNear  -> high (2)
+        // < lodMid        -> medium (1)
+        // else            -> low (0)
+        // We now use fixed meters by default: 15m and 30m
+        this.lodNear = options.lodNear ?? 15.0;
+        this.lodMid  = options.lodMid  ?? 30.0;
 
         this.chunks = [];         // { terrain, gridX, gridZ, lodLevel }
         
@@ -47,7 +48,7 @@ export class ChunkedPlanetTerrain {
         // Persistent edit history so carves survive streaming / LOD rebuilds
         this.carveHistory = [];
 
-        // Streaming / grid tracking
+        // Streaming / grid tracking (kept for compatibility, but we no longer move the grid)
         this.gridOffsetX = 0;
         this.gridOffsetZ = 0;
 
@@ -56,7 +57,7 @@ export class ChunkedPlanetTerrain {
         this.chunkWorldSizeZ = 0;
         this.chunkOverlap = 0;
 
-        // Camera position used for LOD ring decisions
+        // Position used for LOD ring & hemisphere decisions (player or camera)
         this.lastCameraPosition = null;
 
         this._rebuildChunks();
@@ -72,7 +73,7 @@ export class ChunkedPlanetTerrain {
         }
     }
 
-    // Dist (from camera to chunk center) -> desired LOD level, clamped by global limit
+    // Dist (from focus to chunk center) -> desired LOD level, clamped by global limit
     _lodForDistance(dist) {
         let desired;
         if (dist < this.lodNear) {
@@ -135,13 +136,9 @@ export class ChunkedPlanetTerrain {
         };
     }
 
-
     // Given an LOD level, compute grid resolution + cellSize that keep world size fixed
     _computeLodDimensions(lodLevel) {
         const {
-            baseCellsX,
-            baseCellsZ,
-            baseCellsY,
             baseChunkWidth,
             baseChunkDepth,
             baseChunkHeight
@@ -186,7 +183,6 @@ export class ChunkedPlanetTerrain {
         this._disposeChunks();
 
         const baseMetrics = this._computeBaseChunkMetrics();
-		
 
         const chunkWidth  = baseMetrics.baseChunkWidth;
         const chunkDepth  = baseMetrics.baseChunkDepth;
@@ -226,7 +222,6 @@ export class ChunkedPlanetTerrain {
                     -halfSpan,
                     -halfSpan + iz * chunkDepth
                 );
-
 
                 // Chunk center (approx) for distance based LOD
                 const chunkCenter = new BABYLON.Vector3(
@@ -276,7 +271,7 @@ export class ChunkedPlanetTerrain {
     /**
      * After gridOffsetX/Z change, schedule all chunks to be rebuilt
      * at their new world-space origins (and appropriate LOD).
-     * Heavy work is spread over frames via _processBuildQueue.
+     * Kept for compatibility, but no longer used now that we don't shift the grid.
      */
     _scheduleRebuildForNewGrid() {
         this.buildQueue = [];
@@ -330,8 +325,38 @@ export class ChunkedPlanetTerrain {
             }
         }
     }
+
     /**
-     * Check all chunks against current camera distance and, if their
+     * Is this chunk on the same hemisphere as the focus position (player)?
+     * We treat the planet center as (0,0,0) and compare normalized directions.
+     */
+    _isChunkOnNearHemisphere(chunkCenter, focusPos) {
+        if (!focusPos) return true;
+
+        const planetCenter = BABYLON.Vector3.Zero();
+        const toChunk = chunkCenter.subtract(planetCenter);
+        const toFocus = focusPos.subtract(planetCenter);
+
+        const lenSqChunk = toChunk.lengthSquared();
+        const lenSqFocus = toFocus.lengthSquared();
+        if (lenSqChunk < 1e-6 || lenSqFocus < 1e-6) {
+            return true;
+        }
+
+        const invLenChunk = 1 / Math.sqrt(lenSqChunk);
+        const invLenFocus = 1 / Math.sqrt(lenSqFocus);
+
+        const nChunk = toChunk.scale(invLenChunk);
+        const nFocus = toFocus.scale(invLenFocus);
+
+        const dot = BABYLON.Vector3.Dot(nChunk, nFocus);
+
+        // dot >= 0 means same hemisphere or exactly on the great circle boundary
+        return dot >= 0;
+    }
+
+    /**
+     * Check all chunks against current focus distance and hemisphere, and, if their
      * desired LOD has changed, schedule a rebuild for that chunk only.
      */
     _scheduleLodAdjustments() {
@@ -354,6 +379,19 @@ export class ChunkedPlanetTerrain {
                 origin.z + chunkDepth * 0.5
             );
 
+            // Hemisphere culling: only keep the half-planet facing the player
+            const onNearSide = this._isChunkOnNearHemisphere(chunkCenter, camPos);
+
+            if (!onNearSide) {
+                if (c.terrain && c.terrain.mesh) {
+                    c.terrain.mesh.setEnabled(false);
+                }
+                continue;
+            } else if (c.terrain && c.terrain.mesh) {
+                // Re-enable if it was previously culled
+                c.terrain.mesh.setEnabled(true);
+            }
+
             const dist = BABYLON.Vector3.Distance(camPos, chunkCenter);
             const desiredLod = this._lodForDistance(dist);
 
@@ -374,7 +412,7 @@ export class ChunkedPlanetTerrain {
 
     /**
      * Process a few pending chunk rebuilds per frame
-     * to avoid big hitches when streaming / LOD changes.
+     * to avoid big hitches when LOD changes.
      */
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
@@ -398,7 +436,6 @@ export class ChunkedPlanetTerrain {
             count++;
         }
     }
-
 
     /**
      * Test if a sphere (center, radius) intersects a chunk's AABB.
@@ -431,7 +468,7 @@ export class ChunkedPlanetTerrain {
         return (dx * dx + dy * dy + dz * dz) <= radius * radius;
     }
 
-        /**
+    /**
      * Reapply only the carve operations that actually intersect
      * the given chunk's world-space AABB.
      */
@@ -473,62 +510,33 @@ export class ChunkedPlanetTerrain {
     }
 
     /*
-     * Basic camera-centered streaming + dynamic LOD rings.
-     * Keeps a fixed grid of chunks, but moves their sampling window
-     * in world-space as the camera crosses chunk boundaries.
-     * Also adjusts LOD per chunk based on distance from the camera.
-     * Heavy rebuild work is spread over multiple frames.
+     * LOD rings + hemisphere culling around the "focus" position
+     * (player capsule, ideally). We keep the chunk grid fixed and
+     * only adjust LOD + visibility; no more chunk streaming.
      */
-    updateStreaming(cameraPosition) {
-        if (cameraPosition) {
-            // Store camera position for LOD ring decisions
-            this.lastCameraPosition = cameraPosition.clone
-                ? cameraPosition.clone()
+    updateStreaming(focusPosition) {
+        if (focusPosition) {
+            this.lastCameraPosition = focusPosition.clone
+                ? focusPosition.clone()
                 : new BABYLON.Vector3(
-                      cameraPosition.x,
-                      cameraPosition.y,
-                      cameraPosition.z
+                      focusPosition.x,
+                      focusPosition.y,
+                      focusPosition.z
                   );
         }
 
-        if (!cameraPosition) {
-            // Still process any pending chunk rebuilds
+        if (!this.lastCameraPosition) {
+            // Still process any pending chunk rebuilds (initial planet build)
             this._processBuildQueue();
             return;
         }
 
-        const baseMetrics = this._computeBaseChunkMetrics();
-        const baseChunkWidth  = baseMetrics.baseChunkWidth;
-        const baseChunkDepth  = baseMetrics.baseChunkDepth;
-
-        const overlap = this.chunkOverlap || (1 * this.cellSize);
-        const stepX = (this.chunkWorldSizeX || baseChunkWidth) - overlap;
-        const stepZ = (this.chunkWorldSizeZ || baseChunkDepth) - overlap;
-
-        if (stepX <= 0 || stepZ <= 0) {
-            this._processBuildQueue();
-            return;
-        }
-
-        // Which "chunk index" is the camera currently over?
-        const camChunkX = Math.round(cameraPosition.x / stepX);
-        const camChunkZ = Math.round(cameraPosition.z / stepZ);
-
-        // If we've crossed into a new chunk index, shift the grid logically
-        if (camChunkX !== this.gridOffsetX || camChunkZ !== this.gridOffsetZ) {
-            this.gridOffsetX = camChunkX;
-            this.gridOffsetZ = camChunkZ;
-            this._scheduleRebuildForNewGrid();
-        }
-
-        // Even if the grid didn't move, some chunks may need LOD changes
+        // Update per-chunk LOD and hemisphere visibility
         this._scheduleLodAdjustments();
 
-        // Each frame, rebuild a few chunks from the queue
+        // Rebuild at most one chunk per frame to avoid hitches
         this._processBuildQueue();
     }
-
-
 
     // Carve a sphere out of all chunks
     carveSphere(worldPos, radius) {
