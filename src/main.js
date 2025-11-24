@@ -6,17 +6,17 @@ import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const PLANET_RADIUS_UNITS = 18000
+const PLANET_RADIUS_UNITS = 1800;
 let terrain = null;
 let player = null;
-let playerInfoText = null;   // <-- add this
+let playerInfoText = null;   // <-- optional HUD text (currently unused)
 
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
-	scene.collisionsEnabled = true;
+    scene.collisionsEnabled = true;
 
     // Blue background
-    scene.clearColor = new BABYLON.Color4(0.1, 0.1, 0.9, 1.0);
+    scene.clearColor = new BABYLON.Color4(0.51, 0.89, 1.0, 1.0);
 
     // Camera
     const camera = new BABYLON.ArcRotateCamera(
@@ -37,7 +37,7 @@ const createScene = () => {
         new BABYLON.Vector3(0.3, 1, 0.2),
         scene
     );
-    hemi.intensity = 0.9;
+    hemi.intensity = 0.7;
     hemi.groundColor = new BABYLON.Color3(0.1, 0.1, 0.15);
 
     const dir = new BABYLON.DirectionalLight(
@@ -47,20 +47,10 @@ const createScene = () => {
     );
     dir.intensity = 0.6;
 
-    // Blue ground plane for contrast
-    const ground = BABYLON.MeshBuilder.CreateGround(
-        "g",
-        { width: 200, height: 200 },
-        scene
-    );
-    const groundMat = new BABYLON.StandardMaterial("gm", scene);
-    groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.8);
-    groundMat.specularColor = BABYLON.Color3.Black();
-    ground.material = groundMat;
-    ground.position.y = -40;
 
     // Chunked marching-cubes planet terrain
-    const terrain = new ChunkedPlanetTerrain(scene, {
+    // IMPORTANT: assign to the outer 'terrain' (no 'const' here)
+    terrain = new ChunkedPlanetTerrain(scene, {
         chunkCountX: 16,
         chunkCountZ: 16,
         baseChunkResolution: 32,
@@ -68,38 +58,46 @@ const createScene = () => {
         cellSize: 1,
         isoLevel: 0,
         radius: PLANET_RADIUS_UNITS
+        // You can optionally override LOD ring distances here:
+        // lodNear: 15.0,
+        // lodMid: 30.0
     });
-	// --- Player capsule that can traverse the planet -------------------------
-	player = new PlanetPlayer(scene, terrain, {
-		planetRadius: PLANET_RADIUS_UNITS + 1,
-		moveSpeed: 25,
-		height: 2.0,
-		capsuleRadius: 0.6
-	});
 
-	// Let the player use the active camera for movement direction
-	if (scene.activeCamera) {
-		player.attachCamera(scene.activeCamera);
-		// Make the orbit camera follow the capsule instead of the world origin
-		camera.lockedTarget = player.mesh;
-		// Optional: tweak distance so you see more of the planet
-		camera.radius = camera.radius || 80;
-	}
+    // --- Player capsule that can traverse the planet -------------------------
+    player = new PlanetPlayer(scene, terrain, {
+        planetRadius: PLANET_RADIUS_UNITS + 1,
+        moveSpeed: 25,
+        height: 2.0,
+        capsuleRadius: 0.6
+    });
+
+    // Let the player use the active camera for movement direction
+    if (scene.activeCamera) {
+        player.attachCamera(scene.activeCamera);
+        // Make the orbit camera follow the capsule instead of the world origin
+        camera.lockedTarget = player.mesh;
+        // Optional: tweak distance so you see more of the planet
+        camera.radius = camera.radius || 80;
+    }
 
     // -----------------------
     // UI: lighting/material controls
     // -----------------------
 
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-		// --- Player debug info text (top-left) ---
-	/*playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
-	playerInfoText.text = "Player: (0, 0, 0) r=0";
-	playerInfoText.color = "white";
-	playerInfoText.fontSize = 18;
-	playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-	playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
-	playerInfoText.paddingLeft = "10px";
-	playerInfoText.paddingTop = "10px";*/
+
+    // --- Player debug info text (top-left) (currently disabled) ---
+    
+    playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
+    playerInfoText.text = "Player: (0, 0, 0) r=0";
+    playerInfoText.color = "white";
+    playerInfoText.fontSize = 18;
+    playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    playerInfoText.paddingLeft = "10px";
+    playerInfoText.paddingTop = "10px";
+    ui.addControl(playerInfoText);
+    
 
     const panel = new BABYLON.GUI.StackPanel();
     panel.width = "260px";
@@ -153,9 +151,6 @@ const createScene = () => {
         terrain.setLodLevel(v);
     });
 
-	
-	//ui.addControl(playerInfoText);
-
     // Wireframe toggle
     const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
         "wireBtn",
@@ -197,14 +192,24 @@ const scene = createScene();
 engine.runRenderLoop(() => {
     const dt = engine.getDeltaTime() / 1000;
 
-    if (terrain && scene.activeCamera) {
-        terrain.updateStreaming(scene.activeCamera.position);
+    // Use the player capsule as the focus position for LOD + hemisphere decisions.
+    let focusPos = null;
+    if (player && player.mesh) {
+        focusPos = player.mesh.position;
+    } else if (scene.activeCamera) {
+        // Fallback: use camera position before player is ready
+        focusPos = scene.activeCamera.position;
+    }
+
+    if (terrain) {
+        terrain.updateStreaming(focusPos);
     }
 
     if (player) {
         player.update(dt);
     }
-	/*
+
+    
     // Update player debug HUD
     if (player && player.mesh && playerInfoText) {
         const p = player.mesh.position;
@@ -212,44 +217,12 @@ engine.runRenderLoop(() => {
         playerInfoText.text =
             `Player: x=${p.x.toFixed(1)}  y=${p.y.toFixed(1)}  ` +
             `z=${p.z.toFixed(1)}  r=${r.toFixed(1)}`;
-    }*/
+    }
+    
 
     scene.render();
 });
 
-
-
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
