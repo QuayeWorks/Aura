@@ -69,8 +69,7 @@ const createScene = () => {
     const water = BABYLON.MeshBuilder.CreateSphere(
         "waterSphere",
         {
-            planetRadius: PLANET_RADIUS_UNITS,
-            diameter: 2 * (planetRadius + waterLevelOffset),
+            diameter: 2 * (PLANET_RADIUS_UNITS + waterLevelOffset),
             segments: 64
         },
         scene
@@ -250,6 +249,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
