@@ -26,10 +26,6 @@
 // ];
 //
 
-import SimplexNoise from "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js";
-
-const Noise = new SimplexNoise(Math.random());
-
 
 // --- Marching Cubes lookup tables (standard) -----------------------------
 //marching cubes table data
@@ -397,64 +393,71 @@ export class MarchingCubesTerrain {
     }
 
 	// ====== NEW TERRAIN SDF GENERATION ======
-	_sampleSdf(pos) {
-		const p = pos; // world-space local to chunk
+    // ====== NEW TERRAIN SDF USING BUILT-IN HASH NOISE ======
+    _sampleSdf(pos) {
+        const p = pos; // world-space position in this chunk
 
-		// Planet radius
-		const R = this.radius;
+        const R = this.radius;
+        const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
 
-		// Distance from center
-		const dist = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+        // Base sphere SDF
+        let d = dist - R;
 
-		// Base sphere SDF
-		let d = dist - R;
+        if (dist < 1e-6) {
+            return d;
+        }
 
-		// Normalize position onto unit sphere for biome sampling
-		const nx = p.x / (dist + 1e-6);
-		const ny = p.y / (dist + 1e-6);
-		const nz = p.z / (dist + 1e-6);
+        // Normalize for latitude-type info if you want it later
+        const nx = p.x / dist;
+        const ny = p.y / dist;
+        const nz = p.z / dist;
 
-		// ------------ BIOME MASKS -------------
-		// Each biome uses a different noise frequency/intensity
-		// seed-based noise
-		const seed = 1337;
-		const biomeNoise = Noise.simplex3(nx * 2 + seed, ny * 2, nz * 2);
+        // Small helper: hash-based “noise” in [-1,1] at a given frequency
+        const n3 = (fx, fy, fz, freq) => {
+            const ix = Math.floor(fx * freq);
+            const iy = Math.floor(fy * freq);
+            const iz = Math.floor(fz * freq);
+            return this._hashNoise(ix, iy, iz); // already returns in [-1,1]
+        };
 
-		let biome = "temperate";
+        // ------------ CONTINENTS (large scale) ------------
+        // Big smooth bumps to break up the sphere visually
+        const continent = n3(p.x, p.y, p.z, 0.0008); // big features
+        d += continent * 40.0; // +/- 40m variation
 
-		if (ny > 0.55) biome = "frozen";            // near poles
-		else if (biomeNoise > 0.25) biome = "jungle";
-		else if (biomeNoise < -0.15) biome = "desert";
-		else if (biomeNoise > 0.55) biome = "tropic";
+        // ------------ MOUNTAINS (mid scale, only above “land”) ------------
+        // Base “height above nominal radius” after continents
+        const hAfterContinent = d; // still SDF, but we can use sign/magnitude as rough terrain height
 
-		// ------------ CONTINENT SHAPE -----------
-		const continent = Noise.simplex3(nx * 0.8, ny * 0.8, nz * 0.8);
-		d += continent * 40;  // continent height variation
+        if (hAfterContinent < 60.0) {
+            // Only grow mountains where the surface is near or above radius
+            let m = n3(p.x + 123.4, p.y - 456.7, p.z + 789.1, 0.003);
+            // remap from [-1,1] to [0,1]
+            m = Math.max(0, (m + 1) * 0.5);
+            // Exaggerate peaks
+            m = Math.pow(m, 2.8);
+            const mountainHeight = m * 180.0; // up to ~180m
 
-		// ------------ MOUNTAIN RANGE ------------
-		let mountain = 0;
-		if (biome !== "desert") {
-			mountain = Math.max(0, Noise.simplex3(p.x * 0.0004, p.y * 0.0004, p.z * 0.0004));
-			mountain = Math.pow(mountain, 2.8) * 180;   // height scale
-			d -= mountain;
-		}
+            d -= mountainHeight;
+        }
 
-		// ------------ VALLEYS -------------------
-		let valley = Noise.simplex3(p.x * 0.0008, p.y * 0.0008, p.z * 0.0008);
-		valley = (valley - 0.5) * 20;
-		d += valley;
+        // ------------ VALLEYS (mid scale dips) ------------
+        let valley = n3(p.x * 0.5 + 300.0, p.y * 0.5, p.z * 0.5 - 200.0, 0.0012);
+        // valley in [-1,1]; center around 0, scale small dips
+        valley = (valley) * 15.0;
+        d += valley;
 
-		// ------------ CAVES ---------------------
-		const caveFreq = 0.003;
-		const caveNoise =
-			Noise.simplex3(p.x * caveFreq, p.y * caveFreq, p.z * caveFreq);
+        // ------------ CAVES (internal noise) ------------
+        // Use a slightly higher frequency to create tunnels
+        const caveNoise = n3(p.x - 999.0, p.y + 222.0, p.z - 333.0, 0.004);
+        // Threshold: when noise is high, push d positive to carve empty space
+        if (caveNoise > 0.35) {
+            d += (caveNoise - 0.35) * 40.0;
+        }
 
-		if (caveNoise > 0.35) {
-			d += (caveNoise - 0.35) * 40;   // Widens caves
-		}
+        return d;
+    }
 
-		return d;
-	}
 
 
     _buildInitialField() {
@@ -541,6 +544,14 @@ export class MarchingCubesTerrain {
         this._buildMesh();
     }
 
+	// Very small deterministic fake-noise (fast, stable, no import required)
+	_hashNoise(x, y, z) {
+		// large prime constants
+		const a = 1103515245, b = 12345, c = 3141592653;
+		let n = x * a ^ y * b ^ z * c;
+		n = (n << 13) ^ n;
+		return (1.0 - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
+	}
 
     /**
      * Compute terrain color at a given world-space position.
@@ -836,3 +847,4 @@ export class MarchingCubesTerrain {
         this.rebuildWithSettings({ origin: newOrigin });
     }
 }
+
