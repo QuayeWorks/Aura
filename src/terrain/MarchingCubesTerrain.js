@@ -396,64 +396,213 @@ export class MarchingCubesTerrain {
     // ====== NEW TERRAIN SDF USING BUILT-IN HASH NOISE ======
     // ====== SMOOTH PLANET TERRAIN SDF (no blocky hash steps) ======
     // ====== STRONGER, SMOOTH PLANET TERRAIN SDF ======
+
+	    // ---- 3D value noise + FBM helpers (no external libs needed) ----
+
+    // Hash integer lattice coord -> [0,1]
+    _hash3(ix, iy, iz) {
+        // Use unsigned 32-bit arithmetic for stability
+        let h = ix * 374761393 + iy * 668265263 + iz * 2147483647;
+        h = (h ^ (h >> 13)) >>> 0;
+        return (h & 0xfffffff) / 0xfffffff; // 0..1
+    }
+
+    // Smoothstep used by Perlin-style fade
+    _fade(t) {
+        return t * t * t * (t * (t * 6 - 15) + 10);
+    }
+
+    // Trilinear interpolated value-noise in [0,1]
+    _valueNoise3(x, y, z) {
+        const ix = Math.floor(x);
+        const iy = Math.floor(y);
+        const iz = Math.floor(z);
+
+        const fx = x - ix;
+        const fy = y - iy;
+        const fz = z - iz;
+
+        const ux = this._fade(fx);
+        const uy = this._fade(fy);
+        const uz = this._fade(fz);
+
+        const v000 = this._hash3(ix,     iy,     iz);
+        const v100 = this._hash3(ix + 1, iy,     iz);
+        const v010 = this._hash3(ix,     iy + 1, iz);
+        const v110 = this._hash3(ix + 1, iy + 1, iz);
+        const v001 = this._hash3(ix,     iy,     iz + 1);
+        const v101 = this._hash3(ix + 1, iy,     iz + 1);
+        const v011 = this._hash3(ix,     iy + 1, iz + 1);
+        const v111 = this._hash3(ix + 1, iy + 1, iz + 1);
+
+        const lerp = (a, b, t) => a + (b - a) * t;
+
+        const x00 = lerp(v000, v100, ux);
+        const x10 = lerp(v010, v110, ux);
+        const x01 = lerp(v001, v101, ux);
+        const x11 = lerp(v011, v111, ux);
+
+        const y0 = lerp(x00, x10, uy);
+        const y1 = lerp(x01, x11, uy);
+
+        return lerp(y0, y1, uz); // 0..1
+    }
+
+    // Fractal Brownian Motion: sum of octaves, result ~[-1,1]
+    _fbmNoise3(x, y, z, baseFreq, octaves, lacunarity, gain) {
+        let amp = 1.0;
+        let freq = baseFreq;
+        let sum = 0.0;
+        let norm = 0.0;
+
+        for (let i = 0; i < octaves; i++) {
+            const n = this._valueNoise3(x * freq, y * freq, z * freq); // 0..1
+            const v = n * 2.0 - 1.0; // -> [-1,1]
+            sum += v * amp;
+            norm += amp;
+            amp *= gain;
+            freq *= lacunarity;
+        }
+        if (norm > 0) sum /= norm;
+        return sum; // approx [-1,1]
+    }
+
+    // Ridged multifractal FBM: sharp peaks, in [0,1]
+    _ridgedFbm3(x, y, z, baseFreq, octaves, lacunarity, gain) {
+        let amp = 1.0;
+        let freq = baseFreq;
+        let sum = 0.0;
+        let norm = 0.0;
+
+        for (let i = 0; i < octaves; i++) {
+            const n = this._valueNoise3(x * freq, y * freq, z * freq); // 0..1
+            // Convert to ridges: 1 - |2n-1|
+            const v = 1.0 - Math.abs(2.0 * n - 1.0); // 0..1
+            sum += v * amp;
+            norm += amp;
+            amp *= gain;
+            freq *= lacunarity;
+        }
+        if (norm > 0) sum /= norm;
+        return sum; // [0,1]
+    }
+
+    // ====== DOMAIN-WARPED FRACTAL PLANET TERRAIN FOR RADIUS ≈ 3600 ======
     _sampleSdf(pos) {
-        const p = pos;          // world-space position
-        const R = this.radius;  // base planet radius
+        const p = pos;
+        const R = this.radius;  // e.g. 3600
 
         // Distance from planet center
-        const dist = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
+        const dist = Math.sqrt(distSq);
         if (dist < 1e-6) {
             return dist - R;
         }
 
-        // Simple smooth "wave noise" in [-1, 1] – continuous, no stair steps
-        const wave = (fx, fy, fz, freq) => {
-            const a = Math.sin(fx * freq + 1.37);
-            const b = Math.sin(fy * freq + 5.28);
-            const c = Math.sin(fz * freq + 9.17);
-            return (a + b + c) / 3.0;
-        };
+        // -------- 1) DOMAIN WARP --------
+        // Big, smooth warping of coordinates to break symmetry.
+        // Scales chosen for planet radius ~3600.
+        const warp1 = this._fbmNoise3(
+            p.x, p.y, p.z,
+            0.00035,   // baseFreq -> continents ~ few thousand meters
+            3,         // octaves
+            2.0,
+            0.5
+        ); // [-1,1]
 
-        // ---------- CONTINENTS (large-scale bulges) ----------
-        // Big slow variations to break the sphere
-        const cont = wave(p.x, p.y, p.z, 0.0006);           // very low freq
-        const contHeight = cont * 80.0;                     // +/- 80m
+        const warp2 = this._fbmNoise3(
+            p.x + 10000.0,
+            p.y - 7000.0,
+            p.z + 3000.0,
+            0.0008,
+            2,
+            2.0,
+            0.5
+        ); // [-1,1]
 
-        // ---------- MOUNTAINS (ridged noise) ----------
-        // Medium-scale ridged noise for mountain chains
-        let ridge = wave(p.x + 200.0, p.y - 100.0, p.z + 300.0, 0.0025);
-        ridge = Math.abs(ridge);                            // ridged
-        ridge = ridge * ridge * ridge;                      // sharpen peaks
-        const mountainHeight = ridge * 800.0;               // up to ~800m peaks
+        const warpStrength1 = 800.0;  // big flows
+        const warpStrength2 = 300.0;  // smaller twists
 
-        // ---------- VALLEYS / LARGE DEPRESSIONS ----------
-        let v = wave(p.x - 400.0, p.y + 50.0, p.z - 250.0, 0.0015);
-        const valleyDepth = v * 40.0;                       // +/- 40m
+        const wx = p.x + warp1 * warpStrength1 + warp2 * warpStrength2;
+        const wy = p.y + warp1 * warpStrength1 * 0.6 + warp2 * warpStrength2 * 0.4;
+        const wz = p.z + warp1 * warpStrength1 + warp2 * warpStrength2 * 0.2;
 
-        // Effective radius of the surface at this point
-        const effectiveRadius = R + contHeight + mountainHeight + valleyDepth;
+        // -------- 2) CONTINENTS --------
+        // Large-scale fBm to create continents & oceans.
+        const continents = this._fbmNoise3(
+            wx, wy, wz,
+            0.00045,  // ~1 / (2-3 km)
+            4,
+            2.0,
+            0.5
+        ); // [-1,1]
 
-        // Base SDF: distance from this effective terrain radius
+        const continentHeight = continents * 600.0; // +/- 600m
+
+        // -------- 3) RIDGED MOUNTAIN CHAINS --------
+        // Sharper peaks on top of continents.
+        let ridges = this._ridgedFbm3(
+            wx + 5000.0,
+            wy - 2000.0,
+            wz + 1000.0,
+            0.0018,   // somewhat higher freq than continents
+            4,
+            2.1,
+            0.5
+        ); // [0,1]
+
+        // Mask ridges so they don’t appear everywhere (more on high continents)
+        // continents in [-1,1]; high continents ~ >0.2
+        const contMask = Math.max(0, (continents - 0.2) / 0.8); // 0..1
+        ridges *= contMask;
+
+        // Push ridges through a curve so only the sharpest stand out
+        ridges = Math.max(0, ridges - 0.3) / 0.7;  // clamp low parts
+        ridges = ridges * ridges;                  // emphasize tallest
+
+        const mountainHeight = ridges * 1200.0;    // up to ~1.2 km
+
+        // -------- 4) MACRO VALLEYS / BASINS --------
+        const valleysNoise = this._fbmNoise3(
+            wx - 7000.0,
+            wy + 3000.0,
+            wz - 2000.0,
+            0.00025,
+            3,
+            2.0,
+            0.5
+        ); // [-1,1]
+        const valleyDepth = valleysNoise * 400.0;  // +/- 400m
+
+        // -------- 5) EFFECTIVE TERRAIN RADIUS --------
+        // This is the “surface radius” at this angular position.
+        const effectiveRadius = R + continentHeight + mountainHeight + valleyDepth;
+
+        // Base SDF: distance from this terrain radius
         let d = dist - effectiveRadius;
 
-        // ---------- CAVES (higher frequency inside) ----------
-        // Only carve caves when we're well inside the planet to avoid surface noise
-        if (dist < R - 20.0) {
-            const cave = wave(
-                p.x + 800.0,
-                p.y + 600.0,
-                p.z - 500.0,
-                0.0100
-            );
-            if (cave > 0.55) {
-                // When cave noise is high, push SDF positive => empty pockets
-                d += (cave - 0.55) * 60.0;
+        // -------- 6) CAVES (INSIDE THE PLANET) --------
+        // Only carve when we're clearly inside, to avoid surface noise.
+        const innerSurface = R - 60.0;
+        if (dist < innerSurface) {
+            const caves = this._fbmNoise3(
+                p.x * 1.5,
+                p.y * 1.5,
+                p.z * 1.5,
+                0.009,
+                3,
+                2.0,
+                0.5
+            ); // [-1,1]
+
+            // Threshold the noise -> pockets and tunnels
+            if (caves > 0.25) {
+                d += (caves - 0.25) * 90.0; // positive => hollow out
             }
         }
 
         return d;
     }
-
 
 
 
@@ -541,14 +690,6 @@ export class MarchingCubesTerrain {
         this._buildMesh();
     }
 
-	// Very small deterministic fake-noise (fast, stable, no import required)
-	_hashNoise(x, y, z) {
-		// large prime constants
-		const a = 1103515245, b = 12345, c = 3141592653;
-		let n = x * a ^ y * b ^ z * c;
-		n = (n << 13) ^ n;
-		return (1.0 - ((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
-	}
 
     /**
      * Compute terrain color at a given world-space position.
