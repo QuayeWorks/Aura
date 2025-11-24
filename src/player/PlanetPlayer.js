@@ -20,7 +20,7 @@ export class PlanetPlayer {
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
 
-        this.gravityStrength = options.gravityStrength ?? 60.0;     // m/s^2 toward planet center
+        this.gravityStrength = options.gravityStrength ?? 1.0;     // m/s^2 toward planet center
         this.maxFallSpeed   = options.maxFallSpeed ?? 250.0;       // clamp downward velocity
         this.jumpSpeed      = options.jumpSpeed ?? 120.0;          // initial jump impulse
 
@@ -353,6 +353,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
