@@ -226,6 +226,8 @@ export class PlanetPlayer {
     }
 
     // Orient capsule so "up" aligns with planet normal and forward follows camera
+    // Orient capsule so its Y-axis = planet normal.
+    // Forward is a stable tangent direction, independent of camera.
     _orientToSurface(upFromUpdate) {
         if (!this.mesh) return;
 
@@ -235,20 +237,18 @@ export class PlanetPlayer {
         // Use up vector from update() if provided, otherwise derive it safely
         const up = upFromUpdate
             ? upFromUpdate.clone()
-            : pos.clone().normalize(); // NOTE: clone() so we don't mutate position
+            : pos.clone().normalize();  // clone to avoid mutating position
 
-        // Determine forward direction (camera-relative if possible)
-        let forwardWorld = new BABYLON.Vector3(0, 0, 1);
-        if (this.camera && this.camera.getDirection) {
-            forwardWorld = this.camera.getDirection(
-                new BABYLON.Vector3(0, 0, 1)
-            );
+        // Choose a reference axis that is *not* parallel to up
+        let ref = BABYLON.Axis.Z;
+        if (Math.abs(BABYLON.Vector3.Dot(up, ref)) > 0.9) {
+            ref = BABYLON.Axis.X;
         }
 
-        // Project forward onto tangent plane
-        let forward = this._projectOntoPlane(forwardWorld, up);
+        // Forward = ref × up  (tangent to the surface)
+        let forward = BABYLON.Vector3.Cross(ref, up);
         if (forward.lengthSquared() < 1e-4) {
-            forward = BABYLON.Vector3.Cross(up, BABYLON.Axis.X);
+            forward = BABYLON.Vector3.Cross(BABYLON.Axis.Y, up);
         }
         forward.normalize();
 
@@ -270,6 +270,7 @@ export class PlanetPlayer {
             this.mesh.rotationQuaternion
         );
     }
+
 
 
     //update(dtSeconds)
@@ -359,6 +360,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
