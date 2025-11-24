@@ -6,7 +6,7 @@ import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const PLANET_RADIUS_UNITS = 3600;
+const PLANET_RADIUS_UNITS = 10800;
 let terrain = null;
 let player = null;
 let playerInfoText = null;   // <-- optional HUD text (currently unused)
@@ -51,10 +51,10 @@ const createScene = () => {
     // Chunked marching-cubes planet terrain
     // IMPORTANT: assign to the outer 'terrain' (no 'const' here)
     terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 24,
-        chunkCountZ: 24,
+        chunkCountX: 16,
+        chunkCountZ: 16,
         baseChunkResolution: 32,
-        dimY: 7400,
+        dimY: 22200,
         cellSize: 1,
         isoLevel: 0,
         radius: PLANET_RADIUS_UNITS
@@ -66,7 +66,7 @@ const createScene = () => {
     // --- Player capsule that can traverse the planet -------------------------
     player = new PlanetPlayer(scene, terrain, {
         planetRadius: PLANET_RADIUS_UNITS + 1,
-        moveSpeed: 75,
+        moveSpeed: 175,
         height: 2.0,
         capsuleRadius: 0.6
     });
@@ -226,5 +226,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
