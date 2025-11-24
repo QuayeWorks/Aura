@@ -76,7 +76,6 @@ export class PlanetPlayer {
 
         // Do an initial ground snap so we start exactly on the surface
         // once terrain meshes exist.
-        this._checkGroundAndSnap();
         this._orientToSurface();
 
 
@@ -354,6 +353,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
