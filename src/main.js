@@ -63,6 +63,29 @@ const createScene = () => {
         // lodMid: 30.0
     });
 
+        // --- Water sphere (oceans) ---
+    const waterLevelOffset = 300; // sea level above base radius, in meters
+
+    const water = BABYLON.MeshBuilder.CreateSphere(
+        "waterSphere",
+        {
+            diameter: 2 * (planetRadius + waterLevelOffset),
+            segments: 64
+        },
+        scene
+    );
+
+    const waterMat = new BABYLON.StandardMaterial("waterMat", scene);
+    waterMat.diffuseColor = new BABYLON.Color3(0.1, 0.4, 0.8);
+    waterMat.specularColor = new BABYLON.Color3(0.2, 0.2, 0.3);
+    waterMat.alpha = 0.55;
+    waterMat.backFaceCulling = false;
+
+    water.material = waterMat;
+    water.isPickable = false;
+    water.checkCollisions = false;
+
+
     // --- Player capsule that can traverse the planet -------------------------
     player = new PlanetPlayer(scene, terrain, {
         planetRadius: PLANET_RADIUS_UNITS + 1,
@@ -226,6 +249,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
