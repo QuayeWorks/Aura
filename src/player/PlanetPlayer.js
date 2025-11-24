@@ -76,7 +76,6 @@ export class PlanetPlayer {
 
         // Do an initial ground snap so we start exactly on the surface
         // once terrain meshes exist.
-        //this._orientToSurface();
 
 
         // Simple debug material
@@ -92,6 +91,11 @@ export class PlanetPlayer {
 
     attachCamera(camera) {
         this.camera = camera;
+        // --- Camera follow settings ---
+        this.cameraHeight   = options.cameraHeight   ?? 30;   // meters above player
+        this.cameraDistance = options.cameraDistance ?? 60;   // meters behind player
+        this.cameraLerp     = options.cameraLerp     ?? 0.2;  // 0..1, smoothing factor
+
     }
 
     _registerInput() {
@@ -351,9 +355,49 @@ export class PlanetPlayer {
 
         // ---------- ORIENT CAPSULE / CAMERA TO SURFACE ----------
         // Keep your existing orientation function if you have one:
-        if (this._orientToSurface) {
-            this._orientToSurface(up);
+        this._orientToSurface(up);
+        
+        // ---------- CAMERA FOLLOW & ORIENTATION ----------
+        if (this.camera) {
+            // Planet-up at player position
+            const camUp = up;
+
+            // Build a stable forward direction (same trick as in _orientToSurface)
+            let ref = BABYLON.Axis.Z;
+            if (Math.abs(BABYLON.Vector3.Dot(camUp, ref)) > 0.9) {
+                ref = BABYLON.Axis.X;
+            }
+            let forward = BABYLON.Vector3.Cross(ref, camUp);
+            if (forward.lengthSquared() < 1e-4) {
+                forward = BABYLON.Vector3.Cross(BABYLON.Axis.Y, camUp);
+            }
+            forward.normalize();
+
+            const camTarget = this.mesh.position;
+
+            // Camera sits slightly above the player, and behind along -forward
+            const offset =
+                camUp.scale(this.cameraHeight)
+                    .add(forward.scale(-this.cameraDistance));
+
+            const desiredPos = camTarget.add(offset);
+
+            // Smooth follow so it’s not jittery
+            this.camera.position = BABYLON.Vector3.Lerp(
+                this.camera.position,
+                desiredPos,
+                this.cameraLerp
+            );
+
+            // Make the camera's up match the planet normal
+            this.camera.upVector = camUp.clone();
+
+            // Look at the player
+            if (this.camera.setTarget) {
+                this.camera.setTarget(camTarget);
+            }
         }
+
     }
 
 
@@ -362,6 +406,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
