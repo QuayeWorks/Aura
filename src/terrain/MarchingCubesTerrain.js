@@ -950,8 +950,12 @@ export class MarchingCubesTerrain {
             this.mesh.material.useVertexColors = true;
         }
 
-        // Make terrain collideable
-        this.mesh.checkCollisions = true;
+		// Mark terrain chunks as pickable ground for player raycasts
+		this.mesh.isPickable = true;
+		this.mesh.checkCollisions = true; // optional but nice
+		this.mesh.metadata = this.mesh.metadata || {};
+		this.mesh.metadata.isTerrain = true;
+
 
         vertexData.applyToMesh(this.mesh, true);
     }
