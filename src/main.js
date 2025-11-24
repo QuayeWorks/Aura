@@ -1,364 +1,228 @@
-// src/player/PlanetPlayer.js
+// src/main.js
+// Babylon + GUI come from global scripts in index.html
+// We only import our own module.
+import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
+import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
-export class PlanetPlayer {
-    constructor(scene, terrain, options = {}) {
-        this.scene = scene;
-        this.terrain = terrain;
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
+const PLANET_RADIUS_UNITS = 360;
+let terrain = null;
+let player = null;
+let playerInfoText = null;   // <-- optional HUD text (currently unused)
 
-        // Config
-        // Prefer terrain radius so we always match the actual SDF planet.
-        this.planetRadius =  360;
+const createScene = () => {
+    const scene = new BABYLON.Scene(engine);
+    scene.collisionsEnabled = true;
 
-        this.moveSpeed = options.moveSpeed ?? 20;       // target horizontal speed
-        this.moveAccel = options.moveAccel ?? 60;       // accel toward target speed
-        this.groundFriction = options.groundFriction ?? 12;
-        this.airFriction = options.airFriction ?? 1;
-        this.gravity = options.gravity ?? 10;           // units/s^2 toward center
-        this.jumpSpeed = options.jumpSpeed ?? 15;       // initial jump speed
+    // Blue background
+    scene.clearColor = new BABYLON.Color4(0.51, 0.89, 1.0, 1.0);
 
-        this.height = options.height ?? 2.0;            // eye-to-ground distance
-        this.capsuleRadius = options.capsuleRadius ?? 0.6;
+    // Camera
+    const camera = new BABYLON.ArcRotateCamera(
+        "camera",
+        Math.PI / 4,
+        Math.PI / 3,
+        60,
+        new BABYLON.Vector3.Zero(),
+        scene
+    );
+    camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 10;
+    camera.upperRadiusLimit = 400;
 
-        this.groundCheckExtra = options.groundCheckExtra ?? 0.6;
-        this.groundSnapDistance = options.groundSnapDistance ?? 0.5;
+    // Lights
+    const hemi = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0.3, 1, 0.2),
+        scene
+    );
+    hemi.intensity = 0.7;
+    hemi.groundColor = new BABYLON.Color3(0.1, 0.1, 0.15);
 
-        // Movement state
-        this.input = {
-            forward: false,
-            back: false,
-            left: false,
-            right: false
-        };
-
-        this.velocity = BABYLON.Vector3.Zero(); // world-space velocity
-        this.isGrounded = false;
-        this.jumpQueued = false;
-
-        // Create capsule mesh
-        this.mesh = BABYLON.MeshBuilder.CreateCapsule(
-            "playerCapsule",
-            {
-                height: this.height * 2.0,
-                radius: this.capsuleRadius,
-                tessellation: 8,
-                subdivisions: 2
-            },
-            scene
-        );
-        this.mesh.checkCollisions = false; // we handle our own
-
-        // Start just above the planet surface (on +Z)
-        const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
-
-        const spawnRadius =
-            this.planetRadius +
-            this.height +
-            this.capsuleRadius * 0.5;
-
-        this.mesh.position = startDir.scale(spawnRadius);
-
-        // Debug in console so we KNOW what was used:
-        console.log(
-            "[PlanetPlayer] spawn:",
-            "planetRadius =", this.planetRadius,
-            "spawnRadius =", spawnRadius,
-            "position =", this.mesh.position.toString()
-        );
+    const dir = new BABYLON.DirectionalLight(
+        "dir",
+        new BABYLON.Vector3(-0.5, -1, -0.3),
+        scene
+    );
+    dir.intensity = 0.6;
 
 
-        // Do an initial ground snap so we start exactly on the surface
-        // once terrain meshes exist.
-        this._checkGroundAndSnap();
-        this._orientToSurface();
+    // Chunked marching-cubes planet terrain
+    // IMPORTANT: assign to the outer 'terrain' (no 'const' here)
+    terrain = new ChunkedPlanetTerrain(scene, {
+        chunkCountX: 16,
+        chunkCountZ: 16,
+        baseChunkResolution: 32,
+        dimY: 740,
+        cellSize: 1,
+        isoLevel: 0,
+        radius: PLANET_RADIUS_UNITS
+        // You can optionally override LOD ring distances here:
+        // lodNear: 15.0,
+        // lodMid: 30.0
+    });
 
+    // --- Player capsule that can traverse the planet -------------------------
+    player = new PlanetPlayer(scene, terrain, {
+        planetRadius: PLANET_RADIUS_UNITS + 1,
+        moveSpeed: 25,
+        height: 2.0,
+        capsuleRadius: 0.6
+    });
 
-        // Simple debug material
-        const mat = new BABYLON.StandardMaterial("playerMat", scene);
-        mat.diffuseColor = new BABYLON.Color3(1, 0.8, 0.2);
-        mat.specularColor = BABYLON.Color3.Black();
-        this.mesh.material = mat;
-
-        this.camera = null;
-
-        this._registerInput();
+    // Let the player use the active camera for movement direction
+    if (scene.activeCamera) {
+        player.attachCamera(scene.activeCamera);
+        // Make the orbit camera follow the capsule instead of the world origin
+        camera.lockedTarget = player.mesh;
+        // Optional: tweak distance so you see more of the planet
+        camera.radius = camera.radius || 80;
     }
 
-    attachCamera(camera) {
-        this.camera = camera;
-    }
+    // -----------------------
+    // UI: lighting/material controls
+    // -----------------------
 
-    _registerInput() {
-        window.addEventListener("keydown", (ev) => {
-            switch (ev.key) {
-                case "w":
-                case "W":
-                    this.input.forward = true;
-                    break;
-                case "s":
-                case "S":
-                    this.input.back = true;
-                    break;
-                case "a":
-                case "A":
-                    this.input.left = true;
-                    break;
-                case "d":
-                case "D":
-                    this.input.right = true;
-                    break;
-                case " ":
-                    // queue jump (handled once in update)
-                    this.jumpQueued = true;
-                    break;
-                default:
-                    break;
-            }
+    const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+
+    // --- Player debug info text (top-left) (currently disabled) ---
+    
+    playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
+    playerInfoText.text = "Player: (0, 0, 0) r=0";
+    playerInfoText.color = "white";
+    playerInfoText.fontSize = 18;
+    playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    playerInfoText.paddingLeft = "10px";
+    playerInfoText.paddingTop = "10px";
+    ui.addControl(playerInfoText);
+    
+
+    const panel = new BABYLON.GUI.StackPanel();
+    panel.width = "260px";
+    panel.isVertical = true;
+    panel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    panel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    panel.paddingRight = "20px";
+    panel.paddingTop = "20px";
+    panel.background = "rgba(0,0,0,0.4)";
+    ui.addControl(panel);
+
+    function addSlider(label, min, max, startValue, onChange) {
+        const header = new BABYLON.GUI.TextBlock();
+        header.text = `${label}: ${startValue.toFixed(2)}`;
+        header.height = "26px";
+        header.marginTop = "6px";
+        header.color = "white";
+        header.fontSize = 16;
+        header.textHorizontalAlignment =
+            BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+        panel.addControl(header);
+
+        const slider = new BABYLON.GUI.Slider();
+        slider.minimum = min;
+        slider.maximum = max;
+        slider.value = startValue;
+        slider.height = "20px";
+        slider.color = "#88ff88";
+        slider.background = "#333333";
+        slider.borderColor = "#aaaaaa";
+        slider.onValueChangedObservable.add((v) => {
+            header.text = `${label}: ${v.toFixed(2)}`;
+            onChange(v);
         });
-
-        window.addEventListener("keyup", (ev) => {
-            switch (ev.key) {
-                case "w":
-                case "W":
-                    this.input.forward = false;
-                    break;
-                case "s":
-                case "S":
-                    this.input.back = false;
-                    break;
-                case "a":
-                case "A":
-                    this.input.left = false;
-                    break;
-                case "d":
-                case "D":
-                    this.input.right = false;
-                    break;
-                case " ":
-                    // don't keep jump held forever
-                    this.jumpQueued = false;
-                    break;
-                default:
-                    break;
-            }
-        });
+        panel.addControl(slider);
     }
 
-    // Helper: project v onto plane with normal n
-    _projectOntoPlane(v, n) {
-        const dot = BABYLON.Vector3.Dot(v, n);
-        return v.subtract(n.scale(dot));
-    }
+    // Cache base values so sliders act as multipliers
+    const baseHemiIntensity = hemi.intensity;
+    const baseDirIntensity = dir.intensity;
 
-    // Ground ray + snapping
-    _checkGroundAndSnap() {
-        const pos = this.mesh.position;
-        if (pos.lengthSquared() === 0) return;
+    const terrainMat = terrain.material;
+    const baseDiffuse = terrainMat.diffuseColor.clone();
+    const baseEmissive = terrainMat.emissiveColor
+        ? terrainMat.emissiveColor.clone()
+        : new BABYLON.Color3(0, 0, 0);
 
-        const up = pos.normalize();
+    // LOD Quality: 0 = Low, 1 = Medium, 2 = High
+    addSlider("LOD quality", 0, 2, 2, (v) => {
+        // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
+        terrain.setLodLevel(v);
+    });
 
-        const rayOrigin = pos.add(up.scale(this.capsuleRadius + 0.5));
-        const rayDir = up.scale(-1);
-        const rayLen = this.height + this.capsuleRadius + this.groundCheckExtra;
+    // Wireframe toggle
+    const wireframeButton = BABYLON.GUI.Button.CreateSimpleButton(
+        "wireBtn",
+        "Toggle Wireframe"
+    );
+    wireframeButton.height = "32px";
+    wireframeButton.color = "white";
+    wireframeButton.background = "#5555aa";
+    wireframeButton.cornerRadius = 6;
+    wireframeButton.thickness = 1;
+    wireframeButton.marginTop = "10px";
+    wireframeButton.onPointerUpObservable.add(() => {
+        terrainMat.wireframe = !terrainMat.wireframe;
+    });
+    panel.addControl(wireframeButton);
 
-        const ray = new BABYLON.Ray(rayOrigin, rayDir, rayLen);
-
-        const pick = this.scene.pickWithRay(
-            ray,
-            (mesh) =>
-                mesh &&
-                mesh.name &&
-                mesh.name.startsWith("marchingCubesTerrain")
-        );
-
-        if (pick.hit && pick.pickedPoint) {
-            const targetPos = pick.pickedPoint.add(up.scale(this.height));
-            const distToGround = BABYLON.Vector3.Distance(targetPos, pos);
-
-            if (distToGround <= this.groundSnapDistance) {
-                this.isGrounded = true;
-                this.mesh.position.copyFrom(targetPos);
-
-                // Remove downward component of velocity
-                const vDotUp = BABYLON.Vector3.Dot(this.velocity, up);
-                if (vDotUp < 0) {
-                    this.velocity = this.velocity.subtract(up.scale(vDotUp));
+    // -----------------------
+    // Carving input (LMB)
+    // -----------------------
+    scene.onPointerObservable.add((pointerInfo) => {
+        if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+            if (pointerInfo.event.button === 0 && terrain) {
+                const pick = scene.pick(
+                    pointerInfo.event.clientX,
+                    pointerInfo.event.clientY
+                );
+                if (pick && pick.hit) {
+                    terrain.carveSphere(pick.pickedPoint, 4.0);
                 }
-                return;
             }
         }
+    });
 
-        this.isGrounded = false;
+    return scene;
+};
+
+const scene = createScene();
+
+engine.runRenderLoop(() => {
+    const dt = engine.getDeltaTime() / 1000;
+
+    // Use the player capsule as the focus position for LOD + hemisphere decisions.
+    let focusPos = null;
+    if (player && player.mesh) {
+        focusPos = player.mesh.position;
+    } else if (scene.activeCamera) {
+        // Fallback: use camera position before player is ready
+        focusPos = scene.activeCamera.position;
     }
 
-    // Simple wall collision: cast ray along movement, stop/slide on hit
-    _resolveHorizontalCollisions(pos, displacement) {
-        const dispLenSq = displacement.lengthSquared();
-        if (dispLenSq < 1e-6) {
-            return pos;
-        }
-
-        const dispLen = Math.sqrt(dispLenSq);
-        const dir = displacement.scale(1 / dispLen);
-
-        const ray = new BABYLON.Ray(
-            pos,
-            dir,
-            dispLen + this.capsuleRadius * 1.1
-        );
-
-        const pick = this.scene.pickWithRay(
-            ray,
-            (mesh) =>
-                mesh &&
-                mesh.name &&
-                mesh.name.startsWith("marchingCubesTerrain")
-        );
-
-        if (!pick.hit || !pick.pickedPoint) {
-            return pos.add(displacement);
-        }
-
-        // Move to just outside the wall
-        const hitPoint = pick.pickedPoint;
-        const hitNormal =
-            pick.getNormal && pick.getNormal(true)
-                ? pick.getNormal(true)
-                : dir.scale(-1);
-
-        const newPos = hitPoint.add(
-            hitNormal.scale(this.capsuleRadius * 1.01)
-        );
-
-        // Remove velocity component into the wall to "slide" along it
-        const vDotN = BABYLON.Vector3.Dot(this.velocity, hitNormal);
-        if (vDotN < 0) {
-            this.velocity = this.velocity.subtract(hitNormal.scale(vDotN));
-        }
-
-        return newPos;
+    if (terrain) {
+        terrain.updateStreaming(focusPos);
     }
 
-    // Orient capsule so "up" aligns with planet normal and forward follows camera
-    _orientToSurface() {
-        const pos = this.mesh.position;
-        if (pos.lengthSquared() === 0) return;
-
-        const up = pos.normalize();
-
-        // Determine forward direction (camera-relative if possible)
-        let forwardWorld = new BABYLON.Vector3(0, 0, 1);
-        if (this.camera && this.camera.getDirection) {
-            forwardWorld = this.camera.getDirection(
-                new BABYLON.Vector3(0, 0, 1)
-            );
-        }
-
-        // Project forward onto tangent plane
-        let forward = this._projectOntoPlane(forwardWorld, up);
-        if (forward.lengthSquared() < 1e-4) {
-            forward = BABYLON.Vector3.Cross(up, BABYLON.Axis.X);
-        }
-        forward.normalize();
-
-        const right = BABYLON.Vector3.Cross(forward, up).normalize();
-
-        // Construct rotation matrix from Right / Up / Forward
-        const m = BABYLON.Matrix.FromValues(
-            right.x,   right.y,   right.z,   0,
-            up.x,      up.y,      up.z,      0,
-            forward.x, forward.y, forward.z, 0,
-            0,         0,         0,         1
-        );
-
-        if (!this.mesh.rotationQuaternion) {
-            this.mesh.rotationQuaternion = new BABYLON.Quaternion();
-        }
-        BABYLON.Quaternion.FromRotationMatrixToRef(
-            m,
-            this.mesh.rotationQuaternion
-        );
+    if (player) {
+        player.update(dt);
     }
 
-    update(dtSeconds) {
-        if (!this.mesh) return;
-
-        // --- One-time spawn radius correction ---
-        if (!this._spawnFixed) {
-            const desiredRadius =
-                this.planetRadius +
-                this.height +
-                this.capsuleRadius * 0.5;
-
-            let pos = this.mesh.position;
-            if (pos.lengthSquared() < 1e-6) {
-                // If something left us at (0,0,0), choose +Z as a fallback
-                pos = new BABYLON.Vector3(0, 0, 1);
-            }
-
-            const dir = pos.normalize();
-            this.mesh.position = dir.scale(desiredRadius);
-
-            console.log(
-                "[PlanetPlayer] spawn fix:",
-                "desiredRadius =", desiredRadius,
-                "newPos =", this.mesh.position.toString()
-            );
-
-            this._spawnFixed = true;
-        }
-        
-        // Movement basis from camera if available
-        let forwardWorld = new BABYLON.Vector3(0, 0, 1);
-        let rightWorld   = new BABYLON.Vector3(1, 0, 0);
-        let upWorld      = new BABYLON.Vector3(0, 1, 0);
-
-        if (this.camera && this.camera.getDirection) {
-            forwardWorld = this.camera.getDirection(new BABYLON.Vector3(0, 0, 1));
-            rightWorld   = this.camera.getDirection(new BABYLON.Vector3(1, 0, 0));
-            upWorld      = this.camera.getDirection(new BABYLON.Vector3(0, 1, 0));
-        }
-
-        // Build movement vector from input (WASD)
-        let move = BABYLON.Vector3.Zero();
-        if (this.input.forward) move = move.add(forwardWorld);
-        if (this.input.back)    move = move.subtract(forwardWorld);
-        if (this.input.right)   move = move.add(rightWorld);
-        if (this.input.left)    move = move.subtract(rightWorld);
-        // (Space / jump is ignored for now)
-
-        if (move.lengthSquared() > 0) {
-            move.normalize();
-            const displacement = move.scale(this.moveSpeed * dtSeconds);
-
-            // *** NEW: resolve collisions against marching-cubes terrain ***
-            const newPos = this._resolveHorizontalCollisions(this.mesh.position, displacement);
-            this.mesh.position.copyFrom(newPos);
-
-            // Orient capsule to face movement direction, keep a consistent "up"
-            const forward = move.clone().normalize();
-            const up = upWorld.normalize();
-            const right = BABYLON.Vector3.Cross(forward, up).normalize();
-
-            const m = BABYLON.Matrix.FromValues(
-                right.x,   right.y,   right.z,   0,
-                up.x,      up.y,      up.z,      0,
-                forward.x, forward.y, forward.z, 0,
-                0,         0,         0,         1
-            );
-
-            if (!this.mesh.rotationQuaternion) {
-                this.mesh.rotationQuaternion = new BABYLON.Quaternion();
-            }
-            BABYLON.Quaternion.FromRotationMatrixToRef(m, this.mesh.rotationQuaternion);
-        }
+    
+    // Update player debug HUD
+    if (player && player.mesh && playerInfoText) {
+        const p = player.mesh.position;
+        const r = p.length();
+        playerInfoText.text =
+            `Player: x=${p.x.toFixed(1)}  y=${p.y.toFixed(1)}  ` +
+            `z=${p.z.toFixed(1)}  r=${r.toFixed(1)}`;
     }
+    
 
+    scene.render();
+});
 
-    getPosition() {
-        return this.mesh ? this.mesh.position : null;
-    }
-}
-
-
-
-
+window.addEventListener("resize", () => {
+    engine.resize();
+});
