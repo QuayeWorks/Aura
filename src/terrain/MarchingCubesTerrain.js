@@ -689,12 +689,17 @@ export class MarchingCubesTerrain {
      * - underground brown → dark brown → glowing core
      * - mountains: rock → snow
      */
+    // NEW HEIGHT–BIOME–DEPTH COLORING WITH SEA LEVEL & BEACHES
     _getColorForWorldPos(worldPos) {
-        const R = this.radius;                     // planet radius already on this class
+        const R = this.radius;
         const dist = worldPos.length();
-        const h = dist - R;                        // height above surface (can be negative)
+        const h = dist - R; // absolute height above base radius
 
-        // Normalize direction for simple "latitude" info
+        // Sea level offset must match main.js waterLevelOffset
+        const waterLevel = 300; // meters above R
+        const beachHalfBand = 40; // +/- around sea level for beaches
+
+        // Unit direction for latitude-style effects
         let nx = 0, ny = 1, nz = 0;
         if (dist > 1e-6) {
             nx = worldPos.x / dist;
@@ -702,78 +707,87 @@ export class MarchingCubesTerrain {
             nz = worldPos.z / dist;
         }
 
-        // --- BELOW SURFACE: soil / rock / magma ---
+        // ........ BELOW SURFACE: soil / rock / magma ........
         if (h < 0) {
-            const depth = -h; // meters below nominal surface
+            const depth = -h; // meters below nominal R
 
-            // Shallow dig: lighter brown
             if (depth < 30) {
+                // shallow dig: lighter brown
                 return new BABYLON.Color3(0.45, 0.30, 0.15);
             }
 
-            // Medium depth: darker brown
-            if (depth < 200) {
-                const t = (depth - 30) / (200 - 30); // 0..1
+            if (depth < 250) {
+                const t = (depth - 30) / (250 - 30);
                 const a = new BABYLON.Color3(0.35, 0.22, 0.10);
                 const b = new BABYLON.Color3(0.18, 0.10, 0.05);
                 return BABYLON.Color3.Lerp(a, b, t);
             }
 
-            // Deep: transition to glowing core (orange)
-            const maxDepth = 800;
+            // deep: transition to glowing core
+            const maxDepth = 1500;
             const clamped = Math.min(depth, maxDepth);
-            const t = (clamped - 200) / (maxDepth - 200); // 0..1
+            const t = (clamped - 250) / (maxDepth - 250);
             const rock = new BABYLON.Color3(0.18, 0.10, 0.05);
             const lava = new BABYLON.Color3(1.0, 0.4, 0.05);
             return BABYLON.Color3.Lerp(rock, lava, t);
         }
 
-        // --- ABOVE SURFACE: biomes + mountains ---
-
-        // Basic pseudo-noise from world pos (no library needed)
-        const n = Math.sin(worldPos.x * 0.001 + worldPos.z * 0.0015) *
-                  Math.cos(worldPos.z * 0.0008 + worldPos.y * 0.0013);
-
-        // lowlands: 0–50m above surface
-        if (h < 50) {
-            // mix sand + grass based on pseudo-noise
-            const sand = new BABYLON.Color3(0.92, 0.85, 0.55);
-            const grass = new BABYLON.Color3(0.20, 0.75, 0.30);
-
-            // more sand near coasts (slightly below 0) and low altitude
-            const sandFactor = 0.5 + 0.5 * n;      // 0..1
-            const t = Math.min(1, h / 50);         // 0 at h=0, 1 at h=50
-
-            const base = BABYLON.Color3.Lerp(sand, grass, t);
-            const mixed = BABYLON.Color3.Lerp(sand, base, sandFactor);
-            return mixed;
+        // ........ UNDERWATER TERRAIN (below sea level) ........
+        if (h < waterLevel - beachHalfBand) {
+            // Darker, bluish-green sea floor
+            return new BABYLON.Color3(0.05, 0.18, 0.14);
         }
 
-        // mid-altitude hills: 50–100m → greener, less sand
-        if (h < 100) {
-            const lowGrass = new BABYLON.Color3(0.18, 0.65, 0.28);
-            const midGrass = new BABYLON.Color3(0.15, 0.55, 0.25);
-            const t = (h - 50) / 50;
-            return BABYLON.Color3.Lerp(lowGrass, midGrass, t);
+        // Height relative to sea level
+        const aboveSea = h - waterLevel;
+
+        // ........ BEACH BAND AROUND SEA LEVEL ........
+        if (Math.abs(aboveSea) <= beachHalfBand) {
+            // Sandy beaches
+            return new BABYLON.Color3(0.96, 0.88, 0.60);
         }
 
-        // 100–400m: rocky grey-brown
-        if (h < 400) {
+        // From here on, we're clearly above sea level.
+        const localH = aboveSea - beachHalfBand; // 0 at top of beach band
+
+        // Small helper: cheap fake noise (for varied grass tones)
+        const n = this._hashNoise(
+            Math.floor(worldPos.x * 0.02),
+            Math.floor(worldPos.y * 0.02),
+            Math.floor(worldPos.z * 0.02)
+        ); // [-1,1]
+        const grassJitter = 0.03 * n; // tiny color variation
+
+        // ........ LOW HILLS: up to ~200m above beaches ........
+        if (localH < 200) {
+            const t = localH / 200; // 0..1
+            const grassLow = new BABYLON.Color3(0.18, 0.70 + grassJitter, 0.30);
+            const grassHigh = new BABYLON.Color3(0.13, 0.55, 0.25);
+            return BABYLON.Color3.Lerp(grassLow, grassHigh, t);
+        }
+
+        // ........ MID ALTITUDE: 200–800m above beaches (rocky hills) ........
+        if (localH < 800) {
+            const t = (localH - 200) / 600;
             const rockBrown = new BABYLON.Color3(0.45, 0.40, 0.35);
             const rockGrey  = new BABYLON.Color3(0.60, 0.60, 0.60);
-            const t = (h - 100) / 300;
             return BABYLON.Color3.Lerp(rockBrown, rockGrey, t);
         }
 
-        // >400m: snow / ice. More snow at poles (high |ny|).
-        const snowBase = new BABYLON.Color3(0.8, 0.8, 0.85);
+        // ........ HIGH ALTITUDE: >800m above beaches (snow / ice) ........
+        const snowBase = new BABYLON.Color3(0.80, 0.82, 0.87);
         const snowPure = new BABYLON.Color3(1.0, 1.0, 1.0);
-        const heightT = Math.min(1, (h - 400) / 600); // 0 at 400, 1 at 1000
-        const latT = Math.min(1, Math.abs(ny));       // more white toward poles
+
+        // Height factor for snow richness
+        const heightT = Math.min(1, (localH - 800) / 1200); // full white by ~2km above beaches
+
+        // Latitude factor: more snow toward poles
+        const latT = Math.min(1, Math.abs(ny));
 
         const snowMix = BABYLON.Color3.Lerp(snowBase, snowPure, heightT);
         return BABYLON.Color3.Lerp(snowMix, snowPure, latT * 0.5);
     }
+
 
     _buildMesh() {
         const positions = [];
