@@ -488,9 +488,10 @@ export class MarchingCubesTerrain {
     }
 
     // ====== DOMAIN-WARPED FRACTAL PLANET TERRAIN FOR RADIUS ≈ 3600 ======
+    // ====== DOMAIN-WARPED FRACTAL PLANET TERRAIN FOR RADIUS ≈ 10800 ======
     _sampleSdf(pos) {
         const p = pos;
-        const R = this.radius;  // e.g. 3600
+        const R = this.radius;  // e.g. 10800
 
         // Distance from planet center
         const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
@@ -500,12 +501,11 @@ export class MarchingCubesTerrain {
         }
 
         // -------- 1) DOMAIN WARP --------
-        // Big, smooth warping of coordinates to break symmetry.
-        // Scales chosen for planet radius ~3600.
+        // Scales chosen for planet radius ~10800 (3x bigger than before).
         const warp1 = this._fbmNoise3(
             p.x, p.y, p.z,
-            0.00035,   // baseFreq -> continents ~ few thousand meters
-            3,         // octaves
+            0.00035 / 3.0,   // was 0.00035
+            3,
             2.0,
             0.5
         ); // [-1,1]
@@ -514,90 +514,81 @@ export class MarchingCubesTerrain {
             p.x + 10000.0,
             p.y - 7000.0,
             p.z + 3000.0,
-            0.0008,
+            0.0008 / 3.0,    // was 0.0008
             2,
             2.0,
             0.5
         ); // [-1,1]
 
-        const warpStrength1 = 800.0;  // big flows
-        const warpStrength2 = 300.0;  // smaller twists
+        const warpStrength1 = 800.0 * 3.0;  // 2400
+        const warpStrength2 = 300.0 * 3.0;  // 900
 
         const wx = p.x + warp1 * warpStrength1 + warp2 * warpStrength2;
         const wy = p.y + warp1 * warpStrength1 * 0.6 + warp2 * warpStrength2 * 0.4;
         const wz = p.z + warp1 * warpStrength1 + warp2 * warpStrength2 * 0.2;
 
         // -------- 2) CONTINENTS --------
-        // Large-scale fBm to create continents & oceans.
         const continents = this._fbmNoise3(
             wx, wy, wz,
-            0.00045,  // ~1 / (2-3 km)
+            0.00045 / 3.0,   // was 0.00045
             4,
             2.0,
             0.5
         ); // [-1,1]
 
-        const continentHeight = continents * 600.0; // +/- 600m
+        const continentHeight = continents * (600.0 * 3.0);  // +/- 1800m
 
         // -------- 3) RIDGED MOUNTAIN CHAINS --------
-        // Sharper peaks on top of continents.
         let ridges = this._ridgedFbm3(
             wx + 5000.0,
             wy - 2000.0,
             wz + 1000.0,
-            0.0018,   // somewhat higher freq than continents
+            0.0018 / 3.0,    // was 0.0018
             4,
             2.1,
             0.5
         ); // [0,1]
 
-        // Mask ridges so they don’t appear everywhere (more on high continents)
-        // continents in [-1,1]; high continents ~ >0.2
         const contMask = Math.max(0, (continents - 0.2) / 0.8); // 0..1
         ridges *= contMask;
 
-        // Push ridges through a curve so only the sharpest stand out
-        ridges = Math.max(0, ridges - 0.3) / 0.7;  // clamp low parts
-        ridges = ridges * ridges;                  // emphasize tallest
+        ridges = Math.max(0, ridges - 0.3) / 0.7;
+        ridges = ridges * ridges;
 
-        const mountainHeight = ridges * 1200.0;    // up to ~1.2 km
+        const mountainHeight = ridges * (1200.0 * 3.0);       // up to ~3.6 km
 
         // -------- 4) MACRO VALLEYS / BASINS --------
         const valleysNoise = this._fbmNoise3(
             wx - 7000.0,
             wy + 3000.0,
             wz - 2000.0,
-            0.00025,
+            0.00025 / 3.0,   // was 0.00025
             3,
             2.0,
             0.5
         ); // [-1,1]
-        const valleyDepth = valleysNoise * 400.0;  // +/- 400m
+        const valleyDepth = valleysNoise * (400.0 * 3.0);     // +/- 1.2 km
 
         // -------- 5) EFFECTIVE TERRAIN RADIUS --------
-        // This is the “surface radius” at this angular position.
         const effectiveRadius = R + continentHeight + mountainHeight + valleyDepth;
 
-        // Base SDF: distance from this terrain radius
         let d = dist - effectiveRadius;
 
         // -------- 6) CAVES (INSIDE THE PLANET) --------
-        // Only carve when we're clearly inside, to avoid surface noise.
-        const innerSurface = R - 60.0;
+        const innerSurface = R - 180.0; // scaled from 60 for bigger planet
         if (dist < innerSurface) {
             const caves = this._fbmNoise3(
                 p.x * 1.5,
                 p.y * 1.5,
                 p.z * 1.5,
-                0.009,
+                0.009 / 3.0,   // was 0.009
                 3,
                 2.0,
                 0.5
             ); // [-1,1]
 
-            // Threshold the noise -> pockets and tunnels
             if (caves > 0.25) {
-                d += (caves - 0.25) * 90.0; // positive => hollow out
+                d += (caves - 0.25) * (90.0 * 3.0); // carve bigger voids
             }
         }
 
