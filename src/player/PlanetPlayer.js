@@ -1,7 +1,7 @@
 // src/player/PlanetPlayer.js
 
 export class PlanetPlayer {
-    constructor(scene, terrain, options = {}) {
+    constructor(scene, camera, options = {}) {
         this.scene = scene;
         this.terrain = null;
         this.camera  = camera;
@@ -410,6 +410,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
