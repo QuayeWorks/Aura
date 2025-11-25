@@ -4,6 +4,7 @@ export class PlanetPlayer {
     constructor(scene, terrain, options = {}) {
         this.scene = scene;
         this.terrain = terrain;
+        this.camera  = camera;
 
         // Config
         // Prefer terrain radius so we always match the actual SDF planet.
@@ -28,6 +29,11 @@ export class PlanetPlayer {
         this.groundProbeLength  = options.groundProbeLength ?? (this.height + 10);
         this.groundSnapDistance = options.groundSnapDistance ?? 8;
         this.groundOffset       = options.groundOffset ?? 1.0;     // small gap above surface
+        
+        // Camera settings here — options is valid in constructor
+        this.cameraHeight   = options.cameraHeight   ?? 30;
+        this.cameraDistance = options.cameraDistance ?? 60;
+        this.cameraLerp     = options.cameraLerp     ?? 0.2;
 
         // Movement state
         this.input = {
@@ -89,14 +95,14 @@ export class PlanetPlayer {
         this._registerInput();
     }
 
-    attachCamera(camera) {
-        this.camera = camera;
-        // --- Camera follow settings ---
-        this.cameraHeight   = options.cameraHeight   ?? 30;   // meters above player
-        this.cameraDistance = options.cameraDistance ?? 60;   // meters behind player
-        this.cameraLerp     = options.cameraLerp     ?? 0.2;  // 0..1, smoothing factor
-
+    attachCamera() {
+        if (!this.camera) return;
+    
+        // Just apply the constraints — NO "options" HERE
+        this.camera.minZ = 0.1;
+        this.camera.maxZ = 5000000;
     }
+
 
     _registerInput() {
         window.addEventListener("keydown", (ev) => {
@@ -406,6 +412,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
