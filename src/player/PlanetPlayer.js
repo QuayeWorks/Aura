@@ -360,7 +360,8 @@ export class PlanetPlayer {
         // ---------- ORIENT CAPSULE / CAMERA TO SURFACE ----------
         // Keep your existing orientation function if you have one:
         this._orientToSurface(up);
-        
+
+        if (!this.mesh || !this.camera) return;
         // ---------- CAMERA FOLLOW & ORIENTATION ----------
         if (this.camera) {
             // Planet-up at player position
@@ -387,11 +388,13 @@ export class PlanetPlayer {
             const desiredPos = camTarget.add(offset);
 
             // Smooth follow so it’s not jittery
-            this.camera.position = BABYLON.Vector3.Lerp(
-                this.camera.position,
-                desiredPos,
-                this.cameraLerp
-            );
+            if (this.camera.position && desiredPos) {
+                this.camera.position = BABYLON.Vector3.Lerp(
+                    this.camera.position,
+                    desiredPos,
+                    this.cameraLerp
+                );
+            }
 
             // Make the camera's up match the planet normal
             this.camera.upVector = camUp.clone();
@@ -410,6 +413,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
