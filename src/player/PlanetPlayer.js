@@ -318,31 +318,37 @@ export class PlanetPlayer {
 
         if (input.lengthSquared() > 0.0001) {
             input.normalize();
-
-            // Get camera basis
-            let forward = this.camera.getDirection(BABYLON.Axis.Z);
-            let right   = this.camera.getDirection(BABYLON.Axis.X);
-
+        
+            // Get basis from the player capsule orientation instead of the camera
+            let forward = BABYLON.Vector3.TransformNormal(
+                BABYLON.Axis.Z,
+                this.mesh.getWorldMatrix()
+            );
+            let right = BABYLON.Vector3.TransformNormal(
+                BABYLON.Axis.X,
+                this.mesh.getWorldMatrix()
+            );
+        
             // Project onto tangent plane (perpendicular to up)
             forward = forward.subtract(up.scale(BABYLON.Vector3.Dot(forward, up)));
             right   = right.subtract(up.scale(BABYLON.Vector3.Dot(right,   up)));
-
+        
             if (forward.lengthSquared() > 0.0001) forward.normalize();
             if (right.lengthSquared()   > 0.0001) right.normalize();
-
+        
             const moveDir = right.scale(input.x).add(forward.scale(input.z));
             if (moveDir.lengthSquared() > 0.0001) {
                 moveDir.normalize();
-                const moveVel = moveDir.scale(this.moveSpeed); // use your existing moveSpeed
-
-                // Keep existing vertical component, override tangent
-                const vUp = BABYLON.Vector3.Dot(this.velocity, up);
-                const vD  = BABYLON.Vector3.Dot(this.velocity, down);
-                const vertical = up.scale(vUp).add(down.scale(vD));
-
+                const moveVel = moveDir.scale(this.moveSpeed);
+        
+                const vUp  = BABYLON.Vector3.Dot(this.velocity, up);
+                const vDwn = BABYLON.Vector3.Dot(this.velocity, down);
+                const vertical = up.scale(vUp).add(down.scale(vDwn));
+        
                 this.velocity = moveVel.add(vertical);
             }
         }
+
 
         // ---------- JUMP ----------
         if (this.jumpRequested && this.isGrounded) {
@@ -413,6 +419,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
