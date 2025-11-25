@@ -3,7 +3,7 @@
 export class PlanetPlayer {
     constructor(scene, terrain, options = {}) {
         this.scene = scene;
-        this.terrain = terrain;
+        this.terrain = null;
         this.camera  = camera;
 
         // Config
@@ -89,8 +89,6 @@ export class PlanetPlayer {
         mat.diffuseColor = new BABYLON.Color3(1, 0.8, 0.2);
         mat.specularColor = BABYLON.Color3.Black();
         this.mesh.material = mat;
-
-        this.camera = null;
 
         this._registerInput();
     }
@@ -412,6 +410,7 @@ export class PlanetPlayer {
         return this.mesh ? this.mesh.position : null;
     }
 }
+
 
 
 
