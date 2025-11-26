@@ -21,10 +21,10 @@ const createScene = () => {
     // Camera
     const camera = new BABYLON.ArcRotateCamera(
         "camera",
-        Math.PI / 4,
-        Math.PI / 3,
-        60,
-        new BABYLON.Vector3.Zero(),
+        Math.PI,            // alpha: behind the +Z facing player
+        Math.PI / 2.2,      // beta: slightly above horizon
+        planetRadius * 0.08,
+        new BABYLON.Vector3(0, 0, 0),
         scene
     );
     camera.attachControl(canvas, true);
@@ -249,6 +249,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
