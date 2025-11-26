@@ -224,7 +224,7 @@ export class PlanetPlayer {
         this._orientToSurface();
 
         // ---------- CAMERA ORIENTATION LOCK ----------
-        if (this.camera) {
+        /*if (this.camera) {
             // Planet radial up at player position
             const camUp = this.mesh.position.normalize();
         
@@ -250,7 +250,7 @@ export class PlanetPlayer {
         
             // Always look at the player
             this.camera.setTarget(this.mesh.position);
-        }
+        }*/
 
 
         // Camera follow: ArcRotate already locked to mesh
@@ -415,4 +415,5 @@ export class PlanetPlayer {
         );
     }
 }
+
 
