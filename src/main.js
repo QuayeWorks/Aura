@@ -23,7 +23,7 @@ const createScene = () => {
         "camera",
         Math.PI,            // alpha: behind the +Z facing player
         Math.PI / 2.2,      // beta: slightly above horizon
-        planetRadius * 0.08,
+        PLANET_RADIUS_UNITS * 0.08,
         new BABYLON.Vector3(0, 0, 0),
         scene
     );
@@ -249,6 +249,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
