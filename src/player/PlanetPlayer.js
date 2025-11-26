@@ -15,7 +15,7 @@ export class PlanetPlayer {
         this.terrain = terrain;
 
         // --- Shape / planet parameters ---
-        const defaultHeight = options.height ?? 10;
+        const defaultHeight = options.height ?? 20;
         const defaultRadius = options.radius ?? 2;
 
         this.height = defaultHeight;
@@ -83,6 +83,7 @@ export class PlanetPlayer {
         if (!this.camera) return;
 
         // For ArcRotateCamera this is enough for following.
+        this.camera.inputs.clear();  // remove built-in orbit controls
         this.camera.lockedTarget = this.mesh;
 
         // Make sure camera radius is reasonable for your planet size.
@@ -221,6 +222,36 @@ export class PlanetPlayer {
         // 6) Orient capsule to follow surface normal
         // ---------------------------
         this._orientToSurface();
+
+        // ---------- CAMERA ORIENTATION LOCK ----------
+        if (this.camera) {
+            // Planet radial up at player position
+            const camUp = this.mesh.position.normalize();
+        
+            // Sync camera upVector to planet normal
+            this.camera.upVector = camUp.clone();
+        
+            // Make the camera "sit" behind and above the player based on capsule orientation
+            const playerForward = this.mesh.getDirection(BABYLON.Axis.Z);
+            const playerRight   = this.mesh.getDirection(BABYLON.Axis.X);
+        
+            const offset =
+                camUp.scale(this.cameraHeight)
+                     .add(playerForward.scale(-this.cameraDistance));
+        
+            const desiredPos = this.mesh.position.add(offset);
+        
+            // Smooth camera motion
+            this.camera.position = BABYLON.Vector3.Lerp(
+                this.camera.position,
+                desiredPos,
+                this.cameraLerp
+            );
+        
+            // Always look at the player
+            this.camera.setTarget(this.mesh.position);
+        }
+
 
         // Camera follow: ArcRotate already locked to mesh
         // (nothing else required here for now)
@@ -384,3 +415,4 @@ export class PlanetPlayer {
         );
     }
 }
+
