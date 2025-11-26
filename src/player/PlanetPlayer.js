@@ -83,7 +83,6 @@ export class PlanetPlayer {
         if (!this.camera) return;
 
         // For ArcRotateCamera this is enough for following.
-        //this.camera.inputs.clear();  // remove built-in orbit controls
         this.camera.lockedTarget = this.mesh;
 
         // Make sure camera radius is reasonable for your planet size.
@@ -223,34 +222,18 @@ export class PlanetPlayer {
         // ---------------------------
         this._orientToSurface();
 
-        // ---------- CAMERA ORIENTATION LOCK ----------
+        // ---------- CAMERA UP LOCK ----------
         if (this.camera) {
-            // Planet radial up at player position
+            // Planet-normal up at player position
             const camUp = this.mesh.position.clone().normalize();
         
-            // Sync camera upVector to planet normal
-            this.camera.upVector = camUp.clone();
-        
-            // Make the camera "sit" behind and above the player based on capsule orientation
-            const playerForward = this.mesh.getDirection(BABYLON.Axis.Z);
-            const playerRight   = this.mesh.getDirection(BABYLON.Axis.X);
-        
-            const offset =
-                camUp.scale(this.cameraHeight)
-                     .add(playerForward.scale(-this.cameraDistance));
-        
-            const desiredPos = this.mesh.position.add(offset);
-        
-            // Smooth camera motion
-            this.camera.position = BABYLON.Vector3.Lerp(
-                this.camera.position,
-                desiredPos,
-                this.cameraLerp
-            );
+            // Keep arc-rotate camera's up aligned with the planet
+            this.camera.upVector = camUp;
         
             // Always look at the player
             this.camera.setTarget(this.mesh.position);
         }
+
 
 
         // Camera follow: ArcRotate already locked to mesh
@@ -415,6 +398,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
