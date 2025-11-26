@@ -83,7 +83,7 @@ export class PlanetPlayer {
         if (!this.camera) return;
 
         // For ArcRotateCamera this is enough for following.
-        this.camera.inputs.clear();  // remove built-in orbit controls
+        //this.camera.inputs.clear();  // remove built-in orbit controls
         this.camera.lockedTarget = this.mesh;
 
         // Make sure camera radius is reasonable for your planet size.
@@ -415,6 +415,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
