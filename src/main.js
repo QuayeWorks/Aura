@@ -29,7 +29,7 @@ const createScene = () => {
     );
     camera.attachControl(canvas, true);
     camera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.01; // close-ish
-    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.03;  // can zoom way out
+    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.012;  // can zoom way out
 
     // Lights
     const hemi = new BABYLON.HemisphericLight(
@@ -250,6 +250,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
