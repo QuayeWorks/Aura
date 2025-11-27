@@ -28,17 +28,18 @@ export class SmoothTerrain {
         this.mesh.checkCollisions = false;
 
         const mat = new BABYLON.StandardMaterial("terrainMat", this.scene);
-        
-        // Flat bright green, NOT affected by lights:
-        mat.diffuseColor  = new BABYLON.Color3(0.1, 0.9, 0.3);
-        mat.emissiveColor = new BABYLON.Color3(0.1, 0.8, 0.3);
-        mat.ambientColor  = new BABYLON.Color3(0.1, 0.8, 0.3);
-        mat.diffuseColor  = new BABYLON.Color3(0.06, 0.6, 0.20);
 
-        mat.disableLighting = true;          // <--- key line
+        // Base tint; final look will come from vertex colors
+        mat.diffuseColor  = new BABYLON.Color3(0.7, 0.7, 0.7);
+        mat.ambientColor  = new BABYLON.Color3(0.2, 0.2, 0.2);
+        mat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+
+        mat.disableLighting = false;         // let scene lights affect shading
         mat.backFaceCulling = false;         // show both sides of the surface
-        
+        mat.useVertexColors = true;          // <-- important: enable per-vertex colors
+
         this.mesh.material = mat;
+
 
 
     }
@@ -47,21 +48,94 @@ export class SmoothTerrain {
         return x + this.nx * (y + this.ny * z);
     }
 
-    // SDF for rolling hills
-    sdf(worldPos) {
+    _terrainHeightAt(worldPos) {
         const sx = worldPos.x * 0.08;
         const sz = worldPos.z * 0.08;
 
-        const hills =
+        const hillsTrig =
             Math.sin(sx * 2.0) * 2.0 +
             Math.cos(sz * 1.7) * 1.8 +
             Math.sin((sx + sz) * 0.9) * 1.3;
 
-        const baseHeight = 0.0;
-        const terrainHeight = baseHeight + hills;
+        // Simplex noise for extra detail
+        const n = Noise.noise2D(worldPos.x * 0.03, worldPos.z * 0.03); // -1..1
+        const noiseHills = n * 3.0;
 
+        const baseHeight = 0.0;
+        return baseHeight + hillsTrig + noiseHills;
+    }
+
+
+    // SDF for rolling hills + noise
+    sdf(worldPos) {
+        const terrainHeight = this._terrainHeightAt(worldPos);
         return worldPos.y - terrainHeight; // <0 solid, >0 air
     }
+
+    _colorForWorldPos(worldPos) {
+        // Approximate terrain height at this XZ
+        const terrainHeight = this._terrainHeightAt(worldPos);
+        const y = terrainHeight;
+
+        // Height bands (in same units as your grid, ~meters)
+        const waterLevel   = -1.0;
+        const beachStart   = -0.5;
+        const grassStart   = 0.5;
+        const rockStart    = 3.5;
+        const snowStart    = 6.0;
+
+        // Base biome colors
+        const deepWater = new BABYLON.Color3(0.02, 0.08, 0.20);
+        const shallowWater = new BABYLON.Color3(0.05, 0.25, 0.55);
+        const sandColor = new BABYLON.Color3(0.92, 0.84, 0.60);
+        const grassColor = new BABYLON.Color3(0.1, 0.45, 0.18);
+        const dirtColor = new BABYLON.Color3(0.35, 0.22, 0.1);
+        const rockColor = new BABYLON.Color3(0.45, 0.45, 0.46);
+        const snowColor = new BABYLON.Color3(0.98, 0.98, 1.0);
+
+        // 1) Water
+        if (y < waterLevel) {
+            const depth = BABYLON.Scalar.Clamp((waterLevel - y) / 3.0, 0, 1);
+            return BABYLON.Color3.Lerp(shallowWater, deepWater, depth);
+        }
+
+        // 2) Beach
+        if (y < grassStart) {
+            const t = BABYLON.Scalar.Clamp(
+                (y - beachStart) / (grassStart - beachStart),
+                0,
+                1
+            );
+            // Blend sand -> grass
+            const coastalGrass = BABYLON.Color3.Lerp(sandColor, grassColor, t);
+            return coastalGrass;
+        }
+
+        // 3) Grass / dirt hills
+        if (y < rockStart) {
+            const t = BABYLON.Scalar.Clamp(
+                (y - grassStart) / (rockStart - grassStart),
+                0,
+                1
+            );
+            const mix = BABYLON.Color3.Lerp(grassColor, dirtColor, t * 0.7);
+            return mix;
+        }
+
+        // 4) Rocky slopes
+        if (y < snowStart) {
+            const t = BABYLON.Scalar.Clamp(
+                (y - rockStart) / (snowStart - rockStart),
+                0,
+                1
+            );
+            return BABYLON.Color3.Lerp(rockColor, snowColor, t * 0.3);
+        }
+
+        // 5) Snow caps
+        return snowColor;
+    }
+
 
     buildInitialTerrain() {
         for (let z = 0; z < this.nz; z++) {
@@ -98,6 +172,7 @@ export class SmoothTerrain {
         const indices = [];
         const uvs = [];
         const normals = [];
+        const colors = [];   // NEW: per-vertex colors
 
         const nodeIdx = (x, y, z) => x + nx * (y + ny * z);
         const cellIdx = (x, y, z) => x + cx * (y + cy * z);
@@ -136,7 +211,13 @@ export class SmoothTerrain {
                     positions.push(wx, wy, wz);
                     uvs.push(x / cx, z / cz);
 
+                    // Color based on biome/height
+                    const worldPos = new BABYLON.Vector3(wx, wy, wz);
+                    const col = this._colorForWorldPos(worldPos);
+                    colors.push(col.r, col.g, col.b, 1.0);
+
                     vertexCount++;
+
                 }
             }
         }
@@ -220,8 +301,10 @@ export class SmoothTerrain {
         vertexData.indices   = indices;
         vertexData.normals   = normals;
         vertexData.uvs       = uvs;
+        vertexData.colors    = colors;   // NEW
 
         vertexData.applyToMesh(this.mesh);
+
     }
 
     carveSphere(worldCenter, radius) {
@@ -253,6 +336,7 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
 
 
