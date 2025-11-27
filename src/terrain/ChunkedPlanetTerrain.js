@@ -49,6 +49,12 @@ export class ChunkedPlanetTerrain {
         this.chunkWorldSizeX = 0;
         this.chunkWorldSizeZ = 0;
         this.chunkOverlap = 0;
+		
+		// --- Initial build tracking ---
+		this.initialBuildTotal = 0;        // how many jobs in the first pass
+		this.initialBuildCompleted = 0;    // how many finished
+		this.initialBuildDone = false;     // set true once, when first pass ends
+		this.onInitialBuildDone = null;    // callback, set from main.js (optional)
 
         // Position used for LOD ring & hemisphere decisions (player or camera)
         this.lastCameraPosition = null;
@@ -262,6 +268,14 @@ export class ChunkedPlanetTerrain {
                     origin,
                     lodLevel: lodForChunk
                 });
+
+				// Only capture the initial set of jobs once
+				if (this.initialBuildTotal === 0) {
+				    this.initialBuildTotal = this.buildQueue.length;
+				    this.initialBuildCompleted = 0;
+				    console.log("[ChunkedPlanetTerrain] Initial jobs:", this.initialBuildTotal);
+				}
+
             }
         }
     }
@@ -271,6 +285,31 @@ export class ChunkedPlanetTerrain {
      * at their new world-space origins (and appropriate LOD).
      * Kept for compatibility, but no longer used now that we don't shift the grid.
      */
+
+	_onChunkBuilt() {
+	    if (this.initialBuildDone || this.initialBuildTotal === 0) {
+	        return;
+	    }
+	
+	    this.initialBuildCompleted++;
+	
+	    if (this.initialBuildCompleted >= this.initialBuildTotal) {
+	        this.initialBuildDone = true;
+	        console.log("[ChunkedPlanetTerrain] Initial build complete");
+	
+	        if (typeof this.onInitialBuildDone === "function") {
+	            this.onInitialBuildDone();
+	        }
+	    }
+	}
+
+	// Optional: convenience getter for UI
+	getInitialBuildProgress() {
+	    if (this.initialBuildTotal === 0) return 0;
+	    return this.initialBuildCompleted / this.initialBuildTotal;
+	}
+
+	
     _scheduleRebuildForNewGrid() {
         this.buildQueue = [];
 
@@ -434,6 +473,7 @@ export class ChunkedPlanetTerrain {
                 maybePromise
                     .then(() => {
                         this._applyRelevantCarvesToChunk(job.chunk);
+						this._onChunkBuilt(); 
                     })
                     .catch((err) => {
                         console.error("Chunk rebuild failed:", err);
@@ -441,6 +481,7 @@ export class ChunkedPlanetTerrain {
             } else {
                 // Synchronous path
                 this._applyRelevantCarvesToChunk(job.chunk);
+				this._onChunkBuilt(); 
             }
 
             count++;
