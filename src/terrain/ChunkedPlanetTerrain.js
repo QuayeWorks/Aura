@@ -59,15 +59,16 @@ export class ChunkedPlanetTerrain {
     // Map lod level -> resolution divisor (higher level = more detail)
 	_lodFactorFor(level) {
 	    switch (level) {
-	        case 0: return 10;   // extremely coarse
-	        case 1: return 6;    // very low
-	        case 2: return 4;    // low
-	        case 3: return 2;    // medium
-	        case 4: return 1.2;  // high
-	        case 5: return 1.0;  // ultra high (max)
+	        case 0: return 16;   // 128 / 16 = 8
+	        case 1: return 8;    // 128 / 8 = 16
+	        case 2: return 4;    // 128 / 4 = 32
+	        case 3: return 2;    // 128 / 2 = 64
+	        case 4: return 1.333; // 128 / 1.333 ≈ 96
+	        case 5: return 1.0;   // 128 full resolution
 	        default: return 4;
 	    }
 	}
+
 
 
     // Dist (from focus to chunk center) -> desired LOD level, clamped by global limit
