@@ -75,7 +75,7 @@ const createScene = () => {
     });
 
         // --- Water sphere (oceans) ---
-    const waterLevelOffset = 300; // sea level above base radius, in meters
+    const waterLevelOffset = 0; // sea level above base radius, in meters
 
     const water = BABYLON.MeshBuilder.CreateSphere(
         "waterSphere",
@@ -261,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
