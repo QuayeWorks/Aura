@@ -27,11 +27,14 @@ export class PlanetPlayer {
             (terrain && terrain.radius ? terrain.radius : 72);
 
         // --- Movement / physics tuning ---
-        this.walkSpeed = options.walkSpeed ?? 40;
-        this.runSpeed = options.runSpeed ?? 80;
+        // Movement tuning (speeds in m/s)
+        // 4 mph  ≈ 1.788 m/s
+        // 25 mph ≈ 11.176 m/s
+        this.walkSpeed = options.walkSpeed ?? 1.788;  // normal walk
+        this.runSpeed  = options.runSpeed  ?? 11.176; // sprint
         this.accel = options.accel ?? 20;           // how fast we reach target speed
-        this.gravity = options.gravity ?? 40;       // "m/s^2" toward planet center
-        this.jumpSpeed = options.jumpSpeed ?? 60;
+        this.gravity = options.gravity ?? 10;       // "m/s^2" toward planet center
+        this.jumpSpeed = options.jumpSpeed ?? 20;
         this.groundFriction = options.groundFriction ?? 8;
         this.airFriction = options.airFriction ?? 1;
 
@@ -398,6 +401,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
