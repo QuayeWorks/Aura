@@ -58,8 +58,6 @@ export class SmoothTerrain {
             Math.sin((sx + sz) * 0.9) * 1.3;
 
         const baseHeight = 0.0;
-        // Define ocean surface slightly below "zero" height
-        const waterLevel = -60;   // 60 meters below nominal radius; tweak to taste
         const terrainHeight = baseHeight + hills;
 
         return worldPos.y - terrainHeight; // <0 solid, >0 air
@@ -255,5 +253,6 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
 
