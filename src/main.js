@@ -64,7 +64,7 @@ const createScene = () => {
     terrain = new ChunkedPlanetTerrain(scene, {
         chunkCountX: 16,
         chunkCountZ: 16,
-        baseChunkResolution: 32,
+        baseChunkResolution: 64,
         dimY: 66600,
         cellSize: 1,
         isoLevel: 0,
@@ -261,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
