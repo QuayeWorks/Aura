@@ -245,6 +245,7 @@ export class ChunkedPlanetTerrain {
                     mesh: pooledMesh,
                     material: this.material,
                     deferBuild: true
+					useWorker: true     // let worker build the SDF field
                 });
 
                 this.chunks.push({
@@ -418,7 +419,7 @@ export class ChunkedPlanetTerrain {
 
             const lodDims = this._computeLodDimensions(job.lodLevel);
 
-            job.chunk.rebuildWithSettings({
+            const maybePromise = job.chunk.rebuildWithSettings({
                 origin: job.origin,
                 dimX: lodDims.dimX,
                 dimY: lodDims.dimY,
@@ -426,8 +427,20 @@ export class ChunkedPlanetTerrain {
                 cellSize: lodDims.cellSize
             });
 
-            // Reapply only the carve edits that actually touch this chunk
-            this._applyRelevantCarvesToChunk(job.chunk);
+            // If worker is used, rebuildWithSettings returns a Promise.
+            // We reapply carves only after the new mesh is ready.
+            if (maybePromise && typeof maybePromise.then === "function") {
+                maybePromise
+                    .then(() => {
+                        this._applyRelevantCarvesToChunk(job.chunk);
+                    })
+                    .catch((err) => {
+                        console.error("Chunk rebuild failed:", err);
+                    });
+            } else {
+                // Synchronous path
+                this._applyRelevantCarvesToChunk(job.chunk);
+            }
 
             count++;
         }
