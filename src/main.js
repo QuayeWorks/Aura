@@ -29,7 +29,7 @@ const createScene = () => {
     );
     camera.attachControl(canvas, true);
     camera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.01; // close-ish
-    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.1;  // can zoom way out
+    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.03;  // can zoom way out
 
     // Lights
     const hemi = new BABYLON.HemisphericLight(
@@ -89,10 +89,10 @@ const createScene = () => {
     // --- Player capsule that can traverse the planet -------------------------
     player = new PlanetPlayer(scene, terrain, {
         planetRadius: PLANET_RADIUS_UNITS + 1,
-        walkSpeed: 1.788,  // ~4 mph
-        runSpeed: 11.176,  // ~25 mph
-        height: 4.0,
-        capsuleRadius: 0.6
+        walkSpeed: 3.5,  // ~8 mph
+        runSpeed: 21.176,  // ~47 mph
+        height: 10.0,
+        capsuleRadius: 1
     });
 
     // Let the player use the active camera for movement direction
@@ -250,6 +250,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
