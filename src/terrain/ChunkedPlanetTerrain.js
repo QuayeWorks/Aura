@@ -25,14 +25,6 @@ export class ChunkedPlanetTerrain {
 		// (actual distances handled in _lodForDistance)
 		this.lodLevel = options.lodLevel ?? 5;
 
-        // Distance thresholds for LOD rings (in world units)
-        // dist < lodNear  -> high (2)
-        // < lodMid        -> medium (1)
-        // else            -> low (0)
-        // We now use fixed meters by default: 15m and 30m
-        this.lodNear = options.lodNear ?? 15.0;
-        this.lodMid  = options.lodMid  ?? 30.0;
-
         this.chunks = [];         // { terrain, gridX, gridZ, lodLevel }
         
         // Shared terrain material across all chunks
