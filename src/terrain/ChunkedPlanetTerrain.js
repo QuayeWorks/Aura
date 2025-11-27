@@ -4,7 +4,7 @@ import { MarchingCubesTerrain } from "./MarchingCubesTerrain.js";
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-
+		this.maxBuildDistance = 40000;
         // How many chunks along X and Z (odd number recommended)
         this.chunkCountX = options.chunkCountX ?? 3;
         this.chunkCountZ = options.chunkCountZ ?? 3;
