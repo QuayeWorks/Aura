@@ -74,17 +74,15 @@ export class ChunkedPlanetTerrain {
     }
 
     // Dist (from focus to chunk center) -> desired LOD level, clamped by global limit
-    _lodForDistance(dist) {
-        let desired;
-        if (dist < this.lodNear) {
-            desired = 2; // high
-        } else if (dist < this.lodMid) {
-            desired = 1; // medium
-        } else {
-            desired = 0; // low
-        }
-        return Math.min(desired, this.lodLevel);
-    }
+	_lodForDistance(dist) {
+	    // Expanded 6-ring LOD system
+	    if (dist < 100)       return Math.min(5, this.lodLevel);
+	    if (dist < 200)       return Math.min(4, this.lodLevel);
+	    if (dist < 400)       return Math.min(3, this.lodLevel);
+	    if (dist < 800)       return Math.min(2, this.lodLevel);
+	    if (dist < 1600)      return Math.min(1, this.lodLevel);
+	    return 0;
+	}
 
     /**
      * Compute the base world-space size of a chunk and base grid dimensions,
