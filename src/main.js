@@ -13,6 +13,17 @@ let playerInfoText = null;   // <-- optional HUD text (currently unused)
 
 const createScene = () => {
     const scene = new BABYLON.Scene(engine);
+    // --- Simple atmospheric look ---
+    scene.clearColor = new BABYLON.Color4(0.55, 0.8, 1.0, 1.0); // blue sky
+    
+    scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
+    scene.fogColor = new BABYLON.Color3(0.55, 0.8, 1.0);
+    // With a 32.4 km radius world, we need tiny fog density
+    scene.fogDensity = 3e-5;  // tweak between 1e-5 and 1e-4 to taste
+    
+    // So terrain meshes actually receive fog:
+    scene.fogEnabled = true;
+
     scene.collisionsEnabled = true;
 
     // Blue background
@@ -250,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
