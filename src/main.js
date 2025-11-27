@@ -64,7 +64,7 @@ const createScene = () => {
     terrain = new ChunkedPlanetTerrain(scene, {
         chunkCountX: 32,
         chunkCountZ: 32,
-        baseChunkResolution: 8,
+        baseChunkResolution: 64,
         dimY: 66600,
         cellSize: 1,
         isoLevel: 0,
@@ -180,9 +180,9 @@ const createScene = () => {
         ? terrainMat.emissiveColor.clone()
         : new BABYLON.Color3(0, 0, 0);
 
-    // LOD Quality: 0 = Low, 1 = Medium, 2 = High
-    addSlider("LOD quality", 0, 2, 2, (v) => {
-        // v is a float; ChunkedPlanetTerrain expects integer levels 0–2
+    // LOD Quality: 0 = Low, 5 = High
+    addSlider("LOD quality", 0, 5, 5, (v) => {
+        // v is a float; ChunkedPlanetTerrain expects integer levels 0–5
         terrain.setLodLevel(v);
     });
 
@@ -261,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
