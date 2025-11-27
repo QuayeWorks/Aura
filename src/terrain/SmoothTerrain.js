@@ -47,18 +47,20 @@ export class SmoothTerrain {
         return x + this.nx * (y + this.ny * z);
     }
 
-    // SDF for rolling hills
+    // SDF for rolling mountains
     sdf(worldPos) {
         const sx = worldPos.x * 0.08;
         const sz = worldPos.z * 0.08;
 
-        const hills =
-            Math.sin(sx * 2.0) * 2.0 +
+        const mountains =
+            Math.sin(sx * 2.5) * 2.5 +
             Math.cos(sz * 1.7) * 1.8 +
             Math.sin((sx + sz) * 0.9) * 1.3;
 
         const baseHeight = 0.0;
-        const terrainHeight = baseHeight + hills;
+        // Define ocean surface slightly below "zero" height
+        const waterLevel = -60;   // 60 meters below nominal radius; tweak to taste
+        const terrainHeight = baseHeight + mountains;
 
         return worldPos.y - terrainHeight; // <0 solid, >0 air
     }
@@ -253,3 +255,4 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
