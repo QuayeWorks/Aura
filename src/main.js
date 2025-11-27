@@ -6,7 +6,7 @@ import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const PLANET_RADIUS_UNITS = 10800;
+const PLANET_RADIUS_UNITS = 32400;
 let terrain = null;
 let player = null;
 let playerInfoText = null;   // <-- optional HUD text (currently unused)
@@ -28,8 +28,8 @@ const createScene = () => {
         scene
     );
     camera.attachControl(canvas, true);
-    camera.lowerRadiusLimit = 10;
-    camera.upperRadiusLimit = 400;
+    camera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.01; // close-ish
+    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 2.0;  // can zoom way out
 
     // Lights
     const hemi = new BABYLON.HemisphericLight(
@@ -54,7 +54,7 @@ const createScene = () => {
         chunkCountX: 16,
         chunkCountZ: 16,
         baseChunkResolution: 32,
-        dimY: 22200,
+        dimY: 66600,
         cellSize: 1,
         isoLevel: 0,
         radius: PLANET_RADIUS_UNITS
@@ -249,6 +249,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
