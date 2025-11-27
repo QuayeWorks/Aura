@@ -59,26 +59,27 @@ export class ChunkedPlanetTerrain {
     // Map lod level -> resolution divisor (higher level = more detail)
 	_lodFactorFor(level) {
 	    switch (level) {
-	        case 0: return 16;   // 128 / 16 = 8
-	        case 1: return 8;    // 128 / 8 = 16
-	        case 2: return 4;    // 128 / 4 = 32
-	        case 3: return 2;    // 128 / 2 = 64
-	        case 4: return 1.333; // 128 / 1.333 ≈ 96
-	        case 5: return 1.0;   // 128 full resolution
-	        default: return 4;
+	        case 5: return 1;     // 128
+	        case 4: return 2;     // 64
+	        case 3: return 4;     // 32
+	        case 2: return 8;     // 16
+	        case 1: return 12;    // ~10
+	        case 0: return 16;    // 8
+	        default: return 16;
 	    }
 	}
+
 
 
 
     // Dist (from focus to chunk center) -> desired LOD level, clamped by global limit
 	_lodForDistance(dist) {
 	    // Expanded 6-ring LOD system
-	    if (dist < 100)       return Math.min(5, this.lodLevel);
-	    if (dist < 200)       return Math.min(4, this.lodLevel);
-	    if (dist < 400)       return Math.min(3, this.lodLevel);
-	    if (dist < 800)       return Math.min(2, this.lodLevel);
-	    if (dist < 1600)      return Math.min(1, this.lodLevel);
+	    if (dist < 1000)       return Math.min(5, this.lodLevel);
+	    if (dist < 2000)       return Math.min(4, this.lodLevel);
+	    if (dist < 4000)       return Math.min(3, this.lodLevel);
+	    if (dist < 8000)       return Math.min(2, this.lodLevel);
+	    if (dist < 16000)      return Math.min(1, this.lodLevel);
 	    return 0;
 	}
 
