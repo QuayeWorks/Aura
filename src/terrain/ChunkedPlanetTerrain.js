@@ -493,9 +493,9 @@ export class ChunkedPlanetTerrain {
     // Public API used by main.js
     // -------------------------------------------------
 
-    // LOD slider: sets the *maximum* allowed LOD (0..2) and rebuilds the grid
+    // LOD slider: sets the *maximum* allowed LOD (0..5) and rebuilds the grid
     setLodLevel(level) {
-        const clamped = Math.max(0, Math.min(2, Math.round(level)));
+		const clamped = Math.max(0, Math.min(5, Math.round(level)));
         if (clamped === this.lodLevel) return;
         this.lodLevel = clamped;
 
