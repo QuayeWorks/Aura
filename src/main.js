@@ -125,6 +125,17 @@ const createScene = () => {
 
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
+    // After AdvancedDynamicTexture.CreateFullscreenUI("UI")
+    const loadingText = new BABYLON.GUI.TextBlock();
+    loadingText.text = "Generating planet...";
+    loadingText.color = "white";
+    loadingText.fontSize = 24;
+    loadingText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    loadingText.textVerticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    loadingText.paddingLeft = "10px";
+    loadingText.paddingTop  = "10px";
+    ui.addControl(loadingText);
+
     // --- Player debug info text (top-left) (currently disabled) ---
     
     playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
@@ -244,6 +255,15 @@ engine.runRenderLoop(() => {
         terrain.updateStreaming(focusPos);
     }
 
+    // Update loading text / show progress
+    if (!planet.initialBuildDone) {
+        const p = planet.getInitialBuildProgress();
+        loadingText.text = `Generating planet: ${(p * 100).toFixed(1)}%`;
+        loadingText.isVisible = true;
+    } else {
+        loadingText.isVisible = false;
+    }
+    
     if (player) {
         player.update(dt);
     }
@@ -265,6 +285,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
