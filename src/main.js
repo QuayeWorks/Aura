@@ -71,7 +71,8 @@ const createScene = () => {
         radius: PLANET_RADIUS_UNITS
         // You can optionally override LOD ring distances here:
     });
-
+    
+    let player = null;
         // --- Water sphere (oceans) ---
     const waterLevelOffset = 0; // sea level above base radius, in meters
 
@@ -95,15 +96,20 @@ const createScene = () => {
     water.checkCollisions = false;
 
 
-    // --- Player capsule that can traverse the planet -------------------------
-    player = new PlanetPlayer(scene, terrain, {
-        planetRadius: PLANET_RADIUS_UNITS + 1,
-        walkSpeed: 4,  // ~8 mph
-        runSpeed: 22,  // ~47 mph
-        height: 10.0,
-        capsuleRadius: 1
-    });
 
+
+    // When the terrain reports it's done, spawn the player
+    terrain.onInitialBuildDone = () => {
+        console.log("Planet finished generating, spawning player.");
+        // --- Player capsule that can traverse the planet -------------------------
+        player = new PlanetPlayer(scene, terrain, {
+            planetRadius: PLANET_RADIUS_UNITS + 1,
+            walkSpeed: 4,  // ~8 mph
+            runSpeed: 22,  // ~47 mph
+            height: 10.0,
+            capsuleRadius: 1
+        });
+    };
     // Let the player use the active camera for movement direction
     if (scene.activeCamera) {
         player.attachCamera(scene.activeCamera);
@@ -259,6 +265,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
