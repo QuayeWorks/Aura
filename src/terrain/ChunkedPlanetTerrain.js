@@ -76,10 +76,10 @@ export class ChunkedPlanetTerrain {
 	_lodForDistance(dist) {
 	    // Expanded 6-ring LOD system
 	    if (dist < 1000)       return Math.min(5, this.lodLevel);
-	    if (dist < 2000)       return Math.min(4, this.lodLevel);
-	    if (dist < 4000)       return Math.min(3, this.lodLevel);
-	    if (dist < 8000)       return Math.min(2, this.lodLevel);
-	    if (dist < 16000)      return Math.min(1, this.lodLevel);
+	    if (dist < 5000)       return Math.min(4, this.lodLevel);
+	    if (dist < 10000)       return Math.min(3, this.lodLevel);
+	    if (dist < 20000)       return Math.min(2, this.lodLevel);
+	    if (dist < 40000)      return Math.min(1, this.lodLevel);
 	    return 0;
 	}
 
