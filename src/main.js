@@ -100,9 +100,9 @@ const createScene = () => {
     // --- Player capsule that can traverse the planet -------------------------
     player = new PlanetPlayer(scene, terrain, {
         planetRadius: PLANET_RADIUS_UNITS + 1,
-        walkSpeed: 3.5,  // ~8 mph
-        runSpeed: 21.176,  // ~47 mph
-        height: 10.0,
+        walkSpeed: 4,  // ~8 mph
+        runSpeed: 22,  // ~47 mph
+        height: 30.0,
         capsuleRadius: 1
     });
 
@@ -261,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
