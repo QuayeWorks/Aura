@@ -33,7 +33,7 @@ export class PlanetPlayer {
         this.walkSpeed = options.walkSpeed ?? 1.788;  // normal walk
         this.runSpeed  = options.runSpeed  ?? 11.176; // sprint
         this.accel = options.accel ?? 20;           // how fast we reach target speed
-        this.gravity = options.gravity ?? 10;       // "m/s^2" toward planet center
+        this.gravity = options.gravity ?? 80;       // "m/s^2" toward planet center
         this.jumpSpeed = options.jumpSpeed ?? 20;
         this.groundFriction = options.groundFriction ?? 8;
         this.airFriction = options.airFriction ?? 1;
@@ -252,7 +252,7 @@ export class PlanetPlayer {
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
         // A bit above the nominal radius so we are not intersecting terrain
         const spawnRadius =
-            this.planetRadius * 1.25 +
+            this.planetRadius * 1.05 +
             this.height * 0.5 +
             this.capsuleRadius * 1.5;
 
@@ -401,6 +401,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
