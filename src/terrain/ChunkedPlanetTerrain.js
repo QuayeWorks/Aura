@@ -20,9 +20,10 @@ export class ChunkedPlanetTerrain {
         const neededY = Math.ceil((this.radius * 2) / this.cellSize) + 4;
         this.baseDimY = options.dimY ?? neededY;
 
-        // Global LOD limit controlled by UI slider:
-        // 0 = only coarse, 1 = up to medium, 2 = allow high near camera
-        this.lodLevel = 2;
+		// Global LOD limit controlled by UI slider:
+		// 0 = only coarse, 5 = allow ultra-high near camera
+		// (actual distances handled in _lodForDistance)
+		this.lodLevel = options.lodLevel ?? 5;
 
         // Distance thresholds for LOD rings (in world units)
         // dist < lodNear  -> high (2)
