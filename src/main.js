@@ -28,8 +28,8 @@ const createScene = () => {
         scene
     );
     camera.attachControl(canvas, true);
-    camera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.005; // close-ish
-    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.006;  // can zoom way out
+    camera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003; // close-ish
+    camera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;  // can zoom way out
 
     // Lights
     const hemi = new BABYLON.HemisphericLight(
@@ -53,7 +53,7 @@ const createScene = () => {
     terrain = new ChunkedPlanetTerrain(scene, {
         chunkCountX: 8,
         chunkCountZ: 8,
-        baseChunkResolution: 32,
+        baseChunkResolution: 8,
         dimY: 66600,
         cellSize: 1,
         isoLevel: 0,
@@ -250,6 +250,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
