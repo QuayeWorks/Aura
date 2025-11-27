@@ -1,31 +1,71 @@
 // src/terrain/MarchingCubesTerrain.js
 
-//
-// NOTE ABOUT TABLES
-// -----------------
-// Marching Cubes relies on two precomputed tables:
-//
-//   - edgeTable: 256 integers (bitmasks), one per cube configuration
-//   - triTable:  256 x 16 integers, triangle edge indices for each config
-//
-// They’re standard and you can copy them directly from any Marching Cubes
-// reference, for example Paul Bourke’s “Polygonising a Scalar Field”
-// or Seb Lague’s Marching Cubes code.
-//
-// To keep this reply from being thousands of lines of numbers, I’ve left
-// them as TODOs below. Once you paste them in, the terrain will work.
-//
+// --- Optional Web Worker for SDF field generation (CPU offload) ---
+let FIELD_WORKER = null;
+let FIELD_JOB_ID = 0;
+const FIELD_JOB_PROMISES = new Map();
 
-// TODO: Paste the standard 256-entry edgeTable array here.
-// Example shape:
-//
-// const edgeTable = [
-//   0x000, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
-//   ...
-//   0xf00
-// ];
-//
+function ensureFieldWorker() {
+    if (typeof Worker === "undefined") return null;
+    if (FIELD_WORKER) return FIELD_WORKER;
 
+    // Worker lives next to this file
+    FIELD_WORKER = new Worker(
+        new URL("./terrainFieldWorker.js", import.meta.url),
+        { type: "module" }
+    );
+
+    FIELD_WORKER.onmessage = (e) => {
+        const msg = e.data;
+        if (!msg || typeof msg.id === "undefined") return;
+
+        const entry = FIELD_JOB_PROMISES.get(msg.id);
+        if (!entry) return;
+        FIELD_JOB_PROMISES.delete(msg.id);
+
+        if (msg.type === "fieldDone" && msg.field) {
+            entry.resolve(msg.field);
+        } else if (msg.type === "fieldError") {
+            console.error("terrainFieldWorker error:", msg.message);
+            entry.reject(new Error(msg.message || "Worker field error"));
+        }
+    };
+
+    FIELD_WORKER.onerror = (err) => {
+        console.error("terrainFieldWorker fatal error:", err);
+        // Fail all pending jobs
+        for (const [, entry] of FIELD_JOB_PROMISES) {
+            entry.reject(err);
+        }
+        FIELD_JOB_PROMISES.clear();
+    };
+
+    return FIELD_WORKER;
+}
+
+function buildFieldAsync(dimX, dimY, dimZ, cellSize, radius, origin) {
+    const worker = ensureFieldWorker();
+    if (!worker) {
+        return Promise.reject(new Error("Web Worker not available"));
+    }
+
+    const id = ++FIELD_JOB_ID;
+
+    return new Promise((resolve, reject) => {
+        FIELD_JOB_PROMISES.set(id, { resolve, reject });
+
+        worker.postMessage({
+            type: "buildField",
+            id,
+            dimX,
+            dimY,
+            dimZ,
+            cellSize,
+            radius,
+            origin: { x: origin.x, y: origin.y, z: origin.z }
+        });
+    });
+}
 
 // --- Marching Cubes lookup tables (standard) -----------------------------
 //marching cubes table data
@@ -379,12 +419,39 @@ export class MarchingCubesTerrain {
 
         // Scalar field samples at each grid vertex
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
-        
+
         // If true, caller will build field/mesh later via rebuildWithSettings()
         this.deferBuild = !!options.deferBuild;
-        
-        this._buildInitialField();
-        this._buildMesh();
+
+        // Optional: offload SDF generation to Web Worker
+        // (used by ChunkedPlanetTerrain for smoother streaming)
+        this.useWorker = !!options.useWorker;
+
+        if (!this.deferBuild) {
+            if (this.useWorker && typeof Worker !== "undefined") {
+                // Fire-and-forget async build for standalone usage
+                buildFieldAsync(
+                    this.dimX,
+                    this.dimY,
+                    this.dimZ,
+                    this.cellSize,
+                    this.radius,
+                    this.origin
+                )
+                    .then((field) => {
+                        this.field = field;
+                        this._buildMesh();
+                    })
+                    .catch((err) => {
+                        console.error("Worker build failed, falling back:", err);
+                        this._buildInitialField();
+                        this._buildMesh();
+                    });
+            } else {
+                this._buildInitialField();
+                this._buildMesh();
+            }
+        }
     }
 
     // Index helper into 1D field array
@@ -961,21 +1028,21 @@ export class MarchingCubesTerrain {
     }
 
 
-        // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
+    // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
+    // If this.useWorker is true, this may return a Promise that resolves
+    // when the worker has finished building the field + mesh.
     rebuildWithSettings(settings) {
-        // Optionally change resolution
+        // Update core parameters
         if (settings.dimX && settings.dimY && settings.dimZ) {
             this.dimX = settings.dimX;
             this.dimY = settings.dimY;
             this.dimZ = settings.dimZ;
         }
 
-        // Optionally change voxel size
         if (settings.cellSize) {
             this.cellSize = settings.cellSize;
         }
 
-        // Optionally move chunk in world space
         if (settings.origin) {
             this.origin = settings.origin.clone
                 ? settings.origin.clone()
@@ -989,10 +1056,33 @@ export class MarchingCubesTerrain {
         // Recreate field for new resolution
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
 
-        // Assuming you already have this._buildInitialField() that fills field from SDF
-        this._buildInitialField();
-        this._buildMesh();
+        if (this.useWorker && typeof Worker !== "undefined") {
+            // Async path: build field in worker, then build mesh on main thread
+            return buildFieldAsync(
+                this.dimX,
+                this.dimY,
+                this.dimZ,
+                this.cellSize,
+                this.radius,
+                this.origin
+            )
+                .then((field) => {
+                    this.field = field;
+                    this._buildMesh();
+                })
+                .catch((err) => {
+                    console.error("Worker rebuild failed, falling back:", err);
+                    this._buildInitialField();
+                    this._buildMesh();
+                });
+        } else {
+            // Synchronous CPU path
+            this._buildInitialField();
+            this._buildMesh();
+            return null;
+        }
     }
+
 
     // Rebuild this chunk at a new world-space origin (used by streaming).
     // Keeps the same resolution, cellSize, radius, mesh and material.
