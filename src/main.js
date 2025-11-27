@@ -64,7 +64,7 @@ const createScene = () => {
     terrain = new ChunkedPlanetTerrain(scene, {
         chunkCountX: 64,
         chunkCountZ: 64,
-        baseChunkResolution: 16,
+        baseChunkResolution: 32,
         dimY: 66600,
         cellSize: 1,
         isoLevel: 0,
@@ -102,7 +102,7 @@ const createScene = () => {
         planetRadius: PLANET_RADIUS_UNITS + 1,
         walkSpeed: 4,  // ~8 mph
         runSpeed: 22,  // ~47 mph
-        height: 30.0,
+        height: 10.0,
         capsuleRadius: 1
     });
 
@@ -261,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
