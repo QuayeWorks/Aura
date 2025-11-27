@@ -183,7 +183,7 @@ const createScene = () => {
     // LOD Quality: 0 = Low, 5 = High
     addSlider("LOD quality", 0, 5, 5, (v) => {
         // v is a float; ChunkedPlanetTerrain expects integer levels 0–5
-        terrain.setLodLevel(v);
+         terrain.setLodLevel(Math.round(v));
     });
 
     // Wireframe toggle
@@ -261,6 +261,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
