@@ -244,7 +244,7 @@ export class ChunkedPlanetTerrain {
                     origin,
                     mesh: pooledMesh,
                     material: this.material,
-                    deferBuild: true
+                    deferBuild: true,
 					useWorker: true     // let worker build the SDF field
                 });
 
