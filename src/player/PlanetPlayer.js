@@ -33,8 +33,8 @@ export class PlanetPlayer {
         this.walkSpeed = options.walkSpeed ?? 1.788;  // normal walk
         this.runSpeed  = options.runSpeed  ?? 11.176; // sprint
         this.accel = options.accel ?? 20;           // how fast we reach target speed
-        this.gravity = options.gravity ?? 80;       // "m/s^2" toward planet center
-        this.jumpSpeed = options.jumpSpeed ?? 20;
+        this.gravity = options.gravity ?? 160;       // "m/s^2" toward planet center
+        this.jumpSpeed = options.jumpSpeed ?? 10;
         this.groundFriction = options.groundFriction ?? 8;
         this.airFriction = options.airFriction ?? 1;
 
@@ -401,6 +401,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
