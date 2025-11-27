@@ -252,7 +252,7 @@ export class PlanetPlayer {
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
         // A bit above the nominal radius so we are not intersecting terrain
         const spawnRadius =
-            this.planetRadius +
+            this.planetRadius * 1.25 +
             this.height * 0.5 +
             this.capsuleRadius * 1.5;
 
@@ -401,6 +401,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
