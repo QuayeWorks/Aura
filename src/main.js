@@ -62,16 +62,14 @@ const createScene = () => {
     // Chunked marching-cubes planet terrain
     // IMPORTANT: assign to the outer 'terrain' (no 'const' here)
     terrain = new ChunkedPlanetTerrain(scene, {
-        chunkCountX: 16,
-        chunkCountZ: 16,
-        baseChunkResolution: 32,
+        chunkCountX: 64,
+        chunkCountZ: 64,
+        baseChunkResolution: 128,
         dimY: 66600,
         cellSize: 1,
         isoLevel: 0,
         radius: PLANET_RADIUS_UNITS
         // You can optionally override LOD ring distances here:
-        // lodNear: 15.0,
-        // lodMid: 30.0
     });
 
         // --- Water sphere (oceans) ---
@@ -261,6 +259,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
