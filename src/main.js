@@ -112,7 +112,7 @@ function createScene() {
                     pointerInfo.event.clientY
                 );
                 if (pick && pick.hit) {
-                    terrain.carveSphere(pick.pickedPoint, 35.0);
+                    terrain.carveSphere(pick.pickedPoint, 70.0);
                 }
             }
         }
@@ -721,6 +721,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
