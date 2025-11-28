@@ -449,21 +449,16 @@ export class ChunkedPlanetTerrain {
     /**
      * Process a few pending chunk rebuilds per frame
      * to avoid big hitches when LOD changes.
+     *
+     * IMPORTANT: we ask MarchingCubesTerrain to only rebuild the
+     * scalar field (deferMesh), and then we apply carves and call
+     * rebuildMeshOnly() once. This avoids building the mesh twice.
      */
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
         while (count < maxPerFrame && this.buildQueue.length > 0) {
             const job = this.buildQueue.shift();
             if (!job || !job.chunk) continue;
-
-            // Mesh-only jobs are used for carving: the scalar field has
-            // already been updated, we just need to rebuild the mesh.
-            if (job.meshOnly) {
-                job.chunk.rebuildMeshOnly();
-                this._onChunkBuilt();
-                count++;
-                continue;
-            }
 
             const lodDims = this._computeLodDimensions(job.lodLevel);
 
@@ -472,11 +467,17 @@ export class ChunkedPlanetTerrain {
                 dimX: lodDims.dimX,
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
-                cellSize: lodDims.cellSize
+                cellSize: lodDims.cellSize,
+
+                // <<< key change: worker builds the FIELD only
+                // (no mesh yet). We will apply carves and build
+                // the mesh once in _applyRelevantCarvesToChunk.
+                deferMesh: true
             });
 
             // If worker is used, rebuildWithSettings returns a Promise.
-            // We reapply carves only after the new mesh is ready.
+            // We reapply carves and build the mesh only after the field
+            // is ready, to keep LOD streaming smooth.
             if (maybePromise && typeof maybePromise.then === "function") {
                 maybePromise
                     .then(() => {
@@ -487,7 +488,8 @@ export class ChunkedPlanetTerrain {
                         console.error("Chunk rebuild failed:", err);
                     });
             } else {
-                // Synchronous path
+                // Synchronous path (no worker): build field on CPU,
+                // then apply carves + mesh once.
                 this._applyRelevantCarvesToChunk(job.chunk);
                 this._onChunkBuilt();
             }
@@ -495,6 +497,7 @@ export class ChunkedPlanetTerrain {
             count++;
         }
     }
+
 
 
     /**
