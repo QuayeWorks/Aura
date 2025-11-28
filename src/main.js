@@ -67,8 +67,8 @@ function createScene() {
     mainCamera.lowerBetaLimit = 0.15;
     mainCamera.upperBetaLimit = Math.PI / 2.1;
     mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
-    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
-    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.006;
+    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.004;
+    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
     mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
 
     // Lights for menu + in-game
@@ -572,8 +572,8 @@ function startGame() {
 
     if (!terrain) {
         terrain = new ChunkedPlanetTerrain(scene, {
-            chunkCountX: 32,
-            chunkCountZ: 32,
+            chunkCountX: 24,
+            chunkCountZ: 24,
             baseChunkResolution: 128,
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
@@ -600,8 +600,8 @@ function startGame() {
                 mainCamera.lowerBetaLimit = 0.15;
                 mainCamera.upperBetaLimit = Math.PI / 2.1;
                 mainCamera.checkCollisions = false;
-                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
-                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
+                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.004;
+                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
 
                 mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
             }
@@ -721,4 +721,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
