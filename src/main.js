@@ -248,10 +248,10 @@ engine.runRenderLoop(() => {
     let focusPos = null;
     if (player && player.mesh) {
         focusPos = player.mesh.position;
-    } /*else if (scene.activeCamera) {
+    } else if (scene.activeCamera) {
         // Fallback: use camera position before player is ready
         focusPos = scene.activeCamera.position;
-    }*/
+    }
 
     if (terrain) {
         terrain.updateStreaming(focusPos);
@@ -290,6 +290,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
