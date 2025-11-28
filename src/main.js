@@ -572,8 +572,8 @@ function startGame() {
 
     if (!terrain) {
         terrain = new ChunkedPlanetTerrain(scene, {
-            chunkCountX: 24,
-            chunkCountZ: 24,
+            chunkCountX: 16,
+            chunkCountZ: 16,
             baseChunkResolution: 128,
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
@@ -633,8 +633,8 @@ function startGame() {
             mainCamera.lowerBetaLimit = 0.15;
             mainCamera.upperBetaLimit = Math.PI / 2.1;
             mainCamera.checkCollisions = false;
-            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
-            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
+            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
         }
 
         gameState = GameState.PLAYING;
@@ -721,5 +721,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
