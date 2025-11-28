@@ -67,8 +67,8 @@ function createScene() {
     mainCamera.lowerBetaLimit = 0.15;
     mainCamera.upperBetaLimit = Math.PI / 2.1;
     mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
-    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
-    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
+    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.01;
     mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
 
     // Lights for menu + in-game
@@ -692,12 +692,22 @@ engine.runRenderLoop(() => {
             playerInfoText.isVisible = true;
         }
 
-        if (terrain && lodInfoText && focusPos && terrain.getLodStats) {
-            const stats = terrain.getLodStats();
-            const maxLod = stats.maxLodInUse ?? 0;
+        if (terrain && lodInfoText && focusPos && terrain.getDebugInfo) {
+            const dbg = terrain.getDebugInfo(focusPos);
+            const stats = dbg.lodStats || {};
             const per = stats.perLod || [];
+            const maxLod = stats.maxLodInUse ?? 0;
+
+            let nearStr = "";
+            if (dbg.nearestChunk) {
+                const n = dbg.nearestChunk;
+                nearStr =
+                    `  nearLOD:${n.lodLevel} res:${n.dimX} dist:${n.distance.toFixed(1)}`;
+            }
+
             lodInfoText.text =
-                `LOD max: ${maxLod}   [0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]`;
+                `Chunks ${dbg.chunkCountX}x${dbg.chunkCountZ}  baseRes:${dbg.baseChunkResolution}  cap:${dbg.lodCap}  maxUsed:${maxLod}\n` +
+                `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
             lodInfoText.isVisible = true;
         }
     } else {
@@ -711,3 +721,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
