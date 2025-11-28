@@ -1,18 +1,19 @@
-// src/terrain/ChunkedPlanetTerrain.js
 import { MarchingCubesTerrain } from "./MarchingCubesTerrain.js";
 
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-		this.maxBuildDistance = 40000;
+        this.maxBuildDistance = 40000;
+
         // How many chunks along X and Z (odd number recommended)
         this.chunkCountX = options.chunkCountX ?? 3;
         this.chunkCountZ = options.chunkCountZ ?? 3;
 
         // Base resolution of a chunk in cells (will be divided by LOD factor)
-        this.baseChunkResolution = options.baseChunkResolution ?? 22;
+        // This is the HIGHEST detail (e.g. 128) – lower LODs derive from this.
+        this.baseChunkResolution = options.baseChunkResolution ?? 128;
 
-        // Vertical resolution: big enough to fully contain the sphere
+        // Vertical resolution parameters
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
@@ -20,19 +21,18 @@ export class ChunkedPlanetTerrain {
         const neededY = Math.ceil((this.radius * 2) / this.cellSize) + 4;
         this.baseDimY = options.dimY ?? neededY;
 
-		// Global LOD limit controlled by UI slider:
-		// 0 = only coarse, 5 = allow ultra-high near camera
-		// (actual distances handled in _lodForDistance)
-		this.lodLevel = options.lodLevel ?? 5;
+        // Global LOD limit controlled by UI slider:
+        // 0 = only coarse, 5 = allow ultra-high near camera
+        this.lodLevel = options.lodLevel ?? 5;
 
         this.chunks = [];         // { terrain, gridX, gridZ, lodLevel }
-        
+
         // Shared terrain material across all chunks
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
         this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
         this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         this.material.backFaceCulling = false;
-        
+
         this.meshPool = [];       // pool of reusable Babylon meshes
 
         // Queue of pending chunk rebuilds (for smooth streaming / LOD changes)
@@ -48,13 +48,14 @@ export class ChunkedPlanetTerrain {
         // Cached world-space chunk metrics (set via _computeBaseChunkMetrics)
         this.chunkWorldSizeX = 0;
         this.chunkWorldSizeZ = 0;
+        this.chunkWorldSizeY = 0;
         this.chunkOverlap = 0;
-		
-		// --- Initial build tracking ---
-		this.initialBuildTotal = 0;        // how many jobs in the first pass
-		this.initialBuildCompleted = 0;    // how many finished
-		this.initialBuildDone = false;     // set true once, when first pass ends
-		this.onInitialBuildDone = null;    // callback, set from main.js (optional)
+
+        // --- Initial build tracking ---
+        this.initialBuildTotal = 0;        // how many jobs in the first pass
+        this.initialBuildCompleted = 0;    // how many finished
+        this.initialBuildDone = false;     // set true once, when first pass ends
+        this.onInitialBuildDone = null;    // callback, set from main.js (optional)
 
         // Position used for LOD ring & hemisphere decisions (player or camera)
         this.lastCameraPosition = null;
@@ -62,32 +63,63 @@ export class ChunkedPlanetTerrain {
         this._rebuildChunks();
     }
 
-    // Map lod level -> resolution divisor (higher level = more detail)
-	_lodFactorFor(level) {
-	    switch (level) {
-	        case 5: return 1;     // 128
-	        case 4: return 2;     // 64
-	        case 3: return 4;     // 32
-	        case 2: return 8;     // 16
-	        case 1: return 12;    // ~10
-	        case 0: return 16;    // 8
-	        default: return 16;
-	    }
-	}
+    // Map LOD level -> resolution divisor (higher level = more detail)
+    // For baseChunkResolution = 128:
+    //   level 5 -> 128, 4 -> 64, 3 -> 32, 2 -> 16, 1 -> 8, 0 -> 4
+    _lodFactorFor(level) {
+        switch (level) {
+            case 5: return 1;   // 128
+            case 4: return 2;   // 64
+            case 3: return 4;   // 32
+            case 2: return 8;   // 16
+            case 1: return 16;  // 8
+            case 0: return 32;  // 4
+            default: return 32;
+        }
+    }
 
+    // Dist (from focus to chunk center) -> desired LOD level,
+    // clamped by global limit, according to your %-of-radius spec.
+    //
+    // R = this.radius
+    // 0 – 0.25% R     => LOD 5 (dim ~128)
+    // 0.25 – 1% R     => LOD 4 (dim ~64)
+    // 1 – 2% R        => LOD 3 (dim ~32)
+    // 2 – 4% R        => LOD 2 (dim ~16)
+    // 4 – 6% R        => LOD 1 (dim ~8)
+    // 6 – 10% R       => LOD 0 (dim ~4)
+    // > 10% R         => culled separately by distance
+    _lodForDistance(dist) {
+        const R = this.radius || 1.0;
+        const dNorm = dist / R;
 
+        let desiredLevel;
+        if (dNorm < 0.0025) {          // 0.25%
+            desiredLevel = 5;
+        } else if (dNorm < 0.01) {     // 1%
+            desiredLevel = 4;
+        } else if (dNorm < 0.02) {     // 2%
+            desiredLevel = 3;
+        } else if (dNorm < 0.04) {     // 4%
+            desiredLevel = 2;
+        } else if (dNorm < 0.06) {     // 6%
+            desiredLevel = 1;
+        } else if (dNorm <= 0.10) {    // 10%
+            desiredLevel = 0;
+        } else {
+            // beyond view radius; we still return something but chunk will be culled
+            desiredLevel = 0;
+        }
 
+        // Respect global LOD cap from the slider
+        return Math.min(desiredLevel, this.lodLevel);
+    }
 
-    // Dist (from focus to chunk center) -> desired LOD level, clamped by global limit
-	_lodForDistance(dist) {
-	    // Expanded 6-ring LOD system
-	    if (dist < 1000)       return Math.min(5, this.lodLevel);
-	    if (dist < 5000)       return Math.min(4, this.lodLevel);
-	    if (dist < 10000)       return Math.min(3, this.lodLevel);
-	    if (dist < 20000)       return Math.min(2, this.lodLevel);
-	    if (dist < 40000)      return Math.min(1, this.lodLevel);
-	    return 0;
-	}
+    // View-distance check: only 10% of radius around the player should be visible
+    _isWithinViewDistance(dist) {
+        const R = this.radius || 1.0;
+        return dist <= R * 0.10; // 10% of planet radius
+    }
 
     /**
      * Compute the base world-space size of a chunk and base grid dimensions,
@@ -192,9 +224,10 @@ export class ChunkedPlanetTerrain {
         const chunkHeight = baseMetrics.baseChunkHeight;
 
         const worldSpan = this.radius * 2.0 * 1.1; // must match marginFactor in _computeBaseChunkMetrics()
-		
+
         this.chunkWorldSizeX = baseMetrics.baseChunkWidth;
         this.chunkWorldSizeZ = baseMetrics.baseChunkDepth;
+        this.chunkWorldSizeY = baseMetrics.baseChunkHeight;
 
         // Overlap so edges match between neighboring chunks
         const overlap = this.cellSize; // one voxel layer at base scale
@@ -202,10 +235,6 @@ export class ChunkedPlanetTerrain {
 
         const halfCountX = this.chunkCountX / 2.0;
         const halfCountZ = this.chunkCountZ / 2.0;
-
-        const camPos =
-            this.lastCameraPosition ||
-            new BABYLON.Vector3(0, 0, this.radius * 2);
 
         // We’ll build everything lazily via the build queue
         this.buildQueue = [];
@@ -226,14 +255,9 @@ export class ChunkedPlanetTerrain {
                     -halfSpan + iz * chunkDepth
                 );
 
-                // Chunk center (approx) for distance based LOD
-                const chunkCenter = new BABYLON.Vector3(
-                    origin.x + chunkWidth * 0.5,
-                    0,
-                    origin.z + chunkDepth * 0.5
-                );
-                const dist = BABYLON.Vector3.Distance(camPos, chunkCenter);
-                const lodForChunk = this._lodForDistance(dist);
+                // Initial planet build: whole grid at lowest LOD (4 cells),
+                // as per your requirement that the full planet loads at LOD 4.
+                const lodForChunk = 0;
                 const lodDims = this._computeLodDimensions(lodForChunk);
 
                 // Try to reuse a mesh from the pool
@@ -252,7 +276,7 @@ export class ChunkedPlanetTerrain {
                     mesh: pooledMesh,
                     material: this.material,
                     deferBuild: true,
-					useWorker: true     // let worker build the SDF field
+                    useWorker: true     // let worker build the SDF field
                 });
 
                 this.chunks.push({
@@ -268,49 +292,42 @@ export class ChunkedPlanetTerrain {
                     origin,
                     lodLevel: lodForChunk
                 });
+            }
+        }
 
-				// Only capture the initial set of jobs once
-				if (this.initialBuildTotal === 0) {
-				    this.initialBuildTotal = this.buildQueue.length;
-				    this.initialBuildCompleted = 0;
-				    console.log("[ChunkedPlanetTerrain] Initial jobs:", this.initialBuildTotal);
-				}
+        // Capture the total number of jobs ONCE for the initial loading screen
+        if (!this.initialBuildDone && this.initialBuildTotal === 0) {
+            this.initialBuildTotal = this.buildQueue.length;
+            this.initialBuildCompleted = 0;
+            console.log("[ChunkedPlanetTerrain] Initial jobs:", this.initialBuildTotal);
+        }
+    }
 
+    _onChunkBuilt() {
+        if (this.initialBuildDone || this.initialBuildTotal === 0) {
+            return;
+        }
+
+        this.initialBuildCompleted++;
+
+        if (this.initialBuildCompleted >= this.initialBuildTotal) {
+            this.initialBuildDone = true;
+            console.log("[ChunkedPlanetTerrain] Initial build complete");
+
+            if (typeof this.onInitialBuildDone === "function") {
+                this.onInitialBuildDone();
             }
         }
     }
 
-    /**
-     * After gridOffsetX/Z change, schedule all chunks to be rebuilt
-     * at their new world-space origins (and appropriate LOD).
-     * Kept for compatibility, but no longer used now that we don't shift the grid.
-     */
+    // Optional: convenience getter for UI
+    getInitialBuildProgress() {
+        if (this.initialBuildTotal === 0) return 0;
+        return this.initialBuildCompleted / this.initialBuildTotal;
+    }
 
-	_onChunkBuilt() {
-	    if (this.initialBuildDone || this.initialBuildTotal === 0) {
-	        return;
-	    }
-	
-	    this.initialBuildCompleted++;
-	
-	    if (this.initialBuildCompleted >= this.initialBuildTotal) {
-	        this.initialBuildDone = true;
-	        console.log("[ChunkedPlanetTerrain] Initial build complete");
-	
-	        if (typeof this.onInitialBuildDone === "function") {
-	            this.onInitialBuildDone();
-	        }
-	    }
-	}
-
-	// Optional: convenience getter for UI
-	getInitialBuildProgress() {
-	    if (this.initialBuildTotal === 0) return 0;
-	    return this.initialBuildCompleted / this.initialBuildTotal;
-	}
-
-	
     _scheduleRebuildForNewGrid() {
+        // Kept for compatibility, but we no longer actually shift the grid.
         this.buildQueue = [];
 
         const baseMetrics = this._computeBaseChunkMetrics();
@@ -395,6 +412,10 @@ export class ChunkedPlanetTerrain {
     /**
      * Check all chunks against current focus distance and hemisphere, and, if their
      * desired LOD has changed, schedule a rebuild for that chunk only.
+     *
+     * - Chunks on the far hemisphere are hidden.
+     * - Chunks farther than 10% of the radius are hidden.
+     * - Within 10% of radius, we apply your LOD rings.
      */
     _scheduleLodAdjustments() {
         if (!this.lastCameraPosition) return;
@@ -418,18 +439,28 @@ export class ChunkedPlanetTerrain {
 
             // Hemisphere culling: only keep the half-planet facing the player
             const onNearSide = this._isChunkOnNearHemisphere(chunkCenter, camPos);
-
             if (!onNearSide) {
                 if (c.terrain && c.terrain.mesh) {
                     c.terrain.mesh.setEnabled(false);
                 }
                 continue;
-            } else if (c.terrain && c.terrain.mesh) {
-                // Re-enable if it was previously culled
-                c.terrain.mesh.setEnabled(true);
             }
 
             const dist = BABYLON.Vector3.Distance(camPos, chunkCenter);
+
+            // View-distance culling: only 10% of the radius around the player
+            if (!this._isWithinViewDistance(dist)) {
+                if (c.terrain && c.terrain.mesh) {
+                    c.terrain.mesh.setEnabled(false);
+                }
+                continue;
+            }
+
+            // Ensure it's visible; from here on, LOD rings apply
+            if (c.terrain && c.terrain.mesh) {
+                c.terrain.mesh.setEnabled(true);
+            }
+
             const desiredLod = this._lodForDistance(dist);
 
             if (desiredLod === c.lodLevel) {
@@ -473,7 +504,7 @@ export class ChunkedPlanetTerrain {
                 maybePromise
                     .then(() => {
                         this._applyRelevantCarvesToChunk(job.chunk);
-						this._onChunkBuilt(); 
+                        this._onChunkBuilt();
                     })
                     .catch((err) => {
                         console.error("Chunk rebuild failed:", err);
@@ -481,7 +512,7 @@ export class ChunkedPlanetTerrain {
             } else {
                 // Synchronous path
                 this._applyRelevantCarvesToChunk(job.chunk);
-				this._onChunkBuilt(); 
+                this._onChunkBuilt();
             }
 
             count++;
@@ -551,7 +582,7 @@ export class ChunkedPlanetTerrain {
 
     // LOD slider: sets the *maximum* allowed LOD (0..5) and rebuilds the grid
     setLodLevel(level) {
-		const clamped = Math.max(0, Math.min(5, Math.round(level)));
+        const clamped = Math.max(0, Math.min(5, Math.round(level)));
         if (clamped === this.lodLevel) return;
         this.lodLevel = clamped;
 
@@ -582,7 +613,7 @@ export class ChunkedPlanetTerrain {
             return;
         }
 
-        // Update per-chunk LOD and hemisphere visibility
+        // Update per-chunk LOD, hemisphere visibility and distance culling
         this._scheduleLodAdjustments();
 
         // Rebuild at most one chunk per frame to avoid hitches
