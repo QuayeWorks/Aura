@@ -64,6 +64,11 @@ export class PlanetPlayer {
         this.lastGroundNormal = null;
         this._groundMissFrames = 0;   // how many frames in a row we saw no ground
 
+        // Last safe position on solid ground (used as a respawn if we fall through)
+        this.lastSafePosition = null;
+        // Radius below which we assume we fell out of the world and must reset
+        this.fallResetRadius = this.planetRadius * 0.9;
+
         // Camera we attach to (ArcRotate in your scene)
         this.camera = null;
 
@@ -212,14 +217,27 @@ export class PlanetPlayer {
         // ---------------------------
         this.mesh.position.addInPlace(this.velocity.scale(dtSeconds));
 
-        // Prevent falling through the entire planet core if something goes wrong
+        // Prevent falling through the entire planet if something goes wrong.
+        // If we drop far below the expected surface shell, snap back to the
+        // last known safe grounded position.
         const newR = this.mesh.position.length();
-        const minR = this.planetRadius * 0.3;
-        if (newR < minR) {
-            this.mesh.position = this.mesh.position
-                .normalize()
-                .scale(minR);
+        if (newR < this.fallResetRadius) {
+            if (this.lastSafePosition) {
+                this.mesh.position.copyFrom(this.lastSafePosition);
+            } else {
+                // Fallback: put the player back on +Z at a safe radius
+                const fallbackDir = new BABYLON.Vector3(0, 0, 1);
+                this.mesh.position = fallbackDir
+                    .normalize()
+                    .scale(this.planetRadius * 1.02);
+            }
+
+            // Stop any crazy velocity and let ground snap re-acquire
+            this.velocity.set(0, 0, 0);
+            this.isGrounded = false;
+            this._groundMissFrames = 0;
         }
+
 
         // ---------------------------
         // 5) Ground snap vs terrain mesh
@@ -390,6 +408,10 @@ export class PlanetPlayer {
             } else {
                 this.lastGroundNormal = up;
             }
+
+            // Update last safe grounded position
+            this.lastSafePosition = this.mesh.position.clone();
+
         } else {
             // --- No ground hit this frame ---
             this._groundMissFrames++;
@@ -417,6 +439,8 @@ export class PlanetPlayer {
                     }
 
                     groundedThisFrame = true;
+                    // This still counts as standing on solid ground for safety
+                    this.lastSafePosition = this.mesh.position.clone();
                 }
             }
 
@@ -470,6 +494,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
