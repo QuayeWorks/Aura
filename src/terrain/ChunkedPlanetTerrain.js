@@ -456,6 +456,15 @@ export class ChunkedPlanetTerrain {
             const job = this.buildQueue.shift();
             if (!job || !job.chunk) continue;
 
+            // Mesh-only jobs are used for carving: the scalar field has
+            // already been updated, we just need to rebuild the mesh.
+            if (job.meshOnly) {
+                job.chunk.rebuildMeshOnly();
+                this._onChunkBuilt();
+                count++;
+                continue;
+            }
+
             const lodDims = this._computeLodDimensions(job.lodLevel);
 
             const maybePromise = job.chunk.rebuildWithSettings({
@@ -486,6 +495,7 @@ export class ChunkedPlanetTerrain {
             count++;
         }
     }
+
 
     /**
      * Test if a sphere (center, radius) intersects a chunk's AABB.
@@ -594,7 +604,9 @@ export class ChunkedPlanetTerrain {
 
         const baseMetrics = this._computeBaseChunkMetrics();
 
-        // Apply immediately only to chunks whose AABB intersects the carve
+        // Apply immediately only to chunks whose AABB intersects the carve.
+        // We only update the scalar field here, and queue a mesh rebuild so
+        // it can be processed gradually via the existing buildQueue.
         for (const c of this.chunks) {
             if (!c.terrain || !c.terrain.origin) continue;
 
@@ -603,9 +615,20 @@ export class ChunkedPlanetTerrain {
                 continue;
             }
 
-            c.terrain.carveSphere(worldPos, radius);
+            // Mark voxels only; do NOT rebuild the mesh immediately.
+            c.terrain.carveSphere(worldPos, radius, { deferRebuild: true });
+
+            // Queue a mesh-only rebuild job for this chunk so the mesh is
+            // updated later without blocking the pointer event.
+            this.buildQueue.push({
+                chunk: c.terrain,
+                origin: origin.clone ? origin.clone() : origin,
+                lodLevel: c.lodLevel,
+                meshOnly: true
+            });
         }
     }
+
 
     /**
      * Return the most recently computed LOD stats for HUD display.
