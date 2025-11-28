@@ -345,9 +345,13 @@ export class PlanetPlayer {
         );
 
         if (pick.hit && pick.pickedPoint) {
-            // Move the capsule so its base rests a bit above the hit point
+            // Move the capsule so **its bottom half is above the surface**.
+            // Babylon's capsule is height tall, with extents ±height/2 from center.
+            const bottomToCenter = this.height * 0.5;
+            const surfaceClearance = this.capsuleRadius * 0.1; // small gap so it doesn't clip
+
             const targetPos = pick.pickedPoint.add(
-                up.scale(this.capsuleRadius * 0.9)
+                up.scale(bottomToCenter + surfaceClearance)
             );
             this.mesh.position.copyFrom(targetPos);
 
@@ -401,6 +405,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
