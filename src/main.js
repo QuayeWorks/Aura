@@ -48,6 +48,7 @@ function createScene() {
     // Start with a dark, night-like background for the main menu
     applyMenuVisuals();
 
+    // Collisions stay enabled for world meshes / player, but we won't use them on the camera
     scene.collisionsEnabled = true;
 
     // Camera
@@ -61,11 +62,14 @@ function createScene() {
     );
     mainCamera.attachControl(canvas, true);
 
-    // Prevent camera from clipping through terrain
-    mainCamera.checkCollisions = true;
-    mainCamera.collisionRadius = new BABYLON.Vector3(50, 50, 50);
-    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.01;
-    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.2;
+    // Camera constraints to avoid flipping / clipping
+    mainCamera.allowUpsideDown = false;
+    mainCamera.lowerBetaLimit = 0.15;
+    mainCamera.upperBetaLimit = Math.PI / 2.1;
+    mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
+    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
+    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+    mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
 
     // Lights for menu + in-game
     const hemi = new BABYLON.HemisphericLight(
@@ -453,7 +457,7 @@ function createHud() {
     lodInfoText.isVisible = false;
     ui.addControl(lodInfoText);
 
-    // Right-side HUD container (if you want to add more later)
+    // Right-side HUD container (future controls)
     hudPanel = new BABYLON.GUI.StackPanel();
     hudPanel.width = "260px";
     hudPanel.isVertical = true;
@@ -580,7 +584,7 @@ function startGame() {
 
             // Create player on planet surface
             player = new PlanetPlayer(scene, terrain, {
-                planetRadius: PLANET_RADIUS_UNITS * 1.05,
+                planetRadius: PLANET_RADIUS_UNITS + 500,
                 walkSpeed: 4,
                 runSpeed: 22,
                 height: 10,
@@ -588,7 +592,18 @@ function startGame() {
             });
 
             if (mainCamera && player && player.mesh) {
+                // Let the player use this camera for movement direction
                 player.attachCamera(mainCamera);
+
+                // Reset camera constraints & orientation after attach
+                mainCamera.allowUpsideDown = false;
+                mainCamera.lowerBetaLimit = 0.15;
+                mainCamera.upperBetaLimit = Math.PI / 2.1;
+                mainCamera.checkCollisions = false;
+                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
+                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+
+                mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
             }
 
             // Switch to playing visuals
@@ -611,6 +626,16 @@ function startGame() {
         if (playerInfoText) playerInfoText.isVisible = !!player;
         if (lodInfoText) lodInfoText.isVisible = !!player;
         if (hudPanel) hudPanel.isVisible = true;
+
+        // Re-assert camera constraints on resume
+        if (mainCamera) {
+            mainCamera.allowUpsideDown = false;
+            mainCamera.lowerBetaLimit = 0.15;
+            mainCamera.upperBetaLimit = Math.PI / 2.1;
+            mainCamera.checkCollisions = false;
+            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
+            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+        }
 
         gameState = GameState.PLAYING;
     }
@@ -686,5 +711,3 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
-
