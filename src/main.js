@@ -241,26 +241,29 @@ const createScene = () => {
 
 const scene = createScene();
 
-engine.runRenderLoop(() => {
-    const dt = engine.getDeltaTime() / 1000;
 
-    // Use the player capsule as the focus position for LOD + hemisphere decisions.
+engine.runRenderLoop(() => {
+    if (!scene) return;
+
+    // Focus position for streaming / LOD
     let focusPos = null;
     if (player && player.mesh) {
         focusPos = player.mesh.position;
     } else if (scene.activeCamera) {
-        // Fallback: use camera position before player is ready
+        // Fallback while planet is loading
         focusPos = scene.activeCamera.position;
     }
 
-    if (terrain) {
+    if (terrain && focusPos) {
         terrain.updateStreaming(focusPos);
     }
 
-    // Update loading text / show progress
+    // --- LOADING TEXT / PROGRESS -----------------------------------
     if (terrain && loadingText) {
         if (!terrain.initialBuildDone) {
-            const prog = terrain.getInitialBuildProgress();
+            const prog = terrain.getInitialBuildProgress
+                ? terrain.getInitialBuildProgress()
+                : 0;
             loadingText.text = `Generating planet: ${(prog * 100).toFixed(1)}%`;
             loadingText.isVisible = true;
         } else {
@@ -268,28 +271,19 @@ engine.runRenderLoop(() => {
         }
     }
 
-    
+    // --- PLAYER UPDATE (only after spawned) -------------------------
     if (player) {
-        player.update(dt);
+        player.update();
     }
-
-    
-    // Update player debug HUD
-    if (player && player.mesh && playerInfoText) {
-        const p = player.mesh.position;
-        const r = p.length();
-        playerInfoText.text =
-            `Player: x=${p.x.toFixed(1)}  y=${p.y.toFixed(1)}  ` +
-            `z=${p.z.toFixed(1)}  r=${r.toFixed(1)}`;
-    }
-    
 
     scene.render();
 });
 
+
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
