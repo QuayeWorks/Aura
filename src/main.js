@@ -1,15 +1,15 @@
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
-import { PlanetQuadtreeTerrain } from "./terrain/PlanetQuadtreeTerrain.js";
+import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 import { PlanetPlayer } from "./player/PlanetPlayer.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
-// Planet radius in world units
-export const PLANET_RADIUS_UNITS = 32400;
+// Planet radius in world units (meters, conceptually)
+const PLANET_RADIUS_UNITS = 32400;
 
-// Game states
+// Game state machine
 const GameState = {
     MENU: "MENU",
     SETTINGS: "SETTINGS",
@@ -23,6 +23,8 @@ let gameState = GameState.MENU;
 let scene = null;
 let terrain = null;
 let player = null;
+
+// Camera + environment
 let mainCamera = null;
 let firefliesRoot = null;
 
@@ -37,39 +39,42 @@ let loadingPercentText = null;
 let playerInfoText = null;
 let lodInfoText = null;
 
+// Timing
 let lastFrameTime = performance.now();
-
-// ---------------- Scene / camera / lights -----------------
 
 function createScene() {
     scene = new BABYLON.Scene(engine);
 
+    // Start with a dark, night-like background for the main menu
     applyMenuVisuals();
+
+    // Collisions stay enabled for world meshes / player, but we won't use them on the camera
     scene.collisionsEnabled = true;
 
+    // Camera
     mainCamera = new BABYLON.ArcRotateCamera(
         "mainCamera",
         Math.PI * 1.3,
         Math.PI / 3,
         PLANET_RADIUS_UNITS * 0.08,
-        BABYLON.Vector3.Zero(),
+        new BABYLON.Vector3(0, 0, 0),
         scene
     );
     mainCamera.attachControl(canvas, true);
 
-    // Prevent upside down / crazy zoom
+    // Camera constraints to avoid flipping / clipping
     mainCamera.allowUpsideDown = false;
     mainCamera.lowerBetaLimit = 0.15;
     mainCamera.upperBetaLimit = Math.PI / 2.1;
-    mainCamera.checkCollisions = false;
-    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
-    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
-    mainCamera.panningSensibility = 0;
+    mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
+    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
+    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.006;
+    mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
 
-    // Lights
+    // Lights for menu + in-game
     const hemi = new BABYLON.HemisphericLight(
         "hemi",
-        new BABYLON.Vector3(0, 1, 0),
+        new BABYLON.Vector3(0.0, 1.0, 0.0),
         scene
     );
     hemi.intensity = 0.8;
@@ -77,84 +82,104 @@ function createScene() {
 
     const dir = new BABYLON.DirectionalLight(
         "dir",
-        new BABYLON.Vector3(-0.5, -1, -0.3),
+        new BABYLON.Vector3(-0.5, -1.0, -0.3),
         scene
     );
     dir.intensity = 0.6;
 
-    // Fireflies background
+    // --- Fireflies / menu ambiance ---
     createFireflies();
 
-    // GUI
+    // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
     createMainMenu();
     createSettingsMenu();
     createHud();
     createLoadingOverlay();
 
+    // Start in menu
     showMainMenu();
+
+    // Carve with left mouse button while playing
+    scene.onPointerObservable.add((pointerInfo) => {
+        if (!terrain) return;
+        if (gameState !== GameState.PLAYING) return;
+
+        if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+            if (pointerInfo.event.button === 0) {
+                const pick = scene.pick(
+                    pointerInfo.event.clientX,
+                    pointerInfo.event.clientY
+                );
+                if (pick && pick.hit) {
+                    terrain.carveSphere(pick.pickedPoint, 4.0);
+                }
+            }
+        }
+    });
 
     return scene;
 }
 
-// ---------------- Visual themes -----------------
-
+// --------------------
+// Visual themes
+// --------------------
 function applyMenuVisuals() {
     if (!scene) return;
+
     scene.clearColor = new BABYLON.Color4(0.01, 0.01, 0.04, 1.0);
     scene.fogMode = BABYLON.Scene.FOGMODE_NONE;
 }
 
 function applyGameVisuals() {
     if (!scene) return;
+
     scene.clearColor = new BABYLON.Color4(0.1, 0.15, 0.25, 1.0);
     scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
     scene.fogColor = new BABYLON.Color3(0.1, 0.15, 0.25);
     scene.fogDensity = 3e-5;
 }
 
-// ---------------- Fireflies -----------------
-
+// --------------------
+// Fireflies
+// --------------------
 function createFireflies() {
     firefliesRoot = new BABYLON.TransformNode("firefliesRoot", scene);
 
-    const mat = new BABYLON.StandardMaterial("fireflyMat", scene);
-    mat.emissiveColor = new BABYLON.Color3(0.8, 0.9, 1.0);
-    mat.disableLighting = true;
-    mat.alpha = 0.9;
+    const fireflyMat = new BABYLON.StandardMaterial("fireflyMat", scene);
+    fireflyMat.emissiveColor = new BABYLON.Color3(0.8, 0.9, 1.0);
+    fireflyMat.alpha = 0.9;
+    fireflyMat.disableLighting = true;
 
     const radius = PLANET_RADIUS_UNITS * 0.05;
     const count = 40;
 
     for (let i = 0; i < count; i++) {
         const orb = BABYLON.MeshBuilder.CreateSphere(
-            "firefly_" + i,
+            "firefly" + i,
             { diameter: PLANET_RADIUS_UNITS * 0.0015, segments: 6 },
             scene
         );
+        orb.material = fireflyMat;
         orb.parent = firefliesRoot;
-        orb.material = mat;
-        orb.isPickable = false;
 
         const angle = Math.random() * Math.PI * 2;
         const y = (Math.random() * 2 - 1) * radius * 0.4;
         const r = radius * (0.4 + Math.random() * 0.6);
 
-        orb.position.set(
-            Math.cos(angle) * r,
-            y,
-            Math.sin(angle) * r
-        );
+        orb.position.x = Math.cos(angle) * r;
+        orb.position.y = y;
+        orb.position.z = Math.sin(angle) * r;
 
-        orb.metadata = {
-            phase: Math.random() * Math.PI * 2,
-            baseY: orb.position.y
-        };
+        const phase = Math.random() * Math.PI * 2;
+        orb.metadata = { phase, baseY: orb.position.y };
+        orb.isPickable = false;
     }
 
     scene.registerBeforeRender(() => {
         if (!firefliesRoot) return;
         const t = performance.now() * 0.001;
+
         firefliesRoot.rotation.y = t * 0.05;
 
         firefliesRoot.getChildMeshes().forEach((orb) => {
@@ -166,13 +191,14 @@ function createFireflies() {
     });
 }
 
-function setFirefliesVisible(visible) {
+function setFirefliesVisible(isVisible) {
     if (!firefliesRoot) return;
-    firefliesRoot.setEnabled(visible);
+    firefliesRoot.setEnabled(isVisible);
 }
 
-// ---------------- UI creation -----------------
-
+// --------------------
+// UI creation
+// --------------------
 function createMainMenu() {
     mainMenuPanel = new BABYLON.GUI.Rectangle("mainMenu");
     mainMenuPanel.width = "420px";
@@ -181,16 +207,22 @@ function createMainMenu() {
     mainMenuPanel.thickness = 0;
     mainMenuPanel.background = "rgba(10, 10, 25, 0.9)";
     mainMenuPanel.color = "white";
-    mainMenuPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-    mainMenuPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    mainMenuPanel.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    mainMenuPanel.verticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+
+    // subtle glow border
     mainMenuPanel.shadowBlur = 20;
     mainMenuPanel.shadowOffsetX = 0;
     mainMenuPanel.shadowOffsetY = 0;
-    mainMenuPanel.shadowColor = "rgba(0,255,200,0.7)";
+    mainMenuPanel.shadowColor = "rgba(0, 255, 200, 0.7)";
 
     const stack = new BABYLON.GUI.StackPanel();
     stack.width = "90%";
     stack.isVertical = true;
+    stack.verticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
     mainMenuPanel.addControl(stack);
 
     const title = new BABYLON.GUI.TextBlock();
@@ -199,44 +231,54 @@ function createMainMenu() {
     title.color = "white";
     title.fontSize = 36;
     title.fontWeight = "bold";
-    title.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    title.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     stack.addControl(title);
 
     const subtitle = new BABYLON.GUI.TextBlock();
-    subtitle.text = "Spherical Quadtree Planet";
+    subtitle.text = "Planet Prototype";
     subtitle.height = "30px";
     subtitle.color = "#9eeaff";
     subtitle.fontSize = 18;
-    subtitle.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    subtitle.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     stack.addControl(subtitle);
 
     const spacer1 = new BABYLON.GUI.Rectangle();
     spacer1.height = "30px";
     spacer1.thickness = 0;
+    spacer1.background = "transparent";
     stack.addControl(spacer1);
 
-    const playBtn = createModernButton("Play", "#00ffa9", () => startGame());
+    const playBtn = createModernButton("Play", "#00ffa9", () => {
+        startGame();
+    });
     stack.addControl(playBtn);
 
     const spacer2 = new BABYLON.GUI.Rectangle();
     spacer2.height = "10px";
     spacer2.thickness = 0;
+    spacer2.background = "transparent";
     stack.addControl(spacer2);
 
-    const settingsBtn = createModernButton("Settings", "#3f8cff", () => showSettings());
+    const settingsBtn = createModernButton("Settings", "#3f8cff", () => {
+        showSettings();
+    });
     stack.addControl(settingsBtn);
 
     const spacer3 = new BABYLON.GUI.Rectangle();
     spacer3.height = "30px";
     spacer3.thickness = 0;
+    spacer3.background = "transparent";
     stack.addControl(spacer3);
 
     const footer = new BABYLON.GUI.TextBlock();
-    footer.text = "QuayeWorks • HXH Quadtree build";
+    footer.text = "QuayeWorks • HXH build";
     footer.height = "30px";
     footer.color = "#666dff";
     footer.fontSize = 14;
-    footer.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    footer.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     stack.addControl(footer);
 
     ui.addControl(mainMenuPanel);
@@ -252,23 +294,27 @@ function createModernButton(label, accentColor, onClick) {
 
     const stack = new BABYLON.GUI.StackPanel();
     stack.isVertical = false;
-    stack.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-    stack.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    stack.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    stack.verticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
 
-    const accent = new BABYLON.GUI.Rectangle();
-    accent.width = "5px";
-    accent.height = "60%";
-    accent.thickness = 0;
-    accent.background = accentColor;
-    accent.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    const leftAccent = new BABYLON.GUI.Rectangle();
+    leftAccent.width = "5px";
+    leftAccent.height = "60%";
+    leftAccent.background = accentColor;
+    leftAccent.thickness = 0;
+    leftAccent.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
 
     const text = new BABYLON.GUI.TextBlock();
     text.text = label;
     text.color = "white";
     text.fontSize = 22;
-    text.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    text.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
 
-    stack.addControl(accent);
+    stack.addControl(leftAccent);
     stack.addControl(text);
     btn.addControl(stack);
 
@@ -289,10 +335,12 @@ function createSettingsMenu() {
     settingsPanel.height = "420px";
     settingsPanel.cornerRadius = 16;
     settingsPanel.thickness = 0;
-    settingsPanel.background = "rgba(10,10,25,0.95)";
+    settingsPanel.background = "rgba(10, 10, 25, 0.95)";
     settingsPanel.color = "white";
-    settingsPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-    settingsPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    settingsPanel.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    settingsPanel.verticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
     settingsPanel.isVisible = false;
 
     const stack = new BABYLON.GUI.StackPanel();
@@ -306,15 +354,17 @@ function createSettingsMenu() {
     title.color = "white";
     title.fontSize = 30;
     title.fontWeight = "bold";
-    title.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    title.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     stack.addControl(title);
 
     const subtitle = new BABYLON.GUI.TextBlock();
-    subtitle.text = "Visual / LOD controls";
+    subtitle.text = "Visual / debug controls";
     subtitle.height = "30px";
     subtitle.color = "#a5b8ff";
     subtitle.fontSize = 16;
-    subtitle.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    subtitle.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     stack.addControl(subtitle);
 
     const spacerTop = new BABYLON.GUI.Rectangle();
@@ -322,12 +372,14 @@ function createSettingsMenu() {
     spacerTop.thickness = 0;
     stack.addControl(spacerTop);
 
+    // LOD quality slider (global cap)
     const lodHeader = new BABYLON.GUI.TextBlock();
     lodHeader.text = "LOD quality: 5";
     lodHeader.height = "26px";
     lodHeader.color = "white";
     lodHeader.fontSize = 18;
-    lodHeader.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    lodHeader.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
     stack.addControl(lodHeader);
 
     const lodSlider = new BABYLON.GUI.Slider();
@@ -342,19 +394,35 @@ function createSettingsMenu() {
     lodSlider.thumbWidth = 18;
     lodSlider.onValueChangedObservable.add((v) => {
         const value = Math.round(v);
-        lodHeader.text = "LOD quality: " + value;
-        if (terrain && terrain.setLodQuality) {
-            terrain.setLodQuality(value);
+        lodHeader.text = "LOD quality: " + value.toString();
+        if (terrain && terrain.setLodLevel) {
+            terrain.setLodLevel(value);
         }
     });
     stack.addControl(lodSlider);
 
-    const spacerMid = new BABYLON.GUI.Rectangle();
-    spacerMid.height = "20px";
-    spacerMid.thickness = 0;
-    stack.addControl(spacerMid);
+    const spacerMid1 = new BABYLON.GUI.Rectangle();
+    spacerMid1.height = "16px";
+    spacerMid1.thickness = 0;
+    stack.addControl(spacerMid1);
 
-    const backBtn = createModernButton("Back", "#777777", () => showMainMenu());
+    // Wireframe toggle
+    const wireBtn = createModernButton("Toggle Wireframe", "#ff9f43", () => {
+        if (terrain && terrain.material) {
+            terrain.material.wireframe = !terrain.material.wireframe;
+        }
+    });
+    wireBtn.height = "40px";
+    stack.addControl(wireBtn);
+
+    const spacerMid2 = new BABYLON.GUI.Rectangle();
+    spacerMid2.height = "20px";
+    spacerMid2.thickness = 0;
+    stack.addControl(spacerMid2);
+
+    const backBtn = createModernButton("Back", "#777777", () => {
+        showMainMenu();
+    });
     backBtn.height = "44px";
     stack.addControl(backBtn);
 
@@ -362,12 +430,15 @@ function createSettingsMenu() {
 }
 
 function createHud() {
+    // Simple text HUD in top-left
     playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
     playerInfoText.text = "";
     playerInfoText.color = "white";
     playerInfoText.fontSize = 18;
-    playerInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    playerInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    playerInfoText.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    playerInfoText.textVerticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
     playerInfoText.paddingLeft = "12px";
     playerInfoText.paddingTop = "10px";
     playerInfoText.isVisible = false;
@@ -377,18 +448,23 @@ function createHud() {
     lodInfoText.text = "";
     lodInfoText.color = "#9eeaff";
     lodInfoText.fontSize = 16;
-    lodInfoText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    lodInfoText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    lodInfoText.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    lodInfoText.textVerticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
     lodInfoText.paddingLeft = "12px";
     lodInfoText.paddingTop = "34px";
     lodInfoText.isVisible = false;
     ui.addControl(lodInfoText);
 
+    // Right-side HUD container (future controls)
     hudPanel = new BABYLON.GUI.StackPanel();
     hudPanel.width = "260px";
     hudPanel.isVertical = true;
-    hudPanel.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    hudPanel.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    hudPanel.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    hudPanel.verticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
     hudPanel.paddingRight = "20px";
     hudPanel.paddingTop = "20px";
     hudPanel.background = "rgba(0,0,0,0.25)";
@@ -402,9 +478,11 @@ function createLoadingOverlay() {
     loadingOverlay.height = "100px";
     loadingOverlay.cornerRadius = 16;
     loadingOverlay.thickness = 0;
-    loadingOverlay.background = "rgba(10,10,25,0.9)";
-    loadingOverlay.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-    loadingOverlay.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+    loadingOverlay.background = "rgba(10, 10, 25, 0.9)";
+    loadingOverlay.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    loadingOverlay.verticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
     loadingOverlay.paddingBottom = "40px";
     loadingOverlay.isVisible = false;
 
@@ -418,14 +496,15 @@ function createLoadingOverlay() {
     loadingPercentText.height = "30px";
     loadingPercentText.color = "white";
     loadingPercentText.fontSize = 20;
-    loadingPercentText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    loadingPercentText.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     stack.addControl(loadingPercentText);
 
     const barBack = new BABYLON.GUI.Rectangle();
     barBack.height = "24px";
     barBack.thickness = 0;
     barBack.cornerRadius = 12;
-    barBack.background = "rgba(20,25,50,1)";
+    barBack.background = "rgba(20, 25, 50, 1)";
     barBack.width = "100%";
     stack.addControl(barBack);
 
@@ -435,15 +514,17 @@ function createLoadingOverlay() {
     loadingBarFill.thickness = 0;
     loadingBarFill.cornerRadius = 12;
     loadingBarFill.background = "#00ffa9";
-    loadingBarFill.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    loadingBarFill.horizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
     loadingBarFill.left = "0px";
     barBack.addControl(loadingBarFill);
 
     ui.addControl(loadingOverlay);
 }
 
-// ---------------- State transitions -----------------
-
+// --------------------
+// State transitions
+// --------------------
 function showMainMenu() {
     gameState = GameState.MENU;
 
@@ -490,47 +571,79 @@ function startGame() {
     applyMenuVisuals();
 
     if (!terrain) {
-        terrain = new PlanetQuadtreeTerrain(scene, {
-            radius: PLANET_RADIUS_UNITS,
-            patchResolution: 33,
-            maxLevel: 6
+        terrain = new ChunkedPlanetTerrain(scene, {
+            chunkCountX: 32,
+            chunkCountZ: 32,
+            baseChunkResolution: 128,
+            isoLevel: 0,
+            radius: PLANET_RADIUS_UNITS
         });
+
+        terrain.onInitialBuildDone = () => {
+            console.log("Initial planet build complete.");
+
+            // Create player on planet surface
+            player = new PlanetPlayer(scene, terrain, {
+                planetRadius: PLANET_RADIUS_UNITS + 500,
+                walkSpeed: 4,
+                runSpeed: 22,
+                height: 10,
+                radius: 2
+            });
+
+            if (mainCamera && player && player.mesh) {
+                // Let the player use this camera for movement direction
+                player.attachCamera(mainCamera);
+
+                // Reset camera constraints & orientation after attach
+                mainCamera.allowUpsideDown = false;
+                mainCamera.lowerBetaLimit = 0.15;
+                mainCamera.upperBetaLimit = Math.PI / 2.1;
+                mainCamera.checkCollisions = false;
+                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
+                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
+
+                mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
+            }
+
+            // Switch to playing visuals
+            applyGameVisuals();
+            setFirefliesVisible(false);
+
+            if (loadingOverlay) loadingOverlay.isVisible = false;
+            if (playerInfoText) playerInfoText.isVisible = true;
+            if (lodInfoText) lodInfoText.isVisible = true;
+            if (hudPanel) hudPanel.isVisible = true;
+
+            gameState = GameState.PLAYING;
+        };
+    } else {
+        // Planet already exists – just resume quickly
+        applyGameVisuals();
+        setFirefliesVisible(false);
+
+        if (loadingOverlay) loadingOverlay.isVisible = false;
+        if (playerInfoText) playerInfoText.isVisible = !!player;
+        if (lodInfoText) lodInfoText.isVisible = !!player;
+        if (hudPanel) hudPanel.isVisible = true;
+
+        // Re-assert camera constraints on resume
+        if (mainCamera) {
+            mainCamera.allowUpsideDown = false;
+            mainCamera.lowerBetaLimit = 0.15;
+            mainCamera.upperBetaLimit = Math.PI / 2.1;
+            mainCamera.checkCollisions = false;
+            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
+            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+        }
+
+        gameState = GameState.PLAYING;
     }
-
-    // Create / reset player
-    if (!player) {
-        player = new PlanetPlayer(scene, terrain, {
-            planetRadius: PLANET_RADIUS_UNITS + 1,
-            walkSpeed: 4,
-            runSpeed: 22,
-            height: 10,
-            radius: 2
-        });
-    }
-
-    if (mainCamera && player && player.mesh) {
-        player.attachCamera(mainCamera);
-        mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
-    }
-
-    applyGameVisuals();
-    setFirefliesVisible(false);
-
-    if (loadingOverlay) {
-        loadingOverlay.isVisible = false;
-        loadingBarFill.width = "100%";
-        loadingPercentText.text = "Generating planet: 100%";
-    }
-
-    if (playerInfoText) playerInfoText.isVisible = true;
-    if (lodInfoText) lodInfoText.isVisible = true;
-    if (hudPanel) hudPanel.isVisible = true;
-
-    gameState = GameState.PLAYING;
 }
 
-// ---------------- Boot + loop -----------------
-
+// --------------------
+// Bootstrap + loop
+// --------------------
 createScene();
 
 engine.runRenderLoop(() => {
@@ -540,6 +653,7 @@ engine.runRenderLoop(() => {
     const dtSeconds = (now - lastFrameTime) / 1000;
     lastFrameTime = now;
 
+    // Focus position for LOD & hemisphere
     let focusPos = null;
     if (player && player.mesh) {
         focusPos = player.mesh.position;
@@ -547,56 +661,58 @@ engine.runRenderLoop(() => {
         focusPos = scene.activeCamera.position;
     }
 
-    if (terrain && focusPos) {
+    if (terrain) {
         terrain.updateStreaming(focusPos);
     }
 
-    // Loading overlay is trivial for quadtree – planet builds instantly.
-    if (loadingOverlay && loadingOverlay.isVisible && terrain) {
-        const prog = terrain.getInitialBuildProgress
-            ? terrain.getInitialBuildProgress()
-            : 1;
-        const pct = Math.max(0, Math.min(1, prog));
-        loadingBarFill.width = (pct * 100).toFixed(1) + "%";
-        loadingPercentText.text = `Generating planet: ${(pct * 100).toFixed(1)}%`;
-
-        if (prog >= 1 && gameState === GameState.LOADING) {
-            // Just in case; startGame already hides the overlay.
-            loadingOverlay.isVisible = false;
+    // Loading bar update
+    if (terrain && loadingOverlay && loadingOverlay.isVisible) {
+        if (!terrain.initialBuildDone && terrain.getInitialBuildProgress) {
+            const p = terrain.getInitialBuildProgress();
+            const pct = Math.max(0, Math.min(1, p));
+            loadingPercentText.text = `Generating planet: ${(pct * 100).toFixed(1)}%`;
+            loadingBarFill.width = (pct * 100).toFixed(1) + "%";
+        } else {
+            loadingBarFill.width = "100%";
+            loadingPercentText.text = "Generating planet: 100%";
         }
     }
 
-    // Player update
-    if (player && gameState === GameState.PLAYING && dtSeconds > 0) {
-        player.update(dtSeconds);
-    }
-
-    // HUD
-    if (playerInfoText && player && player.mesh && gameState === GameState.PLAYING) {
-        const pos = player.mesh.position;
-        const r = pos.length();
-        playerInfoText.text =
-            `Player  x:${pos.x.toFixed(1)}  y:${pos.y.toFixed(1)}  z:${pos.z.toFixed(1)}  r:${r.toFixed(1)}`;
-        playerInfoText.isVisible = true;
-    }
-
-    if (lodInfoText && terrain && focusPos && gameState === GameState.PLAYING && terrain.getDebugInfo) {
-        const dbg = terrain.getDebugInfo(focusPos);
-        const stats = dbg.lodStats || {};
-        const per = stats.perLod || [];
-        const maxLod = stats.maxLodInUse ?? 0;
-
-        let nearStr = "";
-        if (dbg.nearestChunk) {
-            const n = dbg.nearestChunk;
-            nearStr =
-                `  nearLOD:${n.lodLevel} res:${n.dimX} dist:${n.distance.toFixed(1)}`;
+    // Update player & HUD
+    if (player && gameState === GameState.PLAYING) {
+        if (dtSeconds > 0) {
+            player.update(dtSeconds);
         }
 
-        lodInfoText.text =
-            `Patches active:${stats.totalVisible ?? 0}  baseRes:${dbg.baseChunkResolution}  cap:${dbg.lodCap}  maxUsed:${maxLod}\n` +
-            `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
-        lodInfoText.isVisible = true;
+        if (playerInfoText && player.mesh) {
+            const pos = player.mesh.position;
+            const r = pos.length();
+            playerInfoText.text =
+                `Player  x:${pos.x.toFixed(1)}  y:${pos.y.toFixed(1)}  z:${pos.z.toFixed(1)}  r:${r.toFixed(1)}`;
+            playerInfoText.isVisible = true;
+        }
+
+        if (terrain && lodInfoText && focusPos && terrain.getDebugInfo) {
+            const dbg = terrain.getDebugInfo(focusPos);
+            const stats = dbg.lodStats || {};
+            const per = stats.perLod || [];
+            const maxLod = stats.maxLodInUse ?? 0;
+
+            let nearStr = "";
+            if (dbg.nearestChunk) {
+                const n = dbg.nearestChunk;
+                nearStr =
+                    `  nearLOD:${n.lodLevel} res:${n.dimX} dist:${n.distance.toFixed(1)}`;
+            }
+
+            lodInfoText.text =
+                `Chunks ${dbg.chunkCountX}x${dbg.chunkCountZ}  baseRes:${dbg.baseChunkResolution}  cap:${dbg.lodCap}  maxUsed:${maxLod}\n` +
+                `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
+            lodInfoText.isVisible = true;
+        }
+    } else {
+        if (playerInfoText) playerInfoText.isVisible = false;
+        if (lodInfoText) lodInfoText.isVisible = false;
     }
 
     scene.render();
@@ -605,3 +721,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
