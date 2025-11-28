@@ -1028,9 +1028,11 @@ export class MarchingCubesTerrain {
     }
 
 
-    // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
+    // Rebuild this chunk for a new resolution / cellSize / origin (used for LOD + streaming)
     // If this.useWorker is true, this may return a Promise that resolves
-    // when the worker has finished building the field + mesh.
+    // when the worker has finished building the field.
+    // settings.deferMesh === true  -> only rebuild the scalar field; caller
+    //                                 is responsible for calling rebuildMeshOnly().
     rebuildWithSettings(settings) {
         // Update core parameters
         if (settings.dimX && settings.dimY && settings.dimZ) {
@@ -1053,11 +1055,14 @@ export class MarchingCubesTerrain {
                   );
         }
 
+        const deferMesh = !!settings.deferMesh;
+
         // Recreate field for new resolution
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
 
         if (this.useWorker && typeof Worker !== "undefined") {
-            // Async path: build field in worker, then build mesh on main thread
+            // Async path: build field in worker.
+            // We only build the mesh here if deferMesh is false.
             return buildFieldAsync(
                 this.dimX,
                 this.dimY,
@@ -1068,20 +1073,27 @@ export class MarchingCubesTerrain {
             )
                 .then((field) => {
                     this.field = field;
-                    this._buildMesh();
+                    if (!deferMesh) {
+                        this._buildMesh();
+                    }
                 })
                 .catch((err) => {
                     console.error("Worker rebuild failed, falling back:", err);
                     this._buildInitialField();
-                    this._buildMesh();
+                    if (!deferMesh) {
+                        this._buildMesh();
+                    }
                 });
         } else {
             // Synchronous CPU path
             this._buildInitialField();
-            this._buildMesh();
+            if (!deferMesh) {
+                this._buildMesh();
+            }
             return null;
         }
     }
+
 
 
     // Rebuild this chunk at a new world-space origin (used by streaming).
