@@ -101,22 +101,20 @@ export class ChunkedPlanetTerrain {
         const dNorm = dist / R;
 
         let desiredLevel;
-        if (dNorm < 0.0025) {          // 0.25%
+        if (dNorm < 0.06) {         // 6% (~2000m)
             desiredLevel = 5;
-        } else if (dNorm < 0.01) {     // 1%
+        } else if (dNorm < 0.08) {  // 8%
             desiredLevel = 4;
-        } else if (dNorm < 0.02) {     // 2%
+        } else if (dNorm < 0.10) {  // 10%
             desiredLevel = 3;
-        } else if (dNorm < 0.04) {     // 4%
+        } else if (dNorm < 0.12) {  // 12%
             desiredLevel = 2;
-        } else if (dNorm < 0.06) {     // 6%
+        } else if (dNorm < 0.14) {
             desiredLevel = 1;
-        } else if (dNorm <= 0.10) {    // 10%
-            desiredLevel = 0;
         } else {
-            // beyond view radius; we still return something but chunk will be culled
             desiredLevel = 0;
         }
+
 
         // Respect global LOD cap from the slider
         return Math.min(desiredLevel, this.lodLevel);
