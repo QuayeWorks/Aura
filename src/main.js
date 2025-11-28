@@ -600,8 +600,8 @@ function startGame() {
                 mainCamera.lowerBetaLimit = 0.15;
                 mainCamera.upperBetaLimit = Math.PI / 2.1;
                 mainCamera.checkCollisions = false;
-                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.015;
-                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.08;
+                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
+                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
 
                 mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
             }
@@ -721,4 +721,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
