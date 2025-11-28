@@ -57,6 +57,12 @@ export class PlanetPlayer {
 
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
+                
+        // Remember last valid ground contact so LOD cracks / rebuilds
+        // don’t instantly drop the player through the planet.
+        this.lastGroundHit = null;
+        this.lastGroundNormal = null;
+
 
         // Camera we attach to (ArcRotate in your scene)
         this.camera = null;
@@ -332,24 +338,31 @@ export class PlanetPlayer {
         const up = pos.scale(1 / r);
         const down = up.scale(-1);
 
-        const rayOrigin = pos.add(up.scale(this.capsuleRadius));
+        // Capsule geometry
+        const bottomToCenter = this.height * 0.5;
+        const surfaceClearance = this.capsuleRadius * 0.1; // small gap above surface
+
+        // Ray starts slightly above the head and goes inward toward the planet
+        const rayOrigin = pos.add(
+            up.scale(bottomToCenter + this.capsuleRadius)
+        );
         const rayLen =
-            this.capsuleRadius + this.height + this.groundSnapDistance;
+            bottomToCenter + this.capsuleRadius + this.groundSnapDistance;
 
         const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
 
-        // Only hit terrain chunks (you set metadata.isTerrain = true on them)
+        // Only hit terrain chunks (metadata.isTerrain set in MarchingCubesTerrain)
         const pick = this.scene.pickWithRay(
             ray,
             (mesh) => mesh && mesh.metadata && mesh.metadata.isTerrain
         );
 
-        if (pick.hit && pick.pickedPoint) {
-            // Move the capsule so **its bottom half is above the surface**.
-            // Babylon's capsule is height tall, with extents ±height/2 from center.
-            const bottomToCenter = this.height * 0.5;
-            const surfaceClearance = this.capsuleRadius * 0.1; // small gap so it doesn't clip
+        let groundedThisFrame = false;
 
+        if (pick.hit && pick.pickedPoint) {
+            // --- Normal path: valid terrain hit under the player ---
+
+            // Put the capsule so its bottom is just above the surface
             const targetPos = pick.pickedPoint.add(
                 up.scale(bottomToCenter + surfaceClearance)
             );
@@ -362,11 +375,72 @@ export class PlanetPlayer {
                     down.scale(velDown)
                 );
             }
-            this.isGrounded = true;
-        } else {
-            this.isGrounded = false;
+
+            groundedThisFrame = true;
+
+            // Remember this contact for LOD streaming gaps
+            this.lastGroundHit = pick.pickedPoint.clone
+                ? pick.pickedPoint.clone()
+                : pick.pickedPoint;
+
+            if (pick.getNormal) {
+                const n = pick.getNormal(true);
+                if (n) {
+                    this.lastGroundNormal = n.clone ? n.clone() : n;
+                } else {
+                    this.lastGroundNormal = up;
+                }
+            } else {
+                this.lastGroundNormal = up;
+            }
+        } else if (this.lastGroundHit) {
+            // --- Fallback: LOD crack / chunk rebuild temporarily removed mesh ---
+
+            const distToLast = BABYLON.Vector3.Distance(
+                pos,
+                this.lastGroundHit
+            );
+
+            // If we’re still basically at the same spot, snap back to
+            // the last known ground instead of falling through.
+            if (distToLast <= this.groundSnapDistance * 1.5) {
+                const targetPos = this.lastGroundHit.add(
+                    up.scale(bottomToCenter + surfaceClearance)
+                );
+                this.mesh.position.copyFrom(targetPos);
+
+                const velDown = BABYLON.Vector3.Dot(this.velocity, down);
+                if (velDown > 0) {
+                    this.velocity = this.velocity.subtract(
+                        down.scale(velDown)
+                    );
+                }
+
+                groundedThisFrame = true;
+            }
         }
+
+        // --- Extra safety: don’t let the player fall deep into the planet ---
+        if (!groundedThisFrame) {
+            const minSurfaceR = this.planetRadius - this.capsuleRadius * 2.0;
+
+            if (r < minSurfaceR) {
+                const clampedPos = up.scale(minSurfaceR);
+                this.mesh.position.copyFrom(clampedPos);
+
+                // Remove inward velocity so we don't keep trying to dive in
+                const velInward = -BABYLON.Vector3.Dot(this.velocity, up);
+                if (velInward > 0) {
+                    this.velocity = this.velocity.add(up.scale(velInward));
+                }
+
+                groundedThisFrame = true;
+            }
+        }
+
+        this.isGrounded = groundedThisFrame;
     }
+
 
     /**
      * Smoothly align the capsule "up" with the planet radial up.
@@ -405,6 +479,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
