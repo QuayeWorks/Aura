@@ -62,7 +62,7 @@ export class PlanetPlayer {
         // don’t instantly drop the player through the planet.
         this.lastGroundHit = null;
         this.lastGroundNormal = null;
-
+        this._groundMissFrames = 0;   // how many frames in a row we saw no ground
 
         // Camera we attach to (ArcRotate in your scene)
         this.camera = null;
@@ -351,7 +351,7 @@ export class PlanetPlayer {
 
         const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
 
-        // Only hit terrain chunks (metadata.isTerrain set in MarchingCubesTerrain)
+        // Only hit terrain chunks (metadata.isTerrain set on them)
         const pick = this.scene.pickWithRay(
             ray,
             (mesh) => mesh && mesh.metadata && mesh.metadata.isTerrain
@@ -360,15 +360,14 @@ export class PlanetPlayer {
         let groundedThisFrame = false;
 
         if (pick.hit && pick.pickedPoint) {
-            // --- Normal path: valid terrain hit under the player ---
+            // --- Normal path: we see ground under us ---
+            this._groundMissFrames = 0;
 
-            // Put the capsule so its bottom is just above the surface
             const targetPos = pick.pickedPoint.add(
                 up.scale(bottomToCenter + surfaceClearance)
             );
             this.mesh.position.copyFrom(targetPos);
 
-            // Kill downward velocity into the surface
             const velDown = BABYLON.Vector3.Dot(this.velocity, down);
             if (velDown > 0) {
                 this.velocity = this.velocity.subtract(
@@ -378,63 +377,55 @@ export class PlanetPlayer {
 
             groundedThisFrame = true;
 
-            // Remember this contact for LOD streaming gaps
+            // Remember this contact for brief LOD gaps
             this.lastGroundHit = pick.pickedPoint.clone
                 ? pick.pickedPoint.clone()
                 : pick.pickedPoint;
 
             if (pick.getNormal) {
                 const n = pick.getNormal(true);
-                if (n) {
-                    this.lastGroundNormal = n.clone ? n.clone() : n;
-                } else {
-                    this.lastGroundNormal = up;
-                }
+                this.lastGroundNormal = n
+                    ? (n.clone ? n.clone() : n)
+                    : up;
             } else {
                 this.lastGroundNormal = up;
             }
-        } else if (this.lastGroundHit) {
-            // --- Fallback: LOD crack / chunk rebuild temporarily removed mesh ---
+        } else {
+            // --- No ground hit this frame ---
+            this._groundMissFrames++;
 
-            const distToLast = BABYLON.Vector3.Distance(
-                pos,
-                this.lastGroundHit
-            );
-
-            // If we’re still basically at the same spot, snap back to
-            // the last known ground instead of falling through.
-            if (distToLast <= this.groundSnapDistance * 1.5) {
-                const targetPos = this.lastGroundHit.add(
-                    up.scale(bottomToCenter + surfaceClearance)
+            // For just a few frames, we may be crossing an LOD seam where
+            // the mesh is temporarily gone. In that case, keep using the
+            // last stable ground contact as a "virtual" surface.
+            if (this.lastGroundHit && this._groundMissFrames <= 3) {
+                const distToLast = BABYLON.Vector3.Distance(
+                    pos,
+                    this.lastGroundHit
                 );
-                this.mesh.position.copyFrom(targetPos);
 
-                const velDown = BABYLON.Vector3.Dot(this.velocity, down);
-                if (velDown > 0) {
-                    this.velocity = this.velocity.subtract(
-                        down.scale(velDown)
+                if (distToLast <= this.groundSnapDistance * 1.5) {
+                    const targetPos = this.lastGroundHit.add(
+                        up.scale(bottomToCenter + surfaceClearance)
                     );
-                }
+                    this.mesh.position.copyFrom(targetPos);
 
-                groundedThisFrame = true;
+                    const velDown = BABYLON.Vector3.Dot(this.velocity, down);
+                    if (velDown > 0) {
+                        this.velocity = this.velocity.subtract(
+                            down.scale(velDown)
+                        );
+                    }
+
+                    groundedThisFrame = true;
+                }
             }
-        }
 
-        // --- Extra safety: don’t let the player fall deep into the planet ---
-        if (!groundedThisFrame) {
-            const minSurfaceR = this.planetRadius - this.capsuleRadius * 2.0;
-
-            if (r < minSurfaceR) {
-                const clampedPos = up.scale(minSurfaceR);
-                this.mesh.position.copyFrom(clampedPos);
-
-                // Remove inward velocity so we don't keep trying to dive in
-                const velInward = -BABYLON.Vector3.Dot(this.velocity, up);
-                if (velInward > 0) {
-                    this.velocity = this.velocity.add(up.scale(velInward));
-                }
-
-                groundedThisFrame = true;
+            // If we've gone several frames with no ground, we assume the
+            // geometry is really gone (e.g. we carved a hole) and let the
+            // player fall instead of standing on an invisible platform.
+            if (!groundedThisFrame && this._groundMissFrames > 3) {
+                this.lastGroundHit = null;
+                this.lastGroundNormal = null;
             }
         }
 
@@ -479,6 +470,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
