@@ -377,7 +377,7 @@ function startGame(scene) {
             console.log("Planet finished generating, spawning player.");
 
             player = new PlanetPlayer(scene, terrain, {
-                planetRadius: PLANET_RADIUS_UNITS + 1,
+                planetRadius: PLANET_RADIUS_UNITS * 1.05,
                 walkSpeed: 4,   // ~8 mph
                 runSpeed: 22,   // ~47 mph
                 height: 10.0,
@@ -471,3 +471,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
