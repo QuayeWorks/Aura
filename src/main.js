@@ -9,6 +9,7 @@ const engine = new BABYLON.Engine(canvas, true);
 const PLANET_RADIUS_UNITS = 32400;
 let terrain = null;
 let player = null;
+let loadingText = null;
 let playerInfoText = null;   // <-- optional HUD text (currently unused)
 
 const createScene = () => {
@@ -72,8 +73,7 @@ const createScene = () => {
         // You can optionally override LOD ring distances here:
     });
     
-    let player = null;
-        // --- Water sphere (oceans) ---
+     // --- Water sphere (oceans) ---
     const waterLevelOffset = 0; // sea level above base radius, in meters
 
     const water = BABYLON.MeshBuilder.CreateSphere(
@@ -109,15 +109,16 @@ const createScene = () => {
             height: 10.0,
             capsuleRadius: 1
         });
+    
+        // Let the player use the active camera for movement direction
+        if (scene.activeCamera) {
+            player.attachCamera(scene.activeCamera);
+            // Make the orbit camera follow the capsule instead of the world origin
+            camera.lockedTarget = player.mesh;
+            // Optional: tweak distance so you see more of the planet
+            camera.radius = camera.radius || 80;
+        }
     };
-    // Let the player use the active camera for movement direction
-    if (scene.activeCamera) {
-        player.attachCamera(scene.activeCamera);
-        // Make the orbit camera follow the capsule instead of the world origin
-        camera.lockedTarget = player.mesh;
-        // Optional: tweak distance so you see more of the planet
-        camera.radius = camera.radius || 80;
-    }
 
     // -----------------------
     // UI: lighting/material controls
@@ -126,7 +127,7 @@ const createScene = () => {
     const ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
     // After AdvancedDynamicTexture.CreateFullscreenUI("UI")
-    const loadingText = new BABYLON.GUI.TextBlock();
+    loadingText = new BABYLON.GUI.TextBlock();
     loadingText.text = "Generating planet...";
     loadingText.color = "white";
     loadingText.fontSize = 24;
@@ -135,6 +136,7 @@ const createScene = () => {
     loadingText.paddingLeft = "10px";
     loadingText.paddingTop  = "10px";
     ui.addControl(loadingText);
+
 
     // --- Player debug info text (top-left) (currently disabled) ---
     
@@ -246,23 +248,26 @@ engine.runRenderLoop(() => {
     let focusPos = null;
     if (player && player.mesh) {
         focusPos = player.mesh.position;
-    } else if (scene.activeCamera) {
+    } /*else if (scene.activeCamera) {
         // Fallback: use camera position before player is ready
         focusPos = scene.activeCamera.position;
-    }
+    }*/
 
     if (terrain) {
         terrain.updateStreaming(focusPos);
     }
 
     // Update loading text / show progress
-    if (!planet.initialBuildDone) {
-        const p = planet.getInitialBuildProgress();
-        loadingText.text = `Generating planet: ${(p * 100).toFixed(1)}%`;
-        loadingText.isVisible = true;
-    } else {
-        loadingText.isVisible = false;
+    if (terrain && loadingText) {
+        if (!terrain.initialBuildDone) {
+            const prog = terrain.getInitialBuildProgress();
+            loadingText.text = `Generating planet: ${(prog * 100).toFixed(1)}%`;
+            loadingText.isVisible = true;
+        } else {
+            loadingText.isVisible = false;
+        }
     }
+
     
     if (player) {
         player.update(dt);
@@ -285,6 +290,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
