@@ -57,8 +57,15 @@ export class ChunkedPlanetTerrain {
         this.initialBuildDone = false;     // set true once, when first pass ends
         this.onInitialBuildDone = null;    // callback, set from main.js (optional)
 
-        // Position used for LOD ring & hemisphere decisions (player or camera)
+        // Last focus position used for LOD ring calculation
         this.lastCameraPosition = null;
+
+        // Cached LOD stats for HUD
+        this.lastLodStats = {
+            totalVisible: 0,
+            perLod: [0, 0, 0, 0, 0, 0],
+            maxLodInUse: 0
+        };
 
         this._rebuildChunks();
     }
@@ -326,60 +333,6 @@ export class ChunkedPlanetTerrain {
         return this.initialBuildCompleted / this.initialBuildTotal;
     }
 
-    _scheduleRebuildForNewGrid() {
-        // Kept for compatibility, but we no longer actually shift the grid.
-        this.buildQueue = [];
-
-        const baseMetrics = this._computeBaseChunkMetrics();
-        const chunkWidth  = baseMetrics.baseChunkWidth;
-        const chunkDepth  = baseMetrics.baseChunkDepth;
-
-        const overlap = this.chunkOverlap || (1 * this.cellSize);
-        const halfCountX = this.chunkCountX / 2.0;
-        const halfCountZ = this.chunkCountZ / 2.0;
-
-        const camPos = this.lastCameraPosition;
-
-        for (let ix = 0; ix < this.chunkCountX; ix++) {
-            for (let iz = 0; iz < this.chunkCountZ; iz++) {
-                const idx = ix + iz * this.chunkCountX;
-                const c = this.chunks[idx];
-                if (!c) continue;
-
-                const gx = (ix - halfCountX + 0.5) + this.gridOffsetX;
-                const gz = (iz - halfCountZ + 0.5) + this.gridOffsetZ;
-
-                const origin = new BABYLON.Vector3(
-                    gx * (chunkWidth - overlap) - (chunkWidth * 0.5),
-                    -baseMetrics.baseChunkHeight * 0.5,
-                    gz * (chunkDepth - overlap) - (chunkDepth * 0.5)
-                );
-
-                // New LOD based on current camera distance
-                let lodLevel = c.lodLevel;
-                if (camPos) {
-                    const chunkCenter = new BABYLON.Vector3(
-                        origin.x + chunkWidth * 0.5,
-                        0,
-                        origin.z + chunkDepth * 0.5
-                    );
-                    const dist = BABYLON.Vector3.Distance(camPos, chunkCenter);
-                    lodLevel = this._lodForDistance(dist);
-                }
-
-                c.gridX = gx;
-                c.gridZ = gz;
-                c.lodLevel = lodLevel;
-
-                this.buildQueue.push({
-                    chunk: c.terrain,
-                    origin,
-                    lodLevel
-                });
-            }
-        }
-    }
-
     /**
      * Is this chunk on the same hemisphere as the focus position (player)?
      * We treat the planet center as (0,0,0) and compare normalized directions.
@@ -417,14 +370,20 @@ export class ChunkedPlanetTerrain {
      * - Chunks farther than 10% of the radius are hidden.
      * - Within 10% of radius, we apply your LOD rings.
      */
-    _scheduleLodAdjustments() {
+    _updateChunksForFocus() {
         if (!this.lastCameraPosition) return;
 
         const camPos = this.lastCameraPosition;
         const baseMetrics = this._computeBaseChunkMetrics();
         const chunkWidth  = baseMetrics.baseChunkWidth;
         const chunkDepth  = baseMetrics.baseChunkDepth;
-        const chunkHeight = baseMetrics.baseChunkHeight; // y not used here, but kept for completeness
+
+        // Reset stats
+        const stats = {
+            totalVisible: 0,
+            perLod: [0, 0, 0, 0, 0, 0],
+            maxLodInUse: 0
+        };
 
         for (const c of this.chunks) {
             if (!c || !c.terrain || !c.terrain.origin) continue;
@@ -440,7 +399,7 @@ export class ChunkedPlanetTerrain {
             // Hemisphere culling: only keep the half-planet facing the player
             const onNearSide = this._isChunkOnNearHemisphere(chunkCenter, camPos);
             if (!onNearSide) {
-                if (c.terrain && c.terrain.mesh) {
+                if (c.terrain.mesh) {
                     c.terrain.mesh.setEnabled(false);
                 }
                 continue;
@@ -450,18 +409,27 @@ export class ChunkedPlanetTerrain {
 
             // View-distance culling: only 10% of the radius around the player
             if (!this._isWithinViewDistance(dist)) {
-                if (c.terrain && c.terrain.mesh) {
+                if (c.terrain.mesh) {
                     c.terrain.mesh.setEnabled(false);
                 }
                 continue;
             }
 
             // Ensure it's visible; from here on, LOD rings apply
-            if (c.terrain && c.terrain.mesh) {
+            if (c.terrain.mesh) {
                 c.terrain.mesh.setEnabled(true);
             }
 
             const desiredLod = this._lodForDistance(dist);
+
+            // Stats
+            stats.totalVisible++;
+            if (desiredLod >= 0 && desiredLod < stats.perLod.length) {
+                stats.perLod[desiredLod]++;
+                if (desiredLod > stats.maxLodInUse) {
+                    stats.maxLodInUse = desiredLod;
+                }
+            }
 
             if (desiredLod === c.lodLevel) {
                 continue; // no change for this chunk
@@ -476,6 +444,8 @@ export class ChunkedPlanetTerrain {
                 lodLevel: desiredLod
             });
         }
+
+        this.lastLodStats = stats;
     }
 
     /**
@@ -607,14 +577,10 @@ export class ChunkedPlanetTerrain {
                   );
         }
 
-        if (!this.lastCameraPosition) {
-            // Still process any pending chunk rebuilds (initial planet build)
-            this._processBuildQueue();
-            return;
-        }
-
         // Update per-chunk LOD, hemisphere visibility and distance culling
-        this._scheduleLodAdjustments();
+        if (this.lastCameraPosition) {
+            this._updateChunksForFocus();
+        }
 
         // Rebuild at most one chunk per frame to avoid hitches
         this._processBuildQueue();
@@ -641,5 +607,68 @@ export class ChunkedPlanetTerrain {
 
             c.terrain.carveSphere(worldPos, radius);
         }
+    }
+
+    /**
+     * Return the most recently computed LOD stats for HUD display.
+     * If updateStreaming has not yet run with a valid focus position,
+     * this will just return zeros.
+     */
+    getLodStats() {
+        return this.lastLodStats;
+    }
+
+    /**
+     * Rich debug info for UI:
+     *  - chunk counts
+     *  - base resolution
+     *  - LOD cap
+     *  - LOD stats
+     *  - nearest visible chunk LOD + resolution around a focus position
+     */
+    getDebugInfo(focusPosition) {
+        const info = {
+            chunkCountX: this.chunkCountX,
+            chunkCountZ: this.chunkCountZ,
+            baseChunkResolution: this.baseChunkResolution,
+            lodCap: this.lodLevel,
+            lodStats: this.lastLodStats,
+            nearestChunk: null
+        };
+
+        if (!focusPosition) {
+            return info;
+        }
+
+        const baseMetrics = this._computeBaseChunkMetrics();
+        const chunkWidth  = baseMetrics.baseChunkWidth;
+        const chunkDepth  = baseMetrics.baseChunkDepth;
+
+        let bestDist = Infinity;
+        for (const c of this.chunks) {
+            if (!c || !c.terrain || !c.terrain.origin) continue;
+            if (!c.terrain.mesh || !c.terrain.mesh.isEnabled()) continue;
+
+            const origin = c.terrain.origin;
+            const center = new BABYLON.Vector3(
+                origin.x + chunkWidth * 0.5,
+                0,
+                origin.z + chunkDepth * 0.5
+            );
+
+            const dist = BABYLON.Vector3.Distance(focusPosition, center);
+            if (dist < bestDist) {
+                bestDist = dist;
+                const lodDims = this._computeLodDimensions(c.lodLevel);
+                info.nearestChunk = {
+                    lodLevel: c.lodLevel,
+                    dimX: lodDims.dimX,
+                    dimZ: lodDims.dimZ,
+                    distance: dist
+                };
+            }
+        }
+
+        return info;
     }
 }
