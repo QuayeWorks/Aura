@@ -1,7 +1,7 @@
 // src/terrain/PlanetQuadtreeTerrain.js
 // Spherical quadtree planet surface with adaptive patch LOD.
-// This is a heightmap-style surface terrain (no volumetric carving yet).
-// Designed to pair with the main menu / HUD you already have.
+// First-pass "safe" version: always keeps some patches visible so you never
+// get an empty scene. We can tighten culling later once it's stable.
 
 export class PlanetQuadtreeTerrain {
     /**
@@ -18,7 +18,7 @@ export class PlanetQuadtreeTerrain {
         this.patchResolution = options.patchResolution ?? 33;
         this.maxLevel = options.maxLevel ?? 6;
 
-        // Controls how aggressively we refine; adjusted by Settings slider.
+        // Controls how aggressively we refine; 0..5 from Settings
         this.lodErrorScale = options.lodErrorScale ?? 1.0;
 
         // Shared material
@@ -27,7 +27,7 @@ export class PlanetQuadtreeTerrain {
         this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         this.material.backFaceCulling = false;
 
-        // Root nodes for the 6 faces of a cube
+        // 6 cube faces → roots of quadtree
         this.roots = [];
 
         // Stats for HUD
@@ -37,23 +37,24 @@ export class PlanetQuadtreeTerrain {
             perLevel: []
         };
 
-        // Initial build tracking for loading bar (simple, planet builds fast)
-        this.initialBuildDone = false;
-        this.initialBuildTotal = 6;   // 6 faces
+        // Simple initial-build flags for loading UI
+        this.initialBuildTotal = 6;
         this.initialBuildCompleted = 0;
+        this.initialBuildDone = false;
         this.onInitialBuildDone = null;
 
-        // Build roots
+        // Build root patches
         for (let face = 0; face < 6; face++) {
             const root = this._createNode(face, -1, 1, -1, 1, 0);
             this.roots.push(root);
         }
+
         this._rebuildStats();
         this.initialBuildCompleted = this.initialBuildTotal;
         this.initialBuildDone = true;
     }
 
-    // -------------- Public API for main.js ------------------
+    // -------------------- Public API for main.js --------------------
 
     getInitialBuildProgress() {
         if (this.initialBuildTotal === 0) return 1;
@@ -61,36 +62,24 @@ export class PlanetQuadtreeTerrain {
     }
 
     /**
-     * Call every frame with camera or player position.
+     * Call every frame with player or camera position.
      */
     updateStreaming(focusPosition) {
         if (!focusPosition) return;
 
-        const camPos = focusPosition.clone
+        const focus = focusPosition.clone
             ? focusPosition.clone()
             : new BABYLON.Vector3(focusPosition.x, focusPosition.y, focusPosition.z);
 
-        // Planet center is origin
-        const planetCenter = BABYLON.Vector3.Zero();
-        const toCam = camPos.subtract(planetCenter);
-        const camDist = toCam.length();
-
-        // Skip if camera is at the center (should not happen)
-        if (camDist < 1e-3) return;
-
-        // Only activate patches within a maximum viewing distance
-        // (~12% of radius, similar to your old system but a bit looser)
-        const maxViewDist = this.radius * 0.12;
-
         for (const root of this.roots) {
-            this._updateNodeLOD(root, camPos, maxViewDist);
+            this._updateNodeLOD(root, focus);
         }
 
         this._rebuildStats();
     }
 
     /**
-     * Returns LOD / patch info for HUD (similar shape to old ChunkedPlanetTerrain).
+     * Return debug info in a shape that main.js HUD understands.
      */
     getDebugInfo(focusPosition) {
         const stats = this.lastStats;
@@ -107,37 +96,42 @@ export class PlanetQuadtreeTerrain {
             nearestChunk: null
         };
 
-        if (!focusPosition) {
-            return info;
-        }
+        if (!focusPosition) return info;
 
-        // Find nearest active patch
-        let best = null;
+        let bestNode = null;
         let bestDist = Infinity;
 
         for (const root of this.roots) {
             this._findNearestLeaf(root, focusPosition, (node, dist) => {
                 if (dist < bestDist) {
                     bestDist = dist;
-                    best = { node, dist };
+                    bestNode = node;
                 }
             });
         }
 
-        if (best && best.node) {
-            const n = best.node;
+        if (bestNode) {
             info.nearestChunk = {
-                lodLevel: n.level,
+                lodLevel: bestNode.level,
                 dimX: this.patchResolution,
                 dimZ: this.patchResolution,
-                distance: best.dist
+                distance: bestDist
             };
         }
 
         return info;
     }
 
-    // -------------- Node + LOD management -------------------
+    /**
+     * Settings slider hook: 0 (low) .. 5 (high).
+     */
+    setLodQuality(level) {
+        const v = Math.max(0, Math.min(5, Math.round(level)));
+        // 0 → 0.6, 5 → 1.6
+        this.lodErrorScale = 0.6 + v * 0.2;
+    }
+
+    // -------------------- Quadtree core --------------------
 
     _createNode(face, u0, u1, v0, v1, level) {
         const node = {
@@ -155,7 +149,6 @@ export class PlanetQuadtreeTerrain {
     }
 
     _buildNodeGeometry(node) {
-        // Build a grid patch on this cube face and project to sphere
         const rs = this.patchResolution;
         const positions = [];
         const normals = [];
@@ -185,16 +178,19 @@ export class PlanetQuadtreeTerrain {
             for (let i = 0; i < rs; i++) {
                 const u = u0 + du * i;
 
-                const p = this._cubeToSphere(node.face, u, v);
-                const height = this._sampleHeight(p);
-                const worldPos = p.scale(this.radius + height);
+                // Cube → sphere direction
+                const dir = this._cubeToSphere(node.face, u, v);
+
+                // Height along that direction
+                const height = this._sampleHeight(dir);
+                const worldPos = dir.scale(this.radius + height);
 
                 positions.push(worldPos.x, worldPos.y, worldPos.z);
 
                 const normal = worldPos.normalize();
                 normals.push(normal.x, normal.y, normal.z);
 
-                // track bounding box
+                // AABB for this patch
                 minPos.x = Math.min(minPos.x, worldPos.x);
                 minPos.y = Math.min(minPos.y, worldPos.y);
                 minPos.z = Math.min(minPos.z, worldPos.z);
@@ -204,6 +200,7 @@ export class PlanetQuadtreeTerrain {
             }
         }
 
+        // Triangles
         for (let j = 0; j < rs - 1; j++) {
             for (let i = 0; i < rs - 1; i++) {
                 const i0 = j * rs + i;
@@ -218,7 +215,10 @@ export class PlanetQuadtreeTerrain {
 
         let mesh = node.mesh;
         if (!mesh) {
-            mesh = new BABYLON.Mesh("patch_l" + node.level + "_f" + node.face, this.scene);
+            mesh = new BABYLON.Mesh(
+                `patch_l${node.level}_f${node.face}`,
+                this.scene
+            );
             mesh.checkCollisions = true;
             mesh.material = this.material;
             node.mesh = mesh;
@@ -230,20 +230,25 @@ export class PlanetQuadtreeTerrain {
         vertexData.normals = normals;
         vertexData.applyToMesh(mesh, true);
 
-        // bounding sphere for LOD decisions
+        // Approx bounding sphere
         const center = minPos.add(maxPos).scale(0.5);
         const radius = center.subtract(maxPos).length();
 
         node.center = center;
         node.boundRadius = radius;
 
+        mesh.setEnabled(true);
         mesh.isVisible = true;
     }
 
-    _destroyNodeGeometry(node) {
+    _disposeNode(node) {
         if (node.mesh) {
             node.mesh.dispose();
             node.mesh = null;
+        }
+        if (node.children) {
+            for (const c of node.children) this._disposeNode(c);
+            node.children = null;
         }
     }
 
@@ -254,8 +259,8 @@ export class PlanetQuadtreeTerrain {
         const { u0, u1, v0, v1 } = node;
         const umid = (u0 + u1) * 0.5;
         const vmid = (v0 + v1) * 0.5;
-
         const level = node.level + 1;
+
         node.children = [
             this._createNode(node.face, u0,  umid, v0,  vmid, level),
             this._createNode(node.face, umid, u1,  v0,  vmid, level),
@@ -272,7 +277,7 @@ export class PlanetQuadtreeTerrain {
         if (!node.children) return;
 
         for (const child of node.children) {
-            this._disposeSubtree(child);
+            this._disposeNode(child);
         }
         node.children = null;
 
@@ -280,76 +285,55 @@ export class PlanetQuadtreeTerrain {
             this._buildNodeGeometry(node);
         } else {
             node.mesh.isVisible = true;
+            node.mesh.setEnabled(true);
         }
     }
 
-    _disposeSubtree(node) {
-        if (node.children) {
-            for (const child of node.children) {
-                this._disposeSubtree(child);
-            }
-            node.children = null;
-        }
-        if (node.mesh) {
-            node.mesh.dispose();
-            node.mesh = null;
-        }
-    }
-
-    _updateNodeLOD(node, camPos, maxViewDist) {
+    _updateNodeLOD(node, focus) {
         if (!node.center) return;
 
-        const center = node.center;
-        const dist = BABYLON.Vector3.Distance(camPos, center);
+        const dist = BABYLON.Vector3.Distance(focus, node.center);
 
-        // Backface / far culling relative to camera and max view distance
-        const planetCenter = BABYLON.Vector3.Zero();
-        const toCenter = center.subtract(planetCenter).normalize();
-        const toCam = camPos.subtract(planetCenter).normalize();
-        const dot = BABYLON.Vector3.Dot(toCenter, toCam);
-
-        if (dot < -0.2 || dist > maxViewDist) {
-            // Too far or on far side: hide node & subtree
-            if (node.mesh) node.mesh.isVisible = false;
-            if (node.children) {
-                for (const child of node.children) {
-                    this._hideSubtree(child);
-                }
-            }
-            return;
-        }
-
-        // LOD decision: bigger patches close to camera subdivide
+        // Simple geometric "screen error"
         const geomError = node.boundRadius / Math.max(dist, 1.0);
         const error = geomError * this.lodErrorScale;
 
-        const wantSubdivide = (error > 0.15 && node.level < this.maxLevel);
+        // Desired behavior:
+        //  - Always show something: roots never disappear.
+        //  - Refine when close and error high.
+        //  - Optionally coarsen when far & over-refined.
+        const wantSubdivide =
+            error > 0.15 &&
+            node.level < this.maxLevel &&
+            dist < this.radius * 0.5;    // only refine within 50% of radius
+
+        const wantMerge =
+            error < 0.03 &&
+            node.level > 0;              // never merge roots away
 
         if (wantSubdivide) {
             this._subdivide(node);
-        } else {
-            // Coarsen if children exist but we don't need that much detail
-            if (node.children && error < 0.05) {
-                this._merge(node);
-            }
+        } else if (wantMerge) {
+            this._merge(node);
         }
 
         if (node.children) {
             if (node.mesh) node.mesh.isVisible = false;
             for (const child of node.children) {
-                this._updateNodeLOD(child, camPos, maxViewDist);
+                this._updateNodeLOD(child, focus);
             }
         } else {
-            if (node.mesh) node.mesh.isVisible = true;
+            if (node.mesh) {
+                node.mesh.setEnabled(true);
+                node.mesh.isVisible = true;
+            }
         }
     }
 
     _hideSubtree(node) {
         if (node.mesh) node.mesh.isVisible = false;
         if (node.children) {
-            for (const child of node.children) {
-                this._hideSubtree(child);
-            }
+            for (const child of node.children) this._hideSubtree(child);
         }
     }
 
@@ -359,8 +343,7 @@ export class PlanetQuadtreeTerrain {
                 this._findNearestLeaf(child, focusPosition, callback);
             }
         } else if (node.mesh && node.mesh.isVisible) {
-            const center = node.center;
-            const dist = BABYLON.Vector3.Distance(focusPosition, center);
+            const dist = BABYLON.Vector3.Distance(focusPosition, node.center);
             callback(node, dist);
         }
     }
@@ -373,13 +356,13 @@ export class PlanetQuadtreeTerrain {
             if (node.children) {
                 for (const child of node.children) visit(child);
             } else if (node.mesh && node.mesh.isVisible) {
-                const level = node.level;
-                perLevel[level] = (perLevel[level] || 0) + 1;
+                const lvl = node.level;
+                perLevel[lvl] = (perLevel[lvl] || 0) + 1;
                 total++;
             }
         };
 
-        for (const r of this.roots) visit(r);
+        for (const root of this.roots) visit(root);
 
         this.lastStats = {
             totalPatches: total,
@@ -388,64 +371,52 @@ export class PlanetQuadtreeTerrain {
         };
     }
 
-    // -------------- Quality control (for Settings UI) -----
-
-    /**
-     * Adjust how aggressively LOD refines.
-     * level 0 = lowest quality, 5 = highest.
-     */
-    setLodQuality(level) {
-        const v = Math.max(0, Math.min(5, Math.round(level)));
-        // 0 -> 0.6, 5 -> 1.6
-        this.lodErrorScale = 0.6 + v * 0.2;
-    }
-
-    // -------------- Geometry helpers -----------------------
+    // -------------------- Geometry helpers --------------------
 
     _cubeToSphere(face, u, v) {
-        // Map (u,v) in [-1,1] onto one face of a cube, then normalize to sphere.
+        // (u,v) ∈ [-1,1] on a cube face → normalized direction
         let x, y, z;
         switch (face) {
             case 0: // +X
-                x = 1; y = v; z = -u;
+                x = 1;  y = v;  z = -u;
                 break;
             case 1: // -X
-                x = -1; y = v; z = u;
+                x = -1; y = v;  z = u;
                 break;
             case 2: // +Y
-                x = u; y = 1; z = -v;
+                x = u;  y = 1;  z = -v;
                 break;
             case 3: // -Y
-                x = u; y = -1; z = v;
+                x = u;  y = -1; z = v;
                 break;
             case 4: // +Z
-                x = u; y = v; z = 1;
+                x = u;  y = v;  z = 1;
                 break;
             case 5: // -Z
             default:
-                x = -u; y = v; z = -1;
+                x = -u; y = v;  z = -1;
                 break;
         }
-
         const vec = new BABYLON.Vector3(x, y, z);
         return vec.normalize();
     }
 
     _sampleHeight(dir) {
-        // Simple analytic height function for now.
-        // You can replace this with real noise later (Perlin, simplex, etc).
+        // Simple analytic noise-ish height; replace with real noise later.
+        // dir is unit vector on sphere.
+
         const k = 0.00015 * this.radius;
+
         const nx = Math.sin(dir.x * k * 3.17);
         const ny = Math.sin(dir.y * k * 2.11);
         const nz = Math.sin(dir.z * k * 4.03);
         const base = (nx + ny + nz) / 3.0;
 
-        // small additional warping
         const ridges = Math.abs(Math.sin((dir.x + dir.y + dir.z) * k * 5.0));
 
         const height =
-            base * 0.03 * this.radius * 0.02 +
-            ridges * 0.015 * this.radius * 0.02;
+            base * (0.03 * this.radius * 0.02) +
+            ridges * (0.015 * this.radius * 0.02);
 
         return height;
     }
