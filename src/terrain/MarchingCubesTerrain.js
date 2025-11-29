@@ -1028,9 +1028,10 @@ export class MarchingCubesTerrain {
     }
 
 
-    // Rebuild this chunk for a new resolution / cellSize / origin (used for LOD + streaming)
+    // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
     // If this.useWorker is true, this may return a Promise that resolves
-    // when the worker has finished building the field.
+    // when the worker has finished building the FIELD.
+    //
     // settings.deferMesh === true  -> only rebuild the scalar field; caller
     //                                 is responsible for calling rebuildMeshOnly().
     rebuildWithSettings(settings) {
@@ -1061,8 +1062,8 @@ export class MarchingCubesTerrain {
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
 
         if (this.useWorker && typeof Worker !== "undefined") {
-            // Async path: build field in worker.
-            // We only build the mesh here if deferMesh is false.
+            // Async path: build FIELD in worker.
+            // Only build the mesh here if deferMesh is false.
             return buildFieldAsync(
                 this.dimX,
                 this.dimY,
