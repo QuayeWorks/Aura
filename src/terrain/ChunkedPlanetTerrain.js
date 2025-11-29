@@ -450,9 +450,9 @@ export class ChunkedPlanetTerrain {
      * Process a few pending chunk rebuilds per frame
      * to avoid big hitches when LOD changes.
      *
-     * IMPORTANT: we ask MarchingCubesTerrain to only rebuild the
-     * scalar field (deferMesh), and then we apply carves and call
-     * rebuildMeshOnly() once. This avoids building the mesh twice.
+     * For LOD streaming we ask MarchingCubesTerrain to rebuild ONLY the
+     * scalar field (deferMesh:true), then we replay any carves that touch
+     * the chunk and finally build the mesh once via rebuildMeshOnly().
      */
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
@@ -468,10 +468,7 @@ export class ChunkedPlanetTerrain {
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
                 cellSize: lodDims.cellSize,
-
-                // <<< key change: worker builds the FIELD only
-                // (no mesh yet). We will apply carves and build
-                // the mesh once in _applyRelevantCarvesToChunk.
+                // <<< important: worker builds FIELD only, no mesh yet
                 deferMesh: true
             });
 
@@ -488,8 +485,7 @@ export class ChunkedPlanetTerrain {
                         console.error("Chunk rebuild failed:", err);
                     });
             } else {
-                // Synchronous path (no worker): build field on CPU,
-                // then apply carves + mesh once.
+                // Synchronous path
                 this._applyRelevantCarvesToChunk(job.chunk);
                 this._onChunkBuilt();
             }
@@ -497,7 +493,6 @@ export class ChunkedPlanetTerrain {
             count++;
         }
     }
-
 
 
     /**
