@@ -451,54 +451,10 @@ export class PlanetPlayer {
                 this.lastGroundHit = null;
                 this.lastGroundNormal = null;
             }
-
-            // --------- "Fell through the map" detection ----------
-            // If we've been missing ground for a while AND we are moving inward,
-            // check for terrain just ABOVE us. If there is, we likely fell through
-            // a missing mesh / LOD seam, so teleport back up onto it.
-            if (
-                !groundedThisFrame &&
-                this._groundMissFrames > 10 // tune: how long to wait
-            ) {
-                const inwardSpeed = BABYLON.Vector3.Dot(this.velocity, down);
-                if (inwardSpeed > 0) {
-                    const upRayLen = this.groundSnapDistance * 2.0;
-                    const upRay = new BABYLON.Ray(pos, up, upRayLen);
-
-                    const upPick = this.scene.pickWithRay(
-                        upRay,
-                        (mesh) =>
-                            mesh &&
-                            mesh.metadata &&
-                            mesh.metadata.isTerrain
-                    );
-
-                    if (upPick.hit && upPick.pickedPoint) {
-                        // Teleport back up to that terrain surface
-                        const snapPos = upPick.pickedPoint.add(
-                            up.scale(bottomToCenter + surfaceClearance)
-                        );
-                        this.mesh.position.copyFrom(snapPos);
-
-                        // Reset velocity & flags
-                        this.velocity.set(0, 0, 0);
-                        this.isGrounded = true;
-                        groundedThisFrame = true;
-                        this._groundMissFrames = 0;
-
-                        this.lastGroundHit = upPick.pickedPoint.clone
-                            ? upPick.pickedPoint.clone()
-                            : upPick.pickedPoint;
-                        this.lastGroundNormal = up;
-                        this.lastSafePosition = this.mesh.position.clone();
-                    }
-                }
-            }
         }
 
         this.isGrounded = groundedThisFrame;
     }
-
 
 
     /**
@@ -538,22 +494,3 @@ export class PlanetPlayer {
         );
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
