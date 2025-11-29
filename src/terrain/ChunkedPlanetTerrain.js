@@ -449,16 +449,21 @@ export class ChunkedPlanetTerrain {
     /**
      * Process a few pending chunk rebuilds per frame
      * to avoid big hitches when LOD changes.
-     *
-     * For LOD streaming we ask MarchingCubesTerrain to rebuild ONLY the
-     * scalar field (deferMesh:true), then we replay any carves that touch
-     * the chunk and finally build the mesh once via rebuildMeshOnly().
      */
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
         while (count < maxPerFrame && this.buildQueue.length > 0) {
             const job = this.buildQueue.shift();
             if (!job || !job.chunk) continue;
+
+            // Mesh-only jobs are used for carving: the scalar field has
+            // already been updated, we just need to rebuild the mesh.
+            if (job.meshOnly) {
+                job.chunk.rebuildMeshOnly();
+                this._onChunkBuilt();
+                count++;
+                continue;
+            }
 
             const lodDims = this._computeLodDimensions(job.lodLevel);
 
@@ -467,14 +472,11 @@ export class ChunkedPlanetTerrain {
                 dimX: lodDims.dimX,
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
-                cellSize: lodDims.cellSize,
-                // <<< important: worker builds FIELD only, no mesh yet
-                deferMesh: true
+                cellSize: lodDims.cellSize
             });
 
             // If worker is used, rebuildWithSettings returns a Promise.
-            // We reapply carves and build the mesh only after the field
-            // is ready, to keep LOD streaming smooth.
+            // We reapply carves only after the new mesh is ready.
             if (maybePromise && typeof maybePromise.then === "function") {
                 maybePromise
                     .then(() => {
