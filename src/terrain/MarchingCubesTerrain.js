@@ -1030,10 +1030,7 @@ export class MarchingCubesTerrain {
 
     // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
     // If this.useWorker is true, this may return a Promise that resolves
-    // when the worker has finished building the FIELD.
-    //
-    // settings.deferMesh === true  -> only rebuild the scalar field; caller
-    //                                 is responsible for calling rebuildMeshOnly().
+    // when the worker has finished building the field + mesh.
     rebuildWithSettings(settings) {
         // Update core parameters
         if (settings.dimX && settings.dimY && settings.dimZ) {
@@ -1056,14 +1053,11 @@ export class MarchingCubesTerrain {
                   );
         }
 
-        const deferMesh = !!settings.deferMesh;
-
         // Recreate field for new resolution
         this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
 
         if (this.useWorker && typeof Worker !== "undefined") {
-            // Async path: build FIELD in worker.
-            // Only build the mesh here if deferMesh is false.
+            // Async path: build field in worker, then build mesh on main thread
             return buildFieldAsync(
                 this.dimX,
                 this.dimY,
@@ -1074,27 +1068,20 @@ export class MarchingCubesTerrain {
             )
                 .then((field) => {
                     this.field = field;
-                    if (!deferMesh) {
-                        this._buildMesh();
-                    }
+                    this._buildMesh();
                 })
                 .catch((err) => {
                     console.error("Worker rebuild failed, falling back:", err);
                     this._buildInitialField();
-                    if (!deferMesh) {
-                        this._buildMesh();
-                    }
+                    this._buildMesh();
                 });
         } else {
             // Synchronous CPU path
             this._buildInitialField();
-            if (!deferMesh) {
-                this._buildMesh();
-            }
+            this._buildMesh();
             return null;
         }
     }
-
 
 
     // Rebuild this chunk at a new world-space origin (used by streaming).
