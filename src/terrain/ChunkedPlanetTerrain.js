@@ -468,6 +468,12 @@ export class ChunkedPlanetTerrain {
         }
     }
 
+    _onChunkBuilt() {
+        // Called whenever a chunk's mesh has finished rebuilding.
+        // You can hook debug counters / UI here later if you want.
+    }
+
+
     // -------------------------------------------------
     // Public API used by main.js
     // -------------------------------------------------
