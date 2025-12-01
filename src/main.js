@@ -553,6 +553,48 @@ function showSettings() {
     applyMenuVisuals();
 }
 
+function onPlanetReady() {
+    console.log("Initial planet build complete.");
+
+    // Create player on planet surface (only once)
+    if (!player) {
+        player = new PlanetPlayer(scene, terrain, {
+            planetRadius: PLANET_RADIUS_UNITS + 500,
+            walkSpeed: 4,
+            runSpeed: 22,
+            height: 10,
+            radius: 2
+        });
+
+        if (mainCamera && player && player.mesh) {
+            // Let the player use this camera for movement direction
+            player.attachCamera(mainCamera);
+
+            // Reset camera constraints & orientation after attach
+            mainCamera.allowUpsideDown = false;
+            mainCamera.lowerBetaLimit = 0.15;
+            mainCamera.upperBetaLimit = Math.PI / 2.1;
+            mainCamera.checkCollisions = false;
+            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.004;
+            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
+
+            mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
+        }
+    }
+
+    // Switch to playing visuals
+    applyGameVisuals();
+    setFirefliesVisible(false);
+
+    if (loadingOverlay) loadingOverlay.isVisible = false;
+    if (playerInfoText) playerInfoText.isVisible = true;
+    if (lodInfoText) lodInfoText.isVisible = true;
+    if (hudPanel) hudPanel.isVisible = true;
+
+    gameState = GameState.PLAYING;
+}
+
+
 function startGame() {
     if (gameState === GameState.LOADING || gameState === GameState.PLAYING) {
         return;
@@ -571,7 +613,7 @@ function startGame() {
     applyMenuVisuals();
 
     if (!terrain) {
-        terrain = new ChunkedPlanetTerrain(scene, {
+            terrain = new ChunkedPlanetTerrain(scene, {
             chunkCountX: 16,
             chunkCountZ: 16,
             baseChunkResolution: 128,
@@ -580,43 +622,9 @@ function startGame() {
         });
 
         terrain.onInitialBuildDone = () => {
-            console.log("Initial planet build complete.");
-
-            // Create player on planet surface
-            player = new PlanetPlayer(scene, terrain, {
-                planetRadius: PLANET_RADIUS_UNITS + 500,
-                walkSpeed: 4,
-                runSpeed: 22,
-                height: 10,
-                radius: 2
-            });
-
-            if (mainCamera && player && player.mesh) {
-                // Let the player use this camera for movement direction
-                player.attachCamera(mainCamera);
-
-                // Reset camera constraints & orientation after attach
-                mainCamera.allowUpsideDown = false;
-                mainCamera.lowerBetaLimit = 0.15;
-                mainCamera.upperBetaLimit = Math.PI / 2.1;
-                mainCamera.checkCollisions = false;
-                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.004;
-                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
-
-                mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
-            }
-
-            // Switch to playing visuals
-            applyGameVisuals();
-            setFirefliesVisible(false);
-
-            if (loadingOverlay) loadingOverlay.isVisible = false;
-            if (playerInfoText) playerInfoText.isVisible = true;
-            if (lodInfoText) lodInfoText.isVisible = true;
-            if (hudPanel) hudPanel.isVisible = true;
-
-            gameState = GameState.PLAYING;
+            onPlanetReady();
         };
+
     } else {
         // Planet already exists – just resume quickly
         applyGameVisuals();
@@ -663,6 +671,13 @@ engine.runRenderLoop(() => {
 
     if (terrain) {
         terrain.updateStreaming(focusPos);
+    }
+
+     // Failsafe: if we’re still in LOADING but the terrain reports
+    // its initial build is finished, transition into the game even
+    // if the callback was missed for some reason.
+    if (terrain && gameState === GameState.LOADING && terrain.initialBuildDone) {
+        onPlanetReady();
     }
 
     // Loading bar update
@@ -721,6 +736,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
