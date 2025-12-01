@@ -556,4 +556,28 @@ export class ChunkedPlanetTerrain {
 
         return info;
     }
+    /**
+     * Full rebuild of all chunks when LOD cap changes.
+     * Clears the queue and schedules fresh LOD jobs for everything.
+     */
+    _rebuildChunks() {
+        if (!this.chunks || this.chunks.length === 0) return;
+    
+        this.buildQueue = [];
+    
+        for (const c of this.chunks) {
+            const lodDims = this._computeLodDimensions(c.lodLevel);
+            this.buildQueue.push({
+                type: "lod",
+                chunk: c.terrain,
+                origin: c.terrain.origin.clone ? c.terrain.origin.clone() : c.terrain.origin,
+                lodLevel: c.lodLevel
+            });
+        }
+    
+        // Reset progress counters
+        this.totalBuildJobs = this.buildQueue.length;
+        this.completedBuildJobs = 0;
+    }
+
 }
