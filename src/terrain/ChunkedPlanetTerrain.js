@@ -226,6 +226,7 @@ export class ChunkedPlanetTerrain {
      * Decides which chunks are visible and at which LOD.
      */
     updateStreaming(focusPosition) {
+        if (!this.chunks || this.chunks.length === 0) return;
         if (!focusPosition) {
             return;
         }
