@@ -1090,5 +1090,14 @@ export class MarchingCubesTerrain {
     rebuildAtOrigin(newOrigin) {
         this.rebuildWithSettings({ origin: newOrigin });
     }
+
+	    /**
+     * TEMP: Collider rebuild stub.
+     * Later we will generate a simplified collider mesh here.
+     */
+    rebuildColliderFromField() {
+        // For now, collision = visual mesh.
+        this.rebuildMeshOnly();
+    }
 }
 
