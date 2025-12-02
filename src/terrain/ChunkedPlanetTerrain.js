@@ -4,8 +4,7 @@ export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
         this.maxBuildDistance = 40000;
-        
-        this.colliderLodThreshold = options.colliderLodThreshold ?? 3;
+
         // How many chunks along X and Z (odd number recommended)
         this.chunkCountX = options.chunkCountX ?? 3;
         this.chunkCountZ = options.chunkCountZ ?? 3;
@@ -25,6 +24,8 @@ export class ChunkedPlanetTerrain {
         // Global LOD limit controlled by UI slider:
         // 0 = only coarse, 5 = allow ultra-high near camera
         this.lodLevel = options.lodLevel ?? 5;
+        
+        this.colliderLodThreshold = options.colliderLodThreshold ?? 3;
 
         this.chunks = [];         // { terrain, gridX, gridZ, lodLevel }
 
