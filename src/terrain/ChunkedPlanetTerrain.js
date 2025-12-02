@@ -207,6 +207,21 @@ export class ChunkedPlanetTerrain {
         };
     }
 
+     _tagChunkCollider(chunk, lodLevel) {
+        if (!chunk || !chunk.mesh) return;
+
+        const isCollider = lodLevel >= this.colliderLodThreshold;
+
+        chunk.mesh.metadata = chunk.mesh.metadata || {};
+        chunk.mesh.metadata.isTerrain = true;
+        chunk.mesh.metadata.isTerrainCollider = isCollider;
+
+        // Future: enable collisions only on collider meshes
+        chunk.mesh.checkCollisions = isCollider;
+        chunk.mesh.isPickable = true;
+    }
+
+    
     _disposeChunks() {
         for (const c of this.chunks) {
             const terrain = c.terrain;
@@ -327,6 +342,15 @@ export class ChunkedPlanetTerrain {
         }
     }
 
+    _scheduleColliderBuild(chunk, lodLevel) {
+        this.buildQueue.push({
+            type: "collider",
+            chunk: chunk,
+            lodLevel: lodLevel
+        });
+    }
+
+    
     // Optional: convenience getter for UI
     getInitialBuildProgress() {
         if (this.initialBuildTotal === 0) return 0;
@@ -458,6 +482,15 @@ export class ChunkedPlanetTerrain {
         while (count < maxPerFrame && this.buildQueue.length > 0) {
             const job = this.buildQueue.shift();
             if (!job || !job.chunk) continue;
+
+            // Collider rebuild job (low frequency)
+            if (job.type === "collider") {
+                job.chunk.rebuildColliderFromField();
+                this._tagChunkCollider(job.chunk, job.lodLevel);
+                this._onChunkBuilt();
+                count++;
+                continue;
+            }
 
             // Mesh-only jobs are used for carving: the scalar field has
             // already been updated, we just need to rebuild the mesh.
