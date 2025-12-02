@@ -1,6 +1,5 @@
 // PlanetPlayer.js
-// Simple gravity-based capsule controller for a spherical planet,
-// with safety against falling through LOD gaps.
+// Simple gravity-based capsule controller for a spherical planet.
 
 export class PlanetPlayer {
     /**
@@ -33,8 +32,8 @@ export class PlanetPlayer {
         // 25 mph ≈ 11.176 m/s
         this.walkSpeed = options.walkSpeed ?? 1.788;  // normal walk
         this.runSpeed  = options.runSpeed  ?? 11.176; // sprint
-        this.accel = options.accel ?? 20;             // how fast we reach target speed
-        this.gravity = options.gravity ?? 10;         // "m/s^2" toward planet center
+        this.accel = options.accel ?? 20;           // how fast we reach target speed
+        this.gravity = options.gravity ?? 10;       // "m/s^2" toward planet center
         this.jumpSpeed = options.jumpSpeed ?? 10;
         this.groundFriction = options.groundFriction ?? 8;
         this.airFriction = options.airFriction ?? 1;
@@ -58,7 +57,7 @@ export class PlanetPlayer {
 
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
-
+                
         // Remember last valid ground contact so LOD cracks / rebuilds
         // don’t instantly drop the player through the planet.
         this.lastGroundHit = null;
@@ -66,11 +65,9 @@ export class PlanetPlayer {
         this._groundMissFrames = 0;   // how many frames in a row we saw no ground
 
         // Last safe position on solid ground (used as a respawn if we fall through)
-        this.lastSafePosition = this.mesh.position.clone();
-        // Radius below which we assume we fell into the world and must reset
+        this.lastSafePosition = null;
+        // Radius below which we assume we fell out of the world and must reset
         this.fallResetRadius = this.planetRadius * 0.9;
-        // Radius above which we assume we fell out / away due to a gap
-        this.fallOutRadius = this.planetRadius * 1.2;
 
         // Camera we attach to (ArcRotate in your scene)
         this.camera = null;
@@ -115,12 +112,9 @@ export class PlanetPlayer {
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
 
-        // First, ensure we're snapped to whatever ground exists below us
-        // based on last frame's position (this sets isGrounded).
-        this._groundCheckAndSnap();
-
         const pos = this.mesh.position.clone();
-        const r = pos.length();
+        const r = pos.length() + 5;
+
         if (r < 1e-3) {
             // Avoid NaNs if somehow at the exact center
             return;
@@ -147,66 +141,66 @@ export class PlanetPlayer {
 
         // Decompose velocity into vertical vs tangential
         const vVertical = up.scale(BABYLON.Vector3.Dot(this.velocity, up));
-        let vTangent = this.velocity.subtract(vVertical);
+        let vTangential = this.velocity.subtract(vVertical);
 
-        // Desired movement direction along surface from camera
         if (hasMoveInput) {
-            let camForward;
-            if (this.camera) {
-                // From camera position to its target, projected onto tangent plane
-                camForward = this.camera.target
-                    .subtract(this.camera.position)
-                    .normalize();
+            moveInput.normalize();
+
+            let forwardTangent;
+            let rightTangent;
+
+            if (this.camera && this.camera.getDirection) {
+                const camForward = this.camera.getDirection(
+                    new BABYLON.Vector3(0, 0, 1)
+                );
+                const camRight = this.camera.getDirection(
+                    new BABYLON.Vector3(1, 0, 0)
+                );
+
+                forwardTangent = this._projectOntoPlane(camForward, up);
+                rightTangent = this._projectOntoPlane(camRight, up);
             } else {
-                // Fallback: look "forward" along -Z
-                camForward = new BABYLON.Vector3(0, 0, -1);
+                // Fallback basis
+                forwardTangent = this._projectOntoPlane(
+                    BABYLON.Axis.Z,
+                    up
+                );
+                rightTangent = BABYLON.Vector3.Cross(
+                    forwardTangent,
+                    up
+                );
             }
 
-            camForward = this._projectOntoPlane(camForward, up);
-            if (camForward.lengthSquared() > 0.0001) {
-                camForward.normalize();
-            } else {
-                camForward = new BABYLON.Vector3(0, 0, -1);
-            }
+            forwardTangent.normalize();
+            rightTangent.normalize();
 
-            const camRight = BABYLON.Vector3.Cross(camForward, up).normalize();
+            const desiredDir = forwardTangent
+                .scale(moveInput.z)
+                .add(rightTangent.scale(moveInput.x))
+                .normalize();
 
-            let desiredMoveDir = new BABYLON.Vector3(0, 0, 0);
-            desiredMoveDir.addInPlace(camForward.scale(moveInput.z));
-            desiredMoveDir.addInPlace(camRight.scale(moveInput.x));
+            const targetSpeed = this.inputRun
+                ? this.runSpeed
+                : this.walkSpeed;
+            const targetTangential = desiredDir.scale(targetSpeed);
 
-            if (desiredMoveDir.lengthSquared() > 0.0001) {
-                desiredMoveDir.normalize();
-
-                const targetSpeed = this.inputRun ? this.runSpeed : this.walkSpeed;
-                const targetVelTangent = desiredMoveDir.scale(targetSpeed);
-
-                const tangentDelta = targetVelTangent.subtract(vTangent);
-                const maxChange = this.accel * dtSeconds;
-                const deltaLen = tangentDelta.length();
-
-                if (deltaLen > maxChange) {
-                    tangentDelta.scaleInPlace(maxChange / deltaLen);
-                }
-
-                vTangent.addInPlace(tangentDelta);
-            }
+            // Accelerate toward target tangential velocity
+            const lerpFactor = 1 - Math.exp(-this.accel * dtSeconds);
+            vTangential = BABYLON.Vector3.Lerp(
+                vTangential,
+                targetTangential,
+                lerpFactor
+            );
         } else {
-            // No input: apply friction to horizontal velocity
-            const friction = this.isGrounded ? this.groundFriction : this.airFriction;
-            const mag = vTangent.length();
-            const drop = friction * dtSeconds;
-
-            if (mag <= drop) {
-                vTangent.set(0, 0, 0);
-            } else {
-                const newMag = mag - drop;
-                vTangent.scaleInPlace(newMag / mag);
-            }
+            // Friction when no input
+            const friction =
+                this.isGrounded ? this.groundFriction : this.airFriction;
+            const damp = Math.exp(-friction * dtSeconds);
+            vTangential.scaleInPlace(damp);
         }
 
-        // Recombine velocity
-        this.velocity = vVertical.add(vTangent);
+        // Recombine with vertical component
+        this.velocity = vTangential.add(vVertical);
 
         // ---------------------------
         // 3) Jump
@@ -215,24 +209,62 @@ export class PlanetPlayer {
             this.velocity.addInPlace(up.scale(this.jumpSpeed));
             this.isGrounded = false;
         }
+        // consume jump for this frame
         this.inputJumpRequested = false;
 
         // ---------------------------
-        // 4) Integrate position
+        // 4) Integrate motion
         // ---------------------------
-        const deltaPos = this.velocity.scale(dtSeconds);
-        this.mesh.position.addInPlace(deltaPos);
+        this.mesh.position.addInPlace(this.velocity.scale(dtSeconds));
+
+        // Prevent falling through the entire planet if something goes wrong.
+        // If we drop far below the expected surface shell, snap back to the
+        // last known safe grounded position.
+        const newR = this.mesh.position.length();
+        if (newR < this.fallResetRadius) {
+            if (this.lastSafePosition) {
+                this.mesh.position.copyFrom(this.lastSafePosition);
+            } else {
+                // Fallback: put the player back on +Z at a safe radius
+                const fallbackDir = new BABYLON.Vector3(0, 0, 1);
+                this.mesh.position = fallbackDir
+                    .normalize()
+                    .scale(this.planetRadius * 1.02);
+            }
+
+            // Stop any crazy velocity and let ground snap re-acquire
+            this.velocity.set(0, 0, 0);
+            this.isGrounded = false;
+            this._groundMissFrames = 0;
+        }
+
 
         // ---------------------------
-        // 5) Emergency fall safety (inward & outward)
-        // ---------------------------
-        this._applyFallSafety();
-
-        // ---------------------------
-        // 6) Ground snap & orientation using new position
+        // 5) Ground snap vs terrain mesh
         // ---------------------------
         this._groundCheckAndSnap();
+
+        // ---------------------------
+        // 6) Orient capsule to follow surface normal
+        // ---------------------------
         this._orientToSurface();
+
+        // ---------- CAMERA UP LOCK ----------
+        if (this.camera) {
+            // Planet-normal up at player position
+            const camUp = this.mesh.position.clone().normalize();
+        
+            // Keep arc-rotate camera's up aligned with the planet
+            this.camera.upVector = camUp;
+        
+            // Always look at the player
+            this.camera.setTarget(this.mesh.position);
+        }
+
+
+
+        // Camera follow: ArcRotate already locked to mesh
+        // (nothing else required here for now)
     }
 
     // --------------------------------------------------------------------
@@ -240,10 +272,13 @@ export class PlanetPlayer {
     // --------------------------------------------------------------------
 
     _spawnOnSurface() {
-        // Spawn on +Z just above the surface using planet radius
+        // Start over +Z
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
+        // A bit above the nominal radius so we are not intersecting terrain
         const spawnRadius =
-            this.planetRadius + this.height * 0.5 + this.capsuleRadius * 1.5;
+            this.planetRadius * 1.01 +
+            this.height +
+            this.capsuleRadius * 1.5;
 
         this.mesh.position = startDir.scale(spawnRadius);
     }
@@ -310,36 +345,8 @@ export class PlanetPlayer {
     }
 
     /**
-     * Emergency safety:
-     * - If radius < fallResetRadius: we fell into the world -> teleport to last safe spot.
-     * - If radius > fallOutRadius: we fell away from the planet (LOD gap) -> teleport back.
-     */
-    _applyFallSafety() {
-        const pos = this.mesh.position;
-        const r = pos.length();
-
-        if (!this.lastSafePosition || !isFinite(r)) return;
-
-        const fellInward = r < this.fallResetRadius;
-        const fellOutward = r > this.fallOutRadius;
-
-        if (fellInward || fellOutward) {
-            this.mesh.position.copyFrom(this.lastSafePosition);
-            this.velocity.set(0, 0, 0);
-            this.isGrounded = true;
-            this._groundMissFrames = 0;
-        }
-    }
-
-    /**
      * Raycast from slightly above the player towards planet center to find terrain
      * and snap the capsule gently to the surface.
-     *
-     * Also:
-     * - Uses a short grace period with the last valid hit.
-     * - Updates lastSafePosition whenever we have a solid ground contact.
-     * - If we have no ground for a while but there *is* terrain above us,
-     *   we snap back up to it (helps with falling through thin cracks).
      */
     _groundCheckAndSnap() {
         const pos = this.mesh.position.clone();
@@ -349,84 +356,106 @@ export class PlanetPlayer {
         const up = pos.scale(1 / r);
         const down = up.scale(-1);
 
-        const rayOrigin = pos.add(up.scale(this.capsuleRadius));
+        // Capsule geometry
+        const bottomToCenter = this.height * 0.5;
+        const surfaceClearance = this.capsuleRadius * 0.1; // small gap above surface
+
+        // Ray starts slightly above the head and goes inward toward the planet
+        const rayOrigin = pos.add(
+            up.scale(bottomToCenter + this.capsuleRadius)
+        );
         const rayLen =
-            this.capsuleRadius + this.height + this.groundSnapDistance;
+            bottomToCenter + this.capsuleRadius + this.groundSnapDistance;
 
         const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
 
-        // Only hit terrain chunks (you set metadata.isTerrain = true on them)
+        // Only hit terrain chunks (metadata.isTerrain set on them)
         const pick = this.scene.pickWithRay(
             ray,
             (mesh) => mesh && mesh.metadata && mesh.metadata.isTerrain
         );
 
-        let hit = null;
+        let groundedThisFrame = false;
 
         if (pick.hit && pick.pickedPoint) {
-            hit = pick;
-            this.lastGroundHit = pick;
-            this.lastGroundNormal =
-                pick.getNormal(true, false) || up.clone();
+            // --- Normal path: we see ground under us ---
             this._groundMissFrames = 0;
-        } else if (this.lastGroundHit && this._groundMissFrames < 3) {
-            // Short grace period: reuse last hit while terrain LOD/mesh updates
-            hit = this.lastGroundHit;
-            this._groundMissFrames++;
-        } else {
-            this._groundMissFrames++;
-        }
 
-        if (hit && hit.pickedPoint) {
-            const groundNormal = this.lastGroundNormal || up;
-            const targetPos = hit.pickedPoint.add(
-                groundNormal.scale(this.capsuleRadius * 0.9)
+            const targetPos = pick.pickedPoint.add(
+                up.scale(bottomToCenter + surfaceClearance)
             );
             this.mesh.position.copyFrom(targetPos);
 
-            // Kill downward velocity into the surface
-            const velDown = BABYLON.Vector3.Dot(this.velocity, groundNormal.scale(-1));
+            const velDown = BABYLON.Vector3.Dot(this.velocity, down);
             if (velDown > 0) {
                 this.velocity = this.velocity.subtract(
-                    groundNormal.scale(-velDown)
+                    down.scale(velDown)
                 );
             }
 
-            this.isGrounded = true;
+            groundedThisFrame = true;
 
-            // Update last safe position a bit above the surface
-            this.lastSafePosition = hit.pickedPoint
-                .add(groundNormal.scale(this.capsuleRadius * 1.2));
+            // Remember this contact for brief LOD gaps
+            this.lastGroundHit = pick.pickedPoint.clone
+                ? pick.pickedPoint.clone()
+                : pick.pickedPoint;
+
+            if (pick.getNormal) {
+                const n = pick.getNormal(true);
+                this.lastGroundNormal = n
+                    ? (n.clone ? n.clone() : n)
+                    : up;
+            } else {
+                this.lastGroundNormal = up;
+            }
+
+            // Update last safe grounded position
+            this.lastSafePosition = this.mesh.position.clone();
+
         } else {
-            this.isGrounded = false;
+            // --- No ground hit this frame ---
+            this._groundMissFrames++;
 
-            // If we've missed ground for a little while, check terrain *above* us.
-            // This catches the case where we slipped slightly below the surface
-            // through a crack / LOD seam.
-            if (this._groundMissFrames > 10 && this.lastSafePosition) {
-                const upRay = new BABYLON.Ray(
-                    this.mesh.position,
-                    up,
-                    this.height * 4
-                );
-                const upPick = this.scene.pickWithRay(
-                    upRay,
-                    (mesh) => mesh && mesh.metadata && mesh.metadata.isTerrain
+            // For just a few frames, we may be crossing an LOD seam where
+            // the mesh is temporarily gone. In that case, keep using the
+            // last stable ground contact as a "virtual" surface.
+            if (this.lastGroundHit && this._groundMissFrames <= 3) {
+                const distToLast = BABYLON.Vector3.Distance(
+                    pos,
+                    this.lastGroundHit
                 );
 
-                if (upPick.hit && upPick.pickedPoint) {
-                    const snapPos = upPick.pickedPoint.add(
-                        up.scale(this.capsuleRadius * 1.2)
+                if (distToLast <= this.groundSnapDistance * 1.5) {
+                    const targetPos = this.lastGroundHit.add(
+                        up.scale(bottomToCenter + surfaceClearance)
                     );
-                    this.mesh.position.copyFrom(snapPos);
-                    this.velocity.set(0, 0, 0);
-                    this.isGrounded = true;
-                    this._groundMissFrames = 0;
-                    this.lastSafePosition = snapPos.clone();
+                    this.mesh.position.copyFrom(targetPos);
+
+                    const velDown = BABYLON.Vector3.Dot(this.velocity, down);
+                    if (velDown > 0) {
+                        this.velocity = this.velocity.subtract(
+                            down.scale(velDown)
+                        );
+                    }
+
+                    groundedThisFrame = true;
+                    // This still counts as standing on solid ground for safety
+                    this.lastSafePosition = this.mesh.position.clone();
                 }
             }
+
+            // If we've gone several frames with no ground, we assume the
+            // geometry is really gone (e.g. we carved a hole) and let the
+            // player fall instead of standing on an invisible platform.
+            if (!groundedThisFrame && this._groundMissFrames > 3) {
+                this.lastGroundHit = null;
+                this.lastGroundNormal = null;
+            }
         }
+
+        this.isGrounded = groundedThisFrame;
     }
+
 
     /**
      * Smoothly align the capsule "up" with the planet radial up.
