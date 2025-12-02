@@ -372,8 +372,16 @@ export class PlanetPlayer {
         // Only hit terrain chunks (metadata.isTerrain set on them)
         const pick = this.scene.pickWithRay(
             ray,
-            (mesh) => mesh && mesh.metadata && (mesh.metadata.isTerrainCollider === true)
+            (mesh) =>
+                mesh &&
+                mesh.metadata &&
+                (
+                    mesh.metadata.isTerrainCollider === true ||
+                    // fallback, in case some meshes only have isTerrain
+                    mesh.metadata.isTerrain === true
+                )
         );
+
 
         let groundedThisFrame = false;
 
@@ -494,4 +502,5 @@ export class PlanetPlayer {
         );
     }
 }
+
 
