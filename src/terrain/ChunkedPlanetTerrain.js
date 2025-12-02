@@ -390,7 +390,7 @@ export class ChunkedPlanetTerrain {
 
             const chunkCenter = new BABYLON.Vector3(
                 origin.x + chunkWidth * 0.5,
-                origin.y + chunkHeight * 0.5,
+                0,
                 origin.z + chunkDepth * 0.5
             );
 
