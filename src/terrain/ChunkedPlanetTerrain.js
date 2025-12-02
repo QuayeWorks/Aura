@@ -206,20 +206,32 @@ export class ChunkedPlanetTerrain {
             chunkHeight: baseChunkHeight
         };
     }
+    
+    /**
+     * Tag a chunk's mesh as terrain + collider based on its LOD.
+     * For now, the collider is the same mesh as the visual mesh; later
+     * we can split them. Player ground checks will look only at
+     * isTerrainCollider meshes.
+     */
+    _tagChunkCollider(terrain, lodLevel) {
+        if (!terrain || !terrain.mesh) return;
 
-     _tagChunkCollider(chunk, lodLevel) {
-        if (!chunk || !chunk.mesh) return;
+        const mesh = terrain.mesh;
+        mesh.metadata = mesh.metadata || {};
 
+        // Always mark as terrain so visual picking / debug still works
+        mesh.metadata.isTerrain = true;
+
+        // Physics shell: only use chunks at or above colliderLodThreshold
         const isCollider = lodLevel >= this.colliderLodThreshold;
+        mesh.metadata.isTerrainCollider = isCollider;
 
-        chunk.mesh.metadata = chunk.mesh.metadata || {};
-        chunk.mesh.metadata.isTerrain = true;
-        chunk.mesh.metadata.isTerrainCollider = isCollider;
-
-        // Future: enable collisions only on collider meshes
-        chunk.mesh.checkCollisions = isCollider;
-        chunk.mesh.isPickable = true;
+        // We always allow picking (for debug / carving),
+        // but you can later restrict checkCollisions to colliders.
+        mesh.isPickable = true;
+        mesh.checkCollisions = isCollider;
     }
+
 
     
     _disposeChunks() {
@@ -308,6 +320,9 @@ export class ChunkedPlanetTerrain {
                     lodLevel: lodForChunk
                 });
 
+                 // Tag this chunk's mesh with collider metadata once it builds
+                this._tagChunkCollider(terrain, lodForChunk);
+                
                 // Schedule initial build for this chunk
                 this.buildQueue.push({
                     chunk: terrain,
@@ -517,6 +532,8 @@ export class ChunkedPlanetTerrain {
                 maybePromise
                     .then(() => {
                         this._applyRelevantCarvesToChunk(job.chunk);
+                        // Tag collider after the mesh has been rebuilt
+                        this._tagChunkCollider(job.chunk, job.lodLevel);
                         this._onChunkBuilt();
                     })
                     .catch((err) => {
@@ -525,6 +542,8 @@ export class ChunkedPlanetTerrain {
             } else {
                 // Synchronous path
                 this._applyRelevantCarvesToChunk(job.chunk);
+                // Tag collider after the mesh has been rebuilt
+                this._tagChunkCollider(job.chunk, job.lodLevel);
                 this._onChunkBuilt();
             }
 
