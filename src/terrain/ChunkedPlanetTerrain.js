@@ -390,9 +390,10 @@ export class ChunkedPlanetTerrain {
 
             const chunkCenter = new BABYLON.Vector3(
                 origin.x + chunkWidth * 0.5,
-                0,
+                origin.y + chunkHeight * 0.5,
                 origin.z + chunkDepth * 0.5
             );
+
 
             // Hemisphere culling: only keep the half-planet facing the player
             const onNearSide = this._isChunkOnNearHemisphere(chunkCenter, camPos);
