@@ -1093,13 +1093,39 @@ export class MarchingCubesTerrain {
         this.rebuildWithSettings({ origin: newOrigin });
     }
 
-		/**
-     * A simplified collider mesh here.
+	
+    /**
+     * TEMPORARY COLLIDER MESH BUILDER
+     * -------------------------------
+     * Right now we simply reuse the visual mesh as the collider mesh.
+     * This keeps behavior stable while we build out the real collider
+     * generation pipeline in later steps.
+     *
+     * Later:
+     *  - we will generate a lower-poly collider mesh
+     *  - physics LOD will be independent of render LOD
+     *  - player will walk on this collider instead of the render mesh
      */
+    rebuildColliderFromField() {
+        // No render mesh? No collider.
+        if (!this.mesh) {
+            this.colliderMesh = null;
+            return;
+        }
 
-	rebuildColliderFromField(dimX, dimY, dimZ, cellSize) {
-    this._buildColliderMesh(dimX, dimY, dimZ, cellSize);
-	}
+        // For now, collider = render mesh.
+        this.colliderMesh = this.mesh;
+
+        // Make sure collider metadata is set correctly.
+        this.colliderMesh.metadata = this.colliderMesh.metadata || {};
+        this.colliderMesh.metadata.isTerrainCollider = true;
+
+        // Collision picking only matters for visual mesh,
+        // colliderMesh will not be visible anyway.
+        this.colliderMesh.checkCollisions = true;
+        // We leave isPickable inherited from mesh; collider itself is invisible.
+    }
+
 
 
 	    /**
