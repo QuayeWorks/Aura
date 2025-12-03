@@ -495,85 +495,76 @@ export class ChunkedPlanetTerrain {
      *  - Mesh-only rebuild jobs (carves)
      *  - Collider rebuild jobs (new)
      */
+
+        /**
+     * Process a few pending chunk rebuilds per frame to avoid big hitches
+     * when LOD changes or when carving. Supports:
+     *  - full LOD rebuild jobs (field + mesh)
+     *  - mesh-only jobs (used for carving)
+     */
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
-
         while (count < maxPerFrame && this.buildQueue.length > 0) {
             const job = this.buildQueue.shift();
-            if (!job || !job.chunk) continue;
-
-            const lodDims = this._computeLodDimensions(job.lodLevel);
-
-            // ------------------------------------------------------------
-            // 1. COLLIDER REBUILD JOB
-            // ------------------------------------------------------------
-            if (job.type === "collider") {
-                job.chunk.rebuildColliderFromField(
-                    lodDims.dimX,
-                    lodDims.dimY,
-                    lodDims.dimZ,
-                    lodDims.cellSize
-                );
-
-                // Tag collider state on this chunk
-                this._tagChunkCollider(job.chunk, job.lodLevel);
-
-                this._onChunkBuilt();
-                count++;
+            if (!job || !job.chunk) {
                 continue;
             }
 
-            // ------------------------------------------------------------
-            // 2. MESH-ONLY JOB (used for carving)
-            // ------------------------------------------------------------
+            // ----------------------------------------------------
+            // 1) MESH-ONLY JOB: used for carving
+            //    Field has already been updated via carveSphere
+            //    with { deferRebuild: true }, so we only need to
+            //    rebuild the mesh from the existing field.
+            // ----------------------------------------------------
             if (job.meshOnly) {
                 job.chunk.rebuildMeshOnly();
 
-                // Tag collider metadata (collider = mesh for now)
-                this._tagChunkCollider(job.chunk, job.lodLevel);
-                job.chunk.rebuildColliderFromField();
-
+                // This just updates initial build progress if we are
+                // still in the initial loading phase; otherwise it's
+                // a cheap no-op.
                 this._onChunkBuilt();
+
                 count++;
                 continue;
             }
 
-            // ------------------------------------------------------------
-            // 3. FULL FIELD+MESH REBUILD (LOD change or initial load)
-            // ------------------------------------------------------------
+            // ----------------------------------------------------
+            // 2) FULL REBUILD JOB: used for initial load and LOD changes
+            // ----------------------------------------------------
+            const lodDims = this._computeLodDimensions(job.lodLevel);
+
             const maybePromise = job.chunk.rebuildWithSettings({
                 origin: job.origin,
                 dimX: lodDims.dimX,
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
-                cellSize: lodDims.cellSize,
+                cellSize: lodDims.cellSize
             });
 
             const finish = () => {
-                // Reapply any carve ops affecting this chunk
+                // Reapply relevant carve ops after field rebuild
                 this._applyRelevantCarvesToChunk(job.chunk);
 
-                // Tag collider for this chunk
-                this._tagChunkCollider(job.chunk, job.lodLevel);
-
-                // Queue a collider rebuild job
-                this._scheduleColliderBuild(job.chunk, job.lodLevel);
-
-                // Notify initial load progress
+                // Update initial build progress / trigger callback
                 this._onChunkBuilt();
             };
 
+            // Worker-based async path
             if (maybePromise && typeof maybePromise.then === "function") {
-                maybePromise.then(finish).catch(err => {
-                    console.error("Chunk rebuild (async) failed:", err);
-                });
+                maybePromise
+                    .then(finish)
+                    .catch((err) => {
+                        console.error("Chunk rebuild failed:", err);
+                    });
             } else {
+                // Synchronous path
                 finish();
             }
 
             count++;
         }
     }
+
 
 
     _scheduleColliderBuild(chunk, lodLevel) {
