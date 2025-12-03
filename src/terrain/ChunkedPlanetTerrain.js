@@ -500,8 +500,16 @@ export class ChunkedPlanetTerrain {
 
             // Collider rebuild job (low frequency)
             if (job.type === "collider") {
-                job.chunk.rebuildColliderFromField();
+                const lodDims = this._computeLodDimensions(job.lodLevel);
+                job.chunk.rebuildColliderFromField(
+                    lodDims.dimX,
+                    lodDims.dimY,
+                    lodDims.dimZ,
+                    lodDims.cellSize
+                );
+            
                 this._tagChunkCollider(job.chunk, job.lodLevel);
+            
                 this._onChunkBuilt();
                 count++;
                 continue;
@@ -542,6 +550,7 @@ export class ChunkedPlanetTerrain {
             } else {
                 // Synchronous path
                 this._applyRelevantCarvesToChunk(job.chunk);
+                this._scheduleColliderBuild(job.chunk, job.lodLevel);
                 // Tag collider after the mesh has been rebuilt
                 this._tagChunkCollider(job.chunk, job.lodLevel);
                 this._onChunkBuilt();
@@ -551,6 +560,13 @@ export class ChunkedPlanetTerrain {
         }
     }
 
+    _scheduleColliderBuild(chunk, lodLevel) {
+        this.buildQueue.push({
+            type: "collider",
+            chunk: chunk,
+            lodLevel: lodLevel
+        });
+    }
 
     /**
      * Test if a sphere (center, radius) intersects a chunk's AABB.
