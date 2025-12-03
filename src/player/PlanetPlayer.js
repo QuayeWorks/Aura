@@ -57,7 +57,18 @@ export class PlanetPlayer {
 
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
-                
+
+        // Track last known good ground position for emergency recovery
+        this.lastGroundPosition = this.mesh.position.clone();
+        this.framesSinceGrounded = 0;
+        this.maxUngroundedFramesBeforeRecover =
+            options.maxUngroundedFramesBeforeRecover ?? 180; // ~3s at 60fps
+        this.emergencySurfaceRayLength =
+            options.emergencySurfaceRayLength ?? this.planetRadius * 0.1;
+
+        // Camera we attach to (ArcRotate in your scene)
+        this.camera = null;
+
         // Remember last valid ground contact so LOD cracks / rebuilds
         // don’t instantly drop the player through the planet.
         this.lastGroundHit = null;
@@ -68,10 +79,7 @@ export class PlanetPlayer {
         this.lastSafePosition = null;
         // Radius below which we assume we fell out of the world and must reset
         this.fallResetRadius = this.planetRadius * 0.9;
-
-        // Camera we attach to (ArcRotate in your scene)
-        this.camera = null;
-
+        
         // Input flags
         this.inputForward = false;
         this.inputBack = false;
@@ -109,6 +117,62 @@ export class PlanetPlayer {
     /**
      * Per-frame update. Call from your render loop with delta in SECONDS.
      */
+
+        /**
+     * If we've been ungrounded for a long time (likely due to a missing
+     * collider / LOD seam), try to get back to a safe surface spot.
+     */
+    _emergencySurfaceRecovery() {
+        const pos = this.mesh.position.clone();
+        const r = pos.length();
+        if (r < 1e-3) return;
+
+        const up = pos.scale(1 / r);
+        const rayLen = this.planetRadius * 0.1;
+
+        // First try: ray outward from current position to find terrain above
+        const rayOut = new BABYLON.Ray(
+            this.mesh.position.clone(),
+            up,
+            rayLen
+        );
+
+        const pick = this.scene.pickWithRay(
+            rayOut,
+            (mesh) =>
+                mesh &&
+                mesh.metadata &&
+                (
+                    mesh.metadata.isTerrainCollider === true ||
+                    mesh.metadata.isTerrain === true
+                )
+        );
+
+        if (pick.hit && pick.pickedPoint) {
+            const bottomToCenter = this.height * 0.5;
+            const surfaceClearance = this.capsuleRadius * 0.1;
+
+            const targetPos = pick.pickedPoint.add(
+                up.scale(bottomToCenter + surfaceClearance)
+            );
+            this.mesh.position.copyFrom(targetPos);
+        } else if (this.lastSafePosition) {
+            // Fallback: teleport back to last known safe grounded position
+            this.mesh.position.copyFrom(this.lastSafePosition);
+        } else {
+            // Final fallback: snap to planet radius slightly above surface
+            this.mesh.position = up.scale(
+                this.planetRadius + this.height + this.capsuleRadius
+            );
+        }
+
+        // Reset velocity and counters so we don't immediately yeet again
+        this.velocity.set(0, 0, 0);
+        this.isGrounded = true;
+        this._framesSinceGrounded = 0;
+        this._groundMissFrames = 0;
+    }
+
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
 
@@ -243,6 +307,17 @@ export class PlanetPlayer {
         // 5) Ground snap vs terrain mesh
         // ---------------------------
         this._groundCheckAndSnap();
+
+        
+        // 5b) Emergency surface recovery if we've been ungrounded too long
+        if (!this.isGrounded) {
+            this.framesSinceGrounded++;
+            if (this.framesSinceGrounded > this.maxUngroundedFramesBeforeRecover) {
+                this._emergencySurfaceRecovery();
+            }
+        } else {
+            this.framesSinceGrounded = 0;
+        }
 
         // ---------------------------
         // 6) Orient capsule to follow surface normal
@@ -501,6 +576,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
