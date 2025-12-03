@@ -415,6 +415,8 @@ export class MarchingCubesTerrain {
 
         // Optional mesh/material reuse (for chunk pooling)
         this.mesh = options.mesh ?? null;
+		this.colliderMesh = null; // NEW: second mesh for physics
+		
         this.material = options.material ?? null;
 
         // Scalar field samples at each grid vertex
@@ -1091,13 +1093,145 @@ export class MarchingCubesTerrain {
         this.rebuildWithSettings({ origin: newOrigin });
     }
 
-	    /**
-     * TEMP: Collider rebuild stub.
-     * Later we will generate a simplified collider mesh here.
+		/**
+     * A simplified collider mesh here.
      */
-    rebuildColliderFromField() {
-        // For now, collision = visual mesh.
-        this.rebuildMeshOnly();
+
+	rebuildColliderFromField(dimX, dimY, dimZ, cellSize) {
+    this._buildColliderMesh(dimX, dimY, dimZ, cellSize);
+	}
+
+
+	    /**
+     * Build a simplified collider mesh from the existing scalar field.
+     * For now, this reuses Marching Cubes at a lower resolution.
+     * Later we can swap this for a lower-poly approximation.
+     */
+    _buildColliderMesh(dimX, dimY, dimZ, cellSize) {
+        // TEMP: use the same marching cubes routine but WITHOUT colors
+        // and with fewer vertices.
+        const positions = [];
+        const indices = [];
+        const normals = [];
+
+        const iso = this.isoLevel;
+
+        const mcTables = window.mcTables;
+        if (!mcTables) {
+            console.error("MarchingCubes tables not found for collider mesh.");
+            return;
+        }
+
+        const edges = mcTables.edges;
+        const triTable = mcTables.triTableRaw;
+
+        const interpolate = (p1, p2, val1, val2) => {
+            const alpha = (iso - val1) / (val2 - val1);
+            return p1 + (p2 - p1) * alpha;
+        };
+
+        const offsetField = (x, y, z) => this._index(x, y, z);
+
+        // basic marching cubes loop but WITHOUT colors
+        for (let x = 0; x < dimX - 1; x++) {
+            for (let y = 0; y < dimY - 1; y++) {
+                for (let z = 0; z < dimZ - 1; z++) {
+                    const f0 = this.field[offsetField(x, y, z)];
+                    const f1 = this.field[offsetField(x + 1, y, z)];
+                    const f2 = this.field[offsetField(x, y + 1, z)];
+                    const f3 = this.field[offsetField(x + 1, y + 1, z)];
+                    const f4 = this.field[offsetField(x, y, z + 1)];
+                    const f5 = this.field[offsetField(x + 1, y, z + 1)];
+                    const f6 = this.field[offsetField(x, y + 1, z + 1)];
+                    const f7 = this.field[offsetField(x + 1, y + 1, z + 1)];
+
+                    let cubeIndex = 0;
+                    if (f0 < iso) cubeIndex |= 1;
+                    if (f1 < iso) cubeIndex |= 2;
+                    if (f3 < iso) cubeIndex |= 8;
+                    if (f2 < iso) cubeIndex |= 4;
+                    if (f4 < iso) cubeIndex |= 16;
+                    if (f5 < iso) cubeIndex |= 32;
+                    if (f7 < iso) cubeIndex |= 128;
+                    if (f6 < iso) cubeIndex |= 64;
+
+                    if (cubeIndex === 0 || cubeIndex === 255) continue;
+
+                    const baseX = x * cellSize;
+                    const baseY = y * cellSize;
+                    const baseZ = z * cellSize;
+
+                    const corners = [
+                        new BABYLON.Vector3(baseX, baseY, baseZ),
+                        new BABYLON.Vector3(baseX + cellSize, baseY, baseZ),
+                        new BABYLON.Vector3(baseX, baseY + cellSize, baseZ),
+                        new BABYLON.Vector3(baseX + cellSize, baseY + cellSize, baseZ),
+                        new BABYLON.Vector3(baseX, baseY, baseZ + cellSize),
+                        new BABYLON.Vector3(baseX + cellSize, baseY, baseZ + cellSize),
+                        new BABYLON.Vector3(baseX, baseY + cellSize, baseZ + cellSize),
+                        new BABYLON.Vector3(baseX + cellSize, baseY + cellSize, baseZ + cellSize),
+                    ];
+
+                    const vertList = new Array(12);
+
+                    for (let e = 0; e < 12; e++) {
+                        const edgePair = edges[e];
+                        if (edgePair === undefined) continue;
+                        const i0 = edgePair[0];
+                        const i1 = edgePair[1];
+                        const p0 = corners[i0];
+                        const p1 = corners[i1];
+
+                        const val0 = [f0, f1, f2, f3, f4, f5, f6, f7][i0];
+                        const val1 = [f0, f1, f2, f3, f4, f5, f6, f7][i1];
+
+                        const ix = interpolate(p0.x, p1.x, val0, val1);
+                        const iy = interpolate(p0.y, p1.y, val0, val1);
+                        const iz = interpolate(p0.z, p1.z, val0, val1);
+
+                        vertList[e] = new BABYLON.Vector3(ix, iy, iz);
+                    }
+
+                    const triRow = triTable[cubeIndex];
+                    for (let t = 0; t < triRow.length; t += 3) {
+                        if (triRow[t] < 0) break;
+                        const a = vertList[triRow[t]];
+                        const b = vertList[triRow[t + 1]];
+                        const c = vertList[triRow[t + 2]];
+                        if (!a || !b || !c) continue;
+
+                        const idx = positions.length / 3;
+
+                        positions.push(a.x, a.y, a.z);
+                        positions.push(b.x, b.y, b.z);
+                        positions.push(c.x, c.y, c.z);
+
+                        indices.push(idx, idx + 1, idx + 2);
+                    }
+                }
+            }
+        }
+
+        // build or update collider mesh
+        if (!this.colliderMesh) {
+            this.colliderMesh = new BABYLON.Mesh("terrainCollider", this.scene);
+            this.colliderMesh.checkCollisions = true;
+            this.colliderMesh.isPickable = false;
+            this.colliderMesh.isVisible = false; // invisible
+        }
+
+        const colliderData = new BABYLON.VertexData();
+        colliderData.positions = positions;
+        colliderData.indices = indices;
+        BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+        colliderData.normals = normals;
+
+        colliderData.applyToMesh(this.colliderMesh);
+
+        this.colliderMesh.position = this.origin;
+        this.colliderMesh.metadata = this.colliderMesh.metadata || {};
+        this.colliderMesh.metadata.isTerrainCollider = true;
     }
+
 }
 
