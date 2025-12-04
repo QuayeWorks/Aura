@@ -387,7 +387,7 @@ export class ChunkedPlanetTerrain {
 
 
                  // Tag this chunk's mesh with collider metadata once it builds
-                this._tagChunkCollider(terrain, lodForChunk);
+                this._tagColliderForTerrain(terrain, lodForChunk);
                 
                 // Schedule initial build for this chunk
                 this.buildQueue.push({
