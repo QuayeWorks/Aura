@@ -1023,6 +1023,8 @@ export class MarchingCubesTerrain {
 		this.mesh.isPickable = true;
 		this.mesh.checkCollisions = true; // optional but nice
 		this.mesh.metadata = this.mesh.metadata || {};
+		this.mesh.metadata.isVoxelTerrain = true; // <-- voxel chunk tag
+
 		this.mesh.metadata.isTerrain = true;
 
 
