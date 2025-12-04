@@ -441,16 +441,13 @@ export class PlanetPlayer {
 
         const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
 
-        // Only hit terrain chunks (metadata.isTerrain set on them)
+        // Only hit physics colliders (isTerrainCollider)
         const pick = this.scene.pickWithRay(
             ray,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
-                (
-                    mesh.metadata.isTerrainCollider === true ||
-                    mesh.metadata.isTerrain === true
-                )
+                mesh.metadata.isTerrainCollider === true
         );
 
 
@@ -573,6 +570,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
