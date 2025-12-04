@@ -206,6 +206,31 @@ export class ChunkedPlanetTerrain {
             chunkHeight: baseChunkHeight
         };
     }
+
+        /**
+     * Tag a terrain mesh as terrain and (optionally) collider based on LOD.
+     * For now, collider == visual mesh. Later we can swap this to a
+     * dedicated collider mesh without changing the player code.
+     */
+    _tagColliderForTerrain(terrain, lodLevel) {
+        if (!terrain || !terrain.mesh) return;
+
+        const mesh = terrain.mesh;
+        mesh.metadata = mesh.metadata || {};
+
+        // Always mark as terrain so rays can still fall back on it.
+        mesh.metadata.isTerrain = true;
+
+        // Physics shell: chunks with LOD >= colliderLodThreshold
+        const isCollider = lodLevel >= this.colliderLodThreshold;
+        mesh.metadata.isTerrainCollider = isCollider;
+
+        // Keep them pickable; collisions optional depending on your usage.
+        mesh.isPickable = true;
+        // You can enable this if you ever use Babylon's built-in collisions:
+        // mesh.checkCollisions = isCollider;
+    }
+
     
     /**
      * Tag a chunk's mesh as terrain + collider based on its LOD.
@@ -519,6 +544,9 @@ export class ChunkedPlanetTerrain {
             if (job.meshOnly) {
                 job.chunk.rebuildMeshOnly();
 
+                // Ensure collider flags stay up-to-date after carves
+                this._tagColliderForTerrain(job.chunk, job.lodLevel);
+
                 // This just updates initial build progress if we are
                 // still in the initial loading phase; otherwise it's
                 // a cheap no-op.
@@ -544,6 +572,9 @@ export class ChunkedPlanetTerrain {
             const finish = () => {
                 // Reapply relevant carve ops after field rebuild
                 this._applyRelevantCarvesToChunk(job.chunk);
+
+                // Tag collider metadata for this chunk at its new LOD
+                this._tagColliderForTerrain(job.chunk, job.lodLevel);
 
                 // Update initial build progress / trigger callback
                 this._onChunkBuilt();
