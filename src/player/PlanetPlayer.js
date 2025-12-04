@@ -115,10 +115,6 @@ export class PlanetPlayer {
     }
 
     /**
-     * Per-frame update. Call from your render loop with delta in SECONDS.
-     */
-
-        /**
      * If we've been ungrounded for a long time (likely due to a missing
      * collider / LOD seam), try to get back to a safe surface spot.
      */
@@ -138,13 +134,15 @@ export class PlanetPlayer {
         );
 
         const pick = this.scene.pickWithRay(
-            ray,
+            rayOut,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
-                mesh.metadata.isTerrainCollider === true
+                (
+                    mesh.metadata.isTerrainCollider === true ||
+                    mesh.metadata.isTerrain === true
+                )
         );
-
 
         if (pick.hit && pick.pickedPoint) {
             const bottomToCenter = this.height * 0.5;
@@ -170,6 +168,7 @@ export class PlanetPlayer {
         this._framesSinceGrounded = 0;
         this._groundMissFrames = 0;
     }
+
 
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
@@ -574,6 +573,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
