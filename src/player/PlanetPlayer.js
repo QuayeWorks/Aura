@@ -134,15 +134,13 @@ export class PlanetPlayer {
         );
 
         const pick = this.scene.pickWithRay(
-            rayOut,
+            ray,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
-                (
-                    mesh.metadata.isTerrainCollider === true ||
-                    mesh.metadata.isTerrain === true
-                )
+                mesh.metadata.isVoxelTerrain === true
         );
+
 
         if (pick.hit && pick.pickedPoint) {
             const bottomToCenter = this.height * 0.5;
@@ -570,6 +568,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
