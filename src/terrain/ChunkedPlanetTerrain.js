@@ -75,6 +75,13 @@ export class ChunkedPlanetTerrain {
             maxLodInUse: 0
         };
 
+        // LOD hysteresis / lag reduction
+        // - lodUpdateCounter: increments each updateStreaming() call
+        // - lodChangeCooldownFrames: minimum frames between LOD changes per chunk
+        this.lodUpdateCounter = 0;
+        this.lodChangeCooldownFrames =
+            options.lodChangeCooldownFrames ?? 30; // ~0.5s at 60fps
+
         this._rebuildChunks();
     }
 
@@ -374,8 +381,10 @@ export class ChunkedPlanetTerrain {
                     terrain,
                     gridX: gx,
                     gridZ: gz,
-                    lodLevel: lodForChunk
+                    lodLevel: lodForChunk,
+                    lastLodChangeFrame: 0   // for LOD hysteresis
                 });
+
 
                  // Tag this chunk's mesh with collider metadata once it builds
                 this._tagChunkCollider(terrain, lodForChunk);
@@ -528,11 +537,26 @@ export class ChunkedPlanetTerrain {
                 }
             }
 
+            // No change needed
             if (desiredLod === c.lodLevel) {
-                continue; // no change for this chunk
+                continue;
             }
 
+            // --- LOD HYSTERESIS / COOLDOWN ---
+            // Only allow this chunk to change LOD if enough frames have
+            // passed since its last LOD change. This prevents constant
+            // thrashing when the focus hovers near a ring boundary.
+            const lastChange = c.lastLodChangeFrame ?? 0;
+            const framesSinceChange = this.lodUpdateCounter - lastChange;
+
+            if (framesSinceChange < this.lodChangeCooldownFrames) {
+                // Keep current LOD; skip rebuild for now
+                continue;
+            }
+
+            // Accept the LOD change and record the frame
             c.lodLevel = desiredLod;
+            c.lastLodChangeFrame = this.lodUpdateCounter;
 
             // Schedule a rebuild of just this chunk at its current origin
             this.buildQueue.push({
@@ -716,6 +740,8 @@ export class ChunkedPlanetTerrain {
      * only adjust LOD + visibility; no more chunk streaming.
      */
     updateStreaming(focusPosition) {
+        // Advance LOD update frame counter for hysteresis
+        this.lodUpdateCounter++;
         if (focusPosition) {
             this.lastCameraPosition = focusPosition.clone
                 ? focusPosition.clone()
