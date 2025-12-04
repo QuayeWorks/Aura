@@ -26,6 +26,12 @@ export class ChunkedPlanetTerrain {
         this.lodLevel = options.lodLevel ?? 5;
         
         this.colliderLodThreshold = options.colliderLodThreshold ?? 3;
+        
+        // Chunks within this distance of the camera can be used as colliders.
+        // This effectively defines your "physics shell" radius.
+        this.colliderEnableDistance =
+            options.colliderEnableDistance ?? this.radius * 0.12;
+
 
         this.chunks = [];         // { terrain, gridX, gridZ, lodLevel }
 
@@ -207,10 +213,13 @@ export class ChunkedPlanetTerrain {
         };
     }
 
-        /**
-     * Tag a terrain mesh as terrain and (optionally) collider based on LOD.
+    /**
+     * Tag a terrain mesh as terrain and (optionally) collider based on:
+     *  - its LOD level
+     *  - its distance to the last camera position
+     *
      * For now, collider == visual mesh. Later we can swap this to a
-     * dedicated collider mesh without changing the player code.
+     * dedicated collider mesh without touching player code.
      */
     _tagColliderForTerrain(terrain, lodLevel) {
         if (!terrain || !terrain.mesh) return;
@@ -218,20 +227,43 @@ export class ChunkedPlanetTerrain {
         const mesh = terrain.mesh;
         mesh.metadata = mesh.metadata || {};
 
-        // Always mark as terrain so rays can still fall back on it.
+        // Always mark as terrain so rays can fall back on it.
         mesh.metadata.isTerrain = true;
 
-        // Physics shell: chunks with LOD >= colliderLodThreshold
-        const isCollider = lodLevel >= this.colliderLodThreshold;
+        // If we don't know where the camera is yet, treat as visual-only
+        // except for the initial load (where we can allow colliders).
+        let nearEnough = true;
+        if (this.lastCameraPosition) {
+            // Compute this chunk's approximate center from its origin
+            const base = this._computeBaseChunkMetrics();
+            const origin = terrain.origin || BABYLON.Vector3.Zero();
+
+            const center = new BABYLON.Vector3(
+                origin.x + base.chunkWidth * 0.5,
+                origin.y + base.chunkHeight * 0.5,
+                origin.z + base.chunkDepth * 0.5
+            );
+
+            const distToFocus = BABYLON.Vector3.Distance(
+                center,
+                this.lastCameraPosition
+            );
+
+            nearEnough = distToFocus <= this.colliderEnableDistance;
+        }
+
+        // Physics shell: only chunks that are both near the camera AND
+        // at or above the collider LOD threshold are considered colliders.
+        const isCollider = nearEnough && lodLevel >= this.colliderLodThreshold;
+
         mesh.metadata.isTerrainCollider = isCollider;
 
-        // Keep them pickable; collisions optional depending on your usage.
+        // Keep them pickable; collisions can key off this flag later if desired.
         mesh.isPickable = true;
-        // You can enable this if you ever use Babylon's built-in collisions:
-        // mesh.checkCollisions = isCollider;
+        // mesh.checkCollisions = isCollider; // if you use Babylon collisions
     }
 
-    
+
     /**
      * Tag a chunk's mesh as terrain + collider based on its LOD.
      * For now, the collider is the same mesh as the visual mesh; later
