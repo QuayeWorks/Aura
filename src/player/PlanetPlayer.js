@@ -134,7 +134,7 @@ export class PlanetPlayer {
         );
 
         const pick = this.scene.pickWithRay(
-            ray,
+            rayOut,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
@@ -570,6 +570,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
