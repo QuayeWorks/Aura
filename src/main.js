@@ -113,10 +113,38 @@ function createScene() {
 
     // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-    createMainMenu();
-    createSettingsMenu();
-    createHud();
-    createLoadingOverlay();
+
+    // Main menu
+    mainMenuPanel = createMainMenu(ui, {
+        onPlay: () => startGame(),
+        onSettings: () => showSettings()
+    });
+
+    // Settings menu
+    settingsPanel = createSettingsMenu(ui, {
+        onBack: () => showMainMenu(),
+        onLodChange: (value) => {
+            if (terrain && terrain.setLodLevel) {
+                terrain.setLodLevel(value);
+            }
+        }
+    });
+
+    // HUD
+    {
+        const hud = createHud(ui);
+        hudPanel = hud.hudPanel;
+        playerInfoText = hud.playerInfoText;
+        lodInfoText = hud.lodInfoText;
+    }
+
+    // Loading overlay
+    {
+        const loading = createLoadingOverlay(ui);
+        loadingOverlay = loading.loadingOverlay;
+        loadingBarFill = loading.loadingBarFill;
+        loadingPercentText = loading.loadingPercentText;
+    }
 
     // Hook up centralized UI state helpers
     uiState = createUIStateHelpers({
@@ -137,6 +165,7 @@ function createScene() {
 
     // Start in menu
     showMainMenu();
+
 
 
 
@@ -232,53 +261,6 @@ function createFireflies() {
 function setFirefliesVisible(isVisible) {
     if (!firefliesRoot) return;
     firefliesRoot.setEnabled(isVisible);
-}
-
-// --------------------
-// UI creation
-// --------------------
-
-function createHud() {
-    // Simple text HUD in top-left
-    playerInfoText = new BABYLON.GUI.TextBlock("playerInfo");
-    playerInfoText.text = "";
-    playerInfoText.color = "white";
-    playerInfoText.fontSize = 18;
-    playerInfoText.textHorizontalAlignment =
-        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    playerInfoText.textVerticalAlignment =
-        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
-    playerInfoText.paddingLeft = "12px";
-    playerInfoText.paddingTop = "10px";
-    playerInfoText.isVisible = false;
-    ui.addControl(playerInfoText);
-
-    lodInfoText = new BABYLON.GUI.TextBlock("lodInfo");
-    lodInfoText.text = "";
-    lodInfoText.color = "#9eeaff";
-    lodInfoText.fontSize = 16;
-    lodInfoText.textHorizontalAlignment =
-        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    lodInfoText.textVerticalAlignment =
-        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
-    lodInfoText.paddingLeft = "12px";
-    lodInfoText.paddingTop = "34px";
-    lodInfoText.isVisible = false;
-    ui.addControl(lodInfoText);
-
-    // Right-side HUD container (future controls)
-    hudPanel = new BABYLON.GUI.StackPanel();
-    hudPanel.width = "260px";
-    hudPanel.isVertical = true;
-    hudPanel.horizontalAlignment =
-        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    hudPanel.verticalAlignment =
-        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-    hudPanel.paddingRight = "20px";
-    hudPanel.paddingTop = "20px";
-    hudPanel.background = "rgba(0,0,0,0.25)";
-    hudPanel.isVisible = false;
-    ui.addControl(hudPanel);
 }
 
 // --------------------
@@ -466,9 +448,3 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
-
-
-
-
-
