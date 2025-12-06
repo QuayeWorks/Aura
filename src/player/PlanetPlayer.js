@@ -126,20 +126,21 @@ export class PlanetPlayer {
         const up = pos.scale(1 / r);
         const rayLen = this.planetRadius * 0.1;
 
-        const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
+        // First try: ray outward from current position to find terrain above
+        const rayOut = new BABYLON.Ray(
+            this.mesh.position.clone(),
+            up,
+            rayLen
+        );
 
-        // Only hit terrain chunks (metadata.isTerrain set on them)
+        // IMPORTANT FIX: use rayOut, not ray
         const pick = this.scene.pickWithRay(
-            ray,
+            rayOut,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
                 mesh.metadata.isTerrain === true
         );
-
-        let groundedThisFrame = false;
-
-
 
         if (pick.hit && pick.pickedPoint) {
             const bottomToCenter = this.height * 0.5;
@@ -149,9 +150,11 @@ export class PlanetPlayer {
                 up.scale(bottomToCenter + surfaceClearance)
             );
             this.mesh.position.copyFrom(targetPos);
+
         } else if (this.lastSafePosition) {
             // Fallback: teleport back to last known safe grounded position
             this.mesh.position.copyFrom(this.lastSafePosition);
+
         } else {
             // Final fallback: snap to planet radius slightly above surface
             this.mesh.position = up.scale(
@@ -567,6 +570,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
