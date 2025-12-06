@@ -25,7 +25,7 @@ export class ChunkedPlanetTerrain {
         // 0 = only coarse, 5 = allow ultra-high near camera
         this.lodLevel = options.lodLevel ?? 5;
         
-        this.colliderLodThreshold = options.colliderLodThreshold ?? 3;
+        this.colliderLodThreshold = options.colliderLodThreshold ?? 5;
         
         // Chunks within this distance of the camera can be used as colliders.
         // This effectively defines your "physics shell" radius.
