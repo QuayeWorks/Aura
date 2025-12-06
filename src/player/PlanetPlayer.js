@@ -133,14 +133,14 @@ export class PlanetPlayer {
             rayLen
         );
 
-        // IMPORTANT FIX: use rayOut, not ray
         const pick = this.scene.pickWithRay(
-            rayOut,
+            ray,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
                 mesh.metadata.isTerrain === true
         );
+
 
         if (pick.hit && pick.pickedPoint) {
             const bottomToCenter = this.height * 0.5;
@@ -570,6 +570,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
