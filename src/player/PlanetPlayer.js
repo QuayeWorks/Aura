@@ -126,20 +126,19 @@ export class PlanetPlayer {
         const up = pos.scale(1 / r);
         const rayLen = this.planetRadius * 0.1;
 
-        // First try: ray outward from current position to find terrain above
-        const rayOut = new BABYLON.Ray(
-            this.mesh.position.clone(),
-            up,
-            rayLen
-        );
+        const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
 
+        // Only hit terrain chunks (metadata.isTerrain set on them)
         const pick = this.scene.pickWithRay(
             ray,
             (mesh) =>
                 mesh &&
                 mesh.metadata &&
-                mesh.metadata.isVoxelTerrain === true
+                mesh.metadata.isTerrain === true
         );
+
+        let groundedThisFrame = false;
+
 
 
         if (pick.hit && pick.pickedPoint) {
@@ -568,6 +567,7 @@ export class PlanetPlayer {
         );
     }
 }
+
 
 
 
