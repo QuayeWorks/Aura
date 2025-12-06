@@ -234,41 +234,17 @@ export class ChunkedPlanetTerrain {
         const mesh = terrain.mesh;
         mesh.metadata = mesh.metadata || {};
 
-        // Always mark as terrain so rays can fall back on it.
+        // Always mark as terrain so rays / picking can use it.
         mesh.metadata.isTerrain = true;
 
-        // If we don't know where the camera is yet, treat as visual-only
-        // except for the initial load (where we can allow colliders).
-        let nearEnough = true;
-        if (this.lastCameraPosition) {
-            // Compute this chunk's approximate center from its origin
-            const base = this._computeBaseChunkMetrics();
-            const origin = terrain.origin || BABYLON.Vector3.Zero();
+        // Collider layer disabled: no separate physics shell
+        mesh.metadata.isTerrainCollider = false;
 
-            const center = new BABYLON.Vector3(
-                origin.x + base.chunkWidth * 0.5,
-                origin.y + base.chunkHeight * 0.5,
-                origin.z + base.chunkDepth * 0.5
-            );
-
-            const distToFocus = BABYLON.Vector3.Distance(
-                center,
-                this.lastCameraPosition
-            );
-
-            nearEnough = distToFocus <= this.colliderEnableDistance;
-        }
-
-        // Physics shell: only chunks that are both near the camera AND
-        // at or above the collider LOD threshold are considered colliders.
-        const isCollider = nearEnough && lodLevel >= this.colliderLodThreshold;
-
-        mesh.metadata.isTerrainCollider = isCollider;
-
-        // Keep them pickable; collisions can key off this flag later if desired.
+        // Still allow picking for carving / debug
         mesh.isPickable = true;
-        // mesh.checkCollisions = isCollider; // if you use Babylon collisions
+        mesh.checkCollisions = false; // do not use Babylon's collisions here
     }
+
 
 
     /**
@@ -286,14 +262,12 @@ export class ChunkedPlanetTerrain {
         // Always mark as terrain so visual picking / debug still works
         mesh.metadata.isTerrain = true;
 
-        // Physics shell: only use chunks at or above colliderLodThreshold
-        const isCollider = lodLevel >= this.colliderLodThreshold;
-        mesh.metadata.isTerrainCollider = isCollider;
+        // Collider layer disabled: keep this false
+        mesh.metadata.isTerrainCollider = false;
 
-        // We always allow picking (for debug / carving),
-        // but you can later restrict checkCollisions to colliders.
+        // Picking is allowed; collisions disabled
         mesh.isPickable = true;
-        mesh.checkCollisions = isCollider;
+        mesh.checkCollisions = false;
     }
 
 
