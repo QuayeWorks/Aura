@@ -1,4 +1,3 @@
-import * as BABYLON from "babylonjs";
 
 /**
  * Quadtree node representing a square patch on the planet surface.
