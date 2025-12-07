@@ -454,13 +454,6 @@ export class ChunkedPlanetTerrain {
                 node.terrain.mesh.setEnabled(true);
             }
 
-            if (node.terrain && node.terrain.mesh) {
-                const m = node.terrain.mesh;
-                m.material = this.material.clone("lodMat" + node.level);
-                const c = 1.0 - node.level / this.lodLevel;
-                m.material.diffuseColor = new BABYLON.Color3(c, c, 0.3 + 0.1 * node.level);
-            }
-
         }
 
         this.activeLeaves = newLeaves;
