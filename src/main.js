@@ -430,8 +430,7 @@ engine.runRenderLoop(() => {
             const per = stats.perLod || [];
             const maxLod = stats.maxLodInUse ?? 0;
             
-            const info = terrain.getDebugInfo(playerPosition);
-            const chunkSizeX = (info.chunkWorldSizeX ?? 0).toFixed(1);
+            const chunkSizeX = (dbg.chunkWorldSizeX ?? 0).toFixed(1);
 
             let nearStr = "";
             if (dbg.nearestChunk) {
@@ -513,6 +512,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
