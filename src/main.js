@@ -91,7 +91,7 @@ function createScene() {
     );
     // We want illumination only from the sun + moon system,
     // so keep these "legacy" lights effectively disabled.
-    hemi.intensity = 0.0;
+    hemi.intensity = 0.1;
     hemi.groundColor = new BABYLON.Color3(0.05, 0.05, 0.1);
 
     const dir = new BABYLON.DirectionalLight(
@@ -99,7 +99,7 @@ function createScene() {
         new BABYLON.Vector3(-0.5, -1.0, -0.3),
         scene
     );
-    dir.intensity = 0.0;
+    dir.intensity = 0.1;
 
     // --- Fireflies / menu ambiance ---
     createFireflies();
@@ -221,7 +221,7 @@ function createFireflies() {
     fireflyMat.disableLighting = true;
 
     const radius = PLANET_RADIUS_UNITS * 0.05;
-    const count = 40;
+    const count = 80;
 
     for (let i = 0; i < count; i++) {
         const orb = BABYLON.MeshBuilder.CreateSphere(
@@ -506,4 +506,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
