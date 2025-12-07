@@ -22,9 +22,9 @@ export class DayNightSystem {
         this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 60);
         this.timeOfDay = options.startTimeOfDay ?? 0.25; // start around sunrise
 
-        this.skyDistance = this.planetRadius * 10;
-        this.sunSize = this.planetRadius * 0.8;
-        this.moonSize = this.planetRadius * 0.6;
+        this.skyDistance = this.planetRadius * 2;
+        this.sunSize = this.planetRadius * 0.4;
+        this.moonSize = this.planetRadius * 0.3;
 
         this._createLights();
         this._createBillboards();
@@ -42,8 +42,8 @@ export class DayNightSystem {
             this.scene
         );
         this.sunLight.intensity = 1.2;
-        this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.9);
-        this.sunLight.specular = new BABYLON.Color3(1.0, 0.97, 0.9);
+        this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.1);
+        this.sunLight.specular = new BABYLON.Color3(1.0, 0.97, 0.1);
         this.sunLight.groundColor = new BABYLON.Color3(0, 0, 0);
 
         // Moon light
@@ -52,9 +52,9 @@ export class DayNightSystem {
             new BABYLON.Vector3(0, -1, 0),
             this.scene
         );
-        this.moonLight.intensity = 0.3;
-        this.moonLight.diffuse = new BABYLON.Color3(0.6, 0.7, 1.0);
-        this.moonLight.specular = new BABYLON.Color3(0.6, 0.7, 1.0);
+        this.moonLight.intensity = 0.5;
+        this.moonLight.diffuse = new BABYLON.Color3(1.0, 10., 0.97);
+        this.moonLight.specular = new BABYLON.Color3(1.0, 1.0, 0.97);
         this.moonLight.groundColor = new BABYLON.Color3(0, 0, 0);
     }
 
@@ -206,3 +206,4 @@ export class DayNightSystem {
         }
     }
 }
+
