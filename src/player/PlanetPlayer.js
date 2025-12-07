@@ -39,7 +39,9 @@ export class PlanetPlayer {
         this.groundFriction = options.groundFriction ?? 8;
         this.airFriction = options.airFriction ?? 1;
 
-        this.groundSnapDistance = options.groundSnapDistance ?? 6;
+        this.groundSnapDistance =
+            options.groundSnapDistance ??
+            Math.max(6, this.planetRadius * 0.003); // scale with planet size
 
         // --- Runtime state ---
         this.mesh = BABYLON.MeshBuilder.CreateCapsule(
@@ -350,11 +352,11 @@ export class PlanetPlayer {
     _spawnOnSurface() {
         // Start over +Z
         const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
-        // A bit above the nominal radius so we are not intersecting terrain
-        const spawnRadius =
-            this.planetRadius * 1.01 +
-            this.height +
-            this.capsuleRadius * 1.5;
+
+        // Just a small clearance above the surface, not hundreds of units
+        const surfaceClearance = this.capsuleRadius * 1.5 + this.height * 0.25;
+
+        const spawnRadius = this.planetRadius + surfaceClearance;
 
         this.mesh.position = startDir.scale(spawnRadius);
     }
