@@ -108,7 +108,7 @@ function createScene() {
     dayNightSystem = new DayNightSystem(scene, {
         planetRadius: PLANET_RADIUS_UNITS,
         dayLengthSeconds: 24 * 60,
-        startTimeOfDay: 0.25 // ~6am
+        startTimeOfDay: 0.5 // ~6am
     });
 
 
@@ -506,5 +506,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
