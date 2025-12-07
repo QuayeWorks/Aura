@@ -1,3 +1,4 @@
+/* global BABYLON */
 // src/DayNight/DayNightSystem.js
 
 // Simple day/night cycle for a spherical planet.

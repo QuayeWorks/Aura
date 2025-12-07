@@ -1,3 +1,4 @@
+/* global BABYLON */
 
 /**
  * Quadtree node representing a square patch on the planet surface.

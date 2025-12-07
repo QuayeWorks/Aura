@@ -1,3 +1,4 @@
+/* global BABYLON */
 import { MarchingCubesTerrain } from "./MarchingCubesTerrain.js";
 import { PlanetQuadtreeNode } from "./PlanetQuadtreeNode.js";
 

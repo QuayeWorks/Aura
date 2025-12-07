@@ -1,3 +1,4 @@
+/* global BABYLON */
 // src/Menus/GameUIState.js
 // Centralized UI state + visual theme handling for the game.
 
