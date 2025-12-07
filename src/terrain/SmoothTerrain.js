@@ -78,15 +78,15 @@ export class SmoothTerrain {
         const y = terrainHeight;
 
         // Height bands (in same units as your grid, ~meters)
-        const waterLevel   = -1.0;
+        const waterLevel   = -5.0;
         const beachStart   = -0.5;
-        const grassStart   = 0.5;
-        const rockStart    = 3.5;
-        const snowStart    = 6.0;
+        const grassStart   = 4.5;
+        const rockStart    = 10;
+        const snowStart    = 60.0;
 
         // Base biome colors
-        const deepWater = new BABYLON.Color3(0.02, 0.08, 0.20);
-        const shallowWater = new BABYLON.Color3(0.05, 0.25, 0.55);
+        const deepWater = new BABYLON.Color3(0.04, 0.2, 0.50);
+        const shallowWater = new BABYLON.Color3(0.3, 0.5, 0.90);
         const sandColor = new BABYLON.Color3(0.92, 0.84, 0.60);
         const grassColor = new BABYLON.Color3(0.1, 0.45, 0.18);
         const dirtColor = new BABYLON.Color3(0.35, 0.22, 0.1);
@@ -336,6 +336,7 @@ export class SmoothTerrain {
         this.rebuildMesh();
     }
 }
+
 
 
 
