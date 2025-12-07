@@ -31,7 +31,7 @@ export class ChunkedPlanetTerrain {
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
         this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
         this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        this.material.backFaceCulling = false;
+        this.material.backFaceCulling = true;
 
         this.meshPool = [];
         this.terrainPool = [];
