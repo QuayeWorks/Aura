@@ -247,6 +247,10 @@ export class ChunkedPlanetTerrain {
     _initializeQuadtree() {
         this._disposeQuadtree();
 
+        this.initialBuildDone = false;
+        this.initialBuildTotal = 0;
+        this.initialBuildCompleted = 0;
+
         this.chunkOverlap = this.cellSize;
         this.rootNode = this._createRootNode();
         this.activeLeaves = [this.rootNode];
@@ -257,11 +261,6 @@ export class ChunkedPlanetTerrain {
             node: this.rootNode,
             lodLevel: 0
         });
-
-        if (!this.initialBuildDone && this.initialBuildTotal === 0) {
-            this.initialBuildTotal = this.buildQueue.length;
-            this.initialBuildCompleted = 0;
-        }
     }
 
     _onChunkBuilt() {
@@ -428,8 +427,12 @@ export class ChunkedPlanetTerrain {
             if (leaf.lastBuiltLod !== targetLod) {
                 this._scheduleNodeRebuild(leaf, targetLod, false);
                 // Capture total jobs for initial build if not set yet
-                if (!this.initialBuildDone && this.initialBuildTotal === 0) {
-                    this.initialBuildTotal = this.buildQueue.length;
+                if (!this.initialBuildDone) {
+                    const pendingTotal =
+                        this.initialBuildCompleted + this.buildQueue.length;
+                    if (pendingTotal > this.initialBuildTotal) {
+                        this.initialBuildTotal = pendingTotal;
+                    }
                 }
             }
         }
