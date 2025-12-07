@@ -636,7 +636,10 @@ export class ChunkedPlanetTerrain {
             lodStats: this.lastLodStats,
             nearestLeaf: null,
             nearestChunk: null,
-            maxLodInUse: this.lastLodStats.maxLodInUse
+            maxLodInUse: this.lastLodStats.maxLodInUse,
+            chunkWorldSizeX: this.chunkWorldSizeX,
+            chunkWorldSizeZ: this.chunkWorldSizeZ,
+            worldSpan: this.worldSpan
         };
 
         if (!focusPosition || !this.activeLeaves.length) {
