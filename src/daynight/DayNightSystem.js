@@ -19,7 +19,7 @@ export class DayNightSystem {
         this.engine = scene.getEngine();
 
         this.planetRadius = options.planetRadius ?? 50;
-        this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 6);
+        this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 60);
         this.timeOfDay = options.startTimeOfDay ?? 0.5; // start around sunrise
 
         this.skyDistance = this.planetRadius * 10;
@@ -55,27 +55,39 @@ export class DayNightSystem {
     }
 
     _createLights() {
-        // Sun light
+        // Sun light (direct)
         this.sunLight = new BABYLON.DirectionalLight(
             "dayNight_sunLight",
             new BABYLON.Vector3(0, -1, 0),
             this.scene
         );
-        this.sunLight.intensity = 1.2;
+        // Base intensities (we also scale in _update)
+        this.sunLight.intensity = 3.0;
         this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.9);
         this.sunLight.specular = new BABYLON.Color3(1.0, 0.97, 0.9);
         this.sunLight.groundColor = new BABYLON.Color3(0, 0, 0);
 
-        // Moon light
+        // Moon light (direct)
         this.moonLight = new BABYLON.DirectionalLight(
             "dayNight_moonLight",
             new BABYLON.Vector3(0, -1, 0),
             this.scene
         );
-        this.moonLight.intensity = 0.5;
-        this.moonLight.diffuse = new BABYLON.Color3(1.0, 1.0, 0.97);
-        this.moonLight.specular = new BABYLON.Color3(1.0, 1.0, 0.97);
+        this.moonLight.intensity = 0.8;
+        this.moonLight.diffuse = new BABYLON.Color3(0.6, 0.7, 1.0);
+        this.moonLight.specular = new BABYLON.Color3(0.6, 0.7, 1.0);
         this.moonLight.groundColor = new BABYLON.Color3(0, 0, 0);
+
+        // Atmospheric skylight: simulates sun scattering in the atmosphere.
+        this.skyLight = new BABYLON.HemisphericLight(
+            "dayNight_skyLight",
+            this.orbitUpDirection, // "up" for your planet
+            this.scene
+        );
+        this.skyLight.intensity = 0.0; // will be driven in _update()
+        this.skyLight.diffuse = new BABYLON.Color3(0.5, 0.7, 1.0);   // sky blue
+        this.skyLight.groundColor = new BABYLON.Color3(0.05, 0.05, 0.08); // darker ground bounce
+        this.skyLight.specular = new BABYLON.Color3(0.2, 0.2, 0.25);
     }
 
     _createBillboards() {
@@ -175,18 +187,36 @@ export class DayNightSystem {
         const sunHeight = sunDir.y; // >0 day, <0 night
 
         const sunFactor = BABYLON.Scalar.Clamp((sunHeight + 0.1) / 1.1, 0, 1);
-        const maxSun = 1.2;
-        const maxMoon = 0.4;
+
+        // Much brighter direct lights
+        const maxSun = 3.5; // you can push this up to ~5 if needed
+        const maxMoon = 1.2;
 
         this.sunLight.intensity = maxSun * sunFactor;
 
         const moonFactor = 1.0 - sunFactor;
         this.moonLight.intensity = maxMoon * moonFactor;
 
-        // Optional: adjust exposure if using environmentTexture
+        // Atmospheric skylight: bright blue during day, soft ambient at night
+        if (this.skyLight) {
+            // Daytime sky: mostly driven by sunFactor
+            const skyDayIntensity = 1.2;  // strong blue dome at noon
+            const skyNightIntensity = 0.25; // faint ambient from stars/moon
+
+            const skyIntensity =
+                skyDayIntensity * sunFactor + skyNightIntensity * moonFactor;
+
+            this.skyLight.intensity = skyIntensity;
+
+            // Aim hemispheric light roughly in sun direction so "upper" hemisphere
+            // is generally where the sun is.
+            this.skyLight.direction = sunDir.clone();
+        }
+
+        // Keep nights darker than day, but not pitch-black
         if (this.scene.environmentTexture) {
             const baseExposure = 1.0;
-            const nightDarkening = 0.4;
+            const nightDarkening = 0.1; // small tweak only
             this.scene.imageProcessingConfiguration.exposure =
                 baseExposure - (nightDarkening * moonFactor);
         }
@@ -228,6 +258,7 @@ export class DayNightSystem {
         }
     }
 }
+
 
 
 
