@@ -356,7 +356,7 @@ export class PlanetPlayer {
         // Just a small clearance above the surface, not hundreds of units
         const surfaceClearance = this.capsuleRadius * 1.5 + this.height * 0.25;
 
-        const spawnRadius = this.planetRadius + surfaceClearance;
+        const spawnRadius = this.planetRadius + surfaceClearance + halfHeight;
 
         this.mesh.position = startDir.scale(spawnRadius);
     }
@@ -579,3 +579,4 @@ export class PlanetPlayer {
         );
     }
 }
+
