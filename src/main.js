@@ -461,19 +461,37 @@ engine.runRenderLoop(() => {
                 const sPos = dbg.sunPos;
                 const mPos = dbg.moonPos;
 
-                // Altitude above horizon in degrees (0° = horizon, 90° = straight up)
                 const radToDeg = 180 / Math.PI;
-                const sunAlt = Math.asin(sDir.y) * radToDeg;
-                const moonAlt = Math.asin(mDir.y) * radToDeg;
+
+                // Global altitudes (relative to world Y axis)
+                const sunAltGlobal = Math.asin(sDir.y) * radToDeg;
+                const moonAltGlobal = Math.asin(mDir.y) * radToDeg;
+
+                // Local altitudes (relative to the player's "up" direction)
+                let sunAltLocal = sunAltGlobal;
+                let moonAltLocal = moonAltGlobal;
+
+                if (player && player.mesh) {
+                    const up = player.mesh.position.clone();
+                    if (up.lengthSquared() > 0) {
+                        up.normalize();
+                        sunAltLocal =
+                            Math.asin(BABYLON.Vector3.Dot(sDir, up)) * radToDeg;
+                        moonAltLocal =
+                            Math.asin(BABYLON.Vector3.Dot(mDir, up)) * radToDeg;
+                    }
+                }
 
                 sunMoonInfoText.text =
                     `Time ${pad(hour)}:${pad(minute)}  ` +
-                    `sunAlt:${sunAlt.toFixed(1)}°  moonAlt:${moonAlt.toFixed(1)}°\n` +
+                    `sunAlt(local):${sunAltLocal.toFixed(1)}°  ` +
+                    `moonAlt(local):${moonAltLocal.toFixed(1)}°\n` +
                     `sunPos(${sPos.x.toFixed(0)}, ${sPos.y.toFixed(0)}, ${sPos.z.toFixed(0)})  ` +
                     `moonPos(${mPos.x.toFixed(0)}, ${mPos.y.toFixed(0)}, ${mPos.z.toFixed(0)})`;
                 sunMoonInfoText.isVisible = true;
             }
         }
+
 
     } else {
         if (playerInfoText) playerInfoText.isVisible = false;
@@ -488,3 +506,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
