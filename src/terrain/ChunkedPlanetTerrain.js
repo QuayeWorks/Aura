@@ -472,7 +472,18 @@ export class ChunkedPlanetTerrain {
             }
 
             const node = job.node;
-            this._ensureTerrainForNode(node);
+
+            // Only build terrain for visible + near hemisphere nodes
+            if (onNearSide && withinView) {
+                this._ensureTerrainForNode(node);
+            } else {
+                // Disable terrain for hidden nodes
+                if (node.terrain && node.terrain.mesh) {
+                    node.terrain.mesh.setEnabled(false);
+                }
+                continue;
+            }
+
 
             if (job.meshOnly) {
                 node.terrain.rebuildMeshOnly();
