@@ -23,8 +23,8 @@ export class DayNightSystem {
         this.timeOfDay = options.startTimeOfDay ?? 0.25; // start around sunrise
 
         this.skyDistance = this.planetRadius * 2;
-        this.sunSize = this.planetRadius * 0.4;
-        this.moonSize = this.planetRadius * 0.3;
+        this.sunSize = this.planetRadius * 1;
+        this.moonSize = this.planetRadius * 0.6;
 
         this._createLights();
         this._createBillboards();
@@ -53,7 +53,7 @@ export class DayNightSystem {
             this.scene
         );
         this.moonLight.intensity = 0.5;
-        this.moonLight.diffuse = new BABYLON.Color3(1.0, 10., 0.97);
+        this.moonLight.diffuse = new BABYLON.Color3(1.0, 1.0, 0.97);
         this.moonLight.specular = new BABYLON.Color3(1.0, 1.0, 0.97);
         this.moonLight.groundColor = new BABYLON.Color3(0, 0, 0);
     }
@@ -206,5 +206,6 @@ export class DayNightSystem {
         }
     }
 }
+
 
 
