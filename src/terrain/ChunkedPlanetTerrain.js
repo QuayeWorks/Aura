@@ -108,6 +108,7 @@ export class ChunkedPlanetTerrain {
         }
 
         // Never request more detail than the global max LOD.
+        console.log(baseSize);
         return Math.min(desiredLevel, this.lodLevel);
     }
 
