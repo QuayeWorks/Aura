@@ -395,8 +395,8 @@ export class ChunkedPlanetTerrain {
             const planetCenter = BABYLON.Vector3.Zero();
             let toChunk = center.subtract(planetCenter);
             const toFocus = focusPosition.subtract(planetCenter);
-            const lenChunk = toChunk.length();
-            let lenFocus = toFocus.length();
+            let lenChunk = toChunk.length();
+            const lenFocus = toFocus.length();
 
             // SPECIAL CASE: root node lives at planet center → no direction.
             // Treat it as if it points the same way as the player so it can subdivide.
