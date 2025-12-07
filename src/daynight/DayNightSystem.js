@@ -20,12 +20,32 @@ export class DayNightSystem {
 
         this.planetRadius = options.planetRadius ?? 50;
         this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 60);
-        this.timeOfDay = options.startTimeOfDay ?? 0.25; // start around sunrise
+        this.timeOfDay = options.startTimeOfDay ?? 0.5; // start around sunrise
 
-        this.skyDistance = this.planetRadius * 2;
-        this.sunSize = this.planetRadius * 0.05;
-        this.moonSize = this.planetRadius * 0.1;
+        this.skyDistance = this.planetRadius * 10;
+        this.sunSize = this.planetRadius * 0.8;
+        this.moonSize = this.planetRadius * 0.6;
 
+        // Direction that represents "noon straight up" at your reference latitude.
+        // For your world we’ll pass (0, 0, 1) from main.js.
+        this.orbitUpDirection = (options.orbitUpDirection
+            ? options.orbitUpDirection.clone()
+            : new BABYLON.Vector3(0, 1, 0)
+        ).normalize();
+
+        // Axis around which the sun/moon orbit; must be perpendicular to orbitUpDirection.
+        this._orbitAxis = BABYLON.Vector3.Cross(
+            this.orbitUpDirection,
+            new BABYLON.Vector3(0, 1, 0)
+        );
+        if (this._orbitAxis.lengthSquared() === 0) {
+            this._orbitAxis = BABYLON.Vector3.Cross(
+                this.orbitUpDirection,
+                new BABYLON.Vector3(1, 0, 0)
+            );
+        }
+        this._orbitAxis.normalize();
+        
         this._createLights();
         this._createBillboards();
 
@@ -97,17 +117,21 @@ export class DayNightSystem {
         // Advance time of day, keeping it in [0, 1)
         this.timeOfDay = (this.timeOfDay + dt / this.dayLengthSeconds) % 1.0;
 
-        // 0   = midnight (sun below horizon)
-        // 0.25 = ~6am (sunrise)
-        // 0.5 = noon (sun straight up)
-        // 0.75 = ~6pm (sunset)
-        const angle = (this.timeOfDay * 2 * Math.PI) - Math.PI / 2;
+        // Map timeOfDay to an orbit angle:
+        // 0.0 = midnight (sun on opposite side of orbitUpDirection)
+        // 0.25 = sunrise
+        // 0.5 = noon (sun aligned with orbitUpDirection)
+        // 0.75 = sunset
+        const angle = (this.timeOfDay - 0.5) * 2 * Math.PI;
 
-        const sunDir = new BABYLON.Vector3(
-            Math.cos(angle),
-            Math.sin(angle),
-            0
-        ).normalize();
+        const up = this.orbitUpDirection;
+        const axis = this._orbitAxis;
+
+        // Sun direction is a rotation around 'axis' in the plane spanned by up & axis.
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+
+        const sunDir = up.scale(cosA).add(axis.scale(sinA)).normalize();
 
         // Moon is always exactly opposite the sun (180° apart).
         const moonDir = sunDir.scale(-1);
@@ -116,8 +140,6 @@ export class DayNightSystem {
         this.sunDir = sunDir.clone();
         this.moonDir = moonDir.clone();
 
-        // Orbit distance is scaled by the planet's radius,
-        // so world positions reflect your actual planet size.
         const orbitRadius = this.planetRadius * 10;
         const sunPos = sunDir.scale(orbitRadius);
         const moonPos = moonDir.scale(orbitRadius);
@@ -206,6 +228,7 @@ export class DayNightSystem {
         }
     }
 }
+
 
 
 
