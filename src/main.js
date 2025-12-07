@@ -439,6 +439,7 @@ engine.runRenderLoop(() => {
 
             lodInfoText.text =
                 `Chunks ${dbg.chunkCountX}x${dbg.chunkCountZ}  baseRes:${dbg.baseChunkResolution}  cap:${dbg.lodCap}  maxUsed:${maxLod}\n` +
+                `chunkSizeX:${planet.chunkWorldSizeX.toFixed(1)}\n` +
                 `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
             lodInfoText.isVisible = true;
         }
@@ -509,6 +510,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
