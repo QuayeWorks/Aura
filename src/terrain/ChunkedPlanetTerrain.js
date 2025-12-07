@@ -83,20 +83,22 @@ export class ChunkedPlanetTerrain {
         }
     }
 
+    // dist here is *surface distance along the planet*, in world units.
     _lodForDistance(dist) {
-        const R = this.radius || 1.0;
-        const dNorm = dist / R;
+        const baseSize =
+            this.chunkWorldSizeX || (this.radius ? this.radius * 0.25 : 1000);
 
         let desiredLevel;
-        if (dNorm < 0.06) {
+        if (dist < baseSize * 0.5) {
+            // Very close to the player → finest detail
             desiredLevel = 5;
-        } else if (dNorm < 0.08) {
+        } else if (dist < baseSize * 1.0) {
             desiredLevel = 4;
-        } else if (dNorm < 0.10) {
+        } else if (dist < baseSize * 2.0) {
             desiredLevel = 3;
-        } else if (dNorm < 0.12) {
+        } else if (dist < baseSize * 4.0) {
             desiredLevel = 2;
-        } else if (dNorm < 0.14) {
+        } else if (dist < baseSize * 8.0) {
             desiredLevel = 1;
         } else {
             desiredLevel = 0;
@@ -369,9 +371,11 @@ export class ChunkedPlanetTerrain {
             if (!node) continue;
 
             const center = node.getCenterWorldPosition();
-            const dist = BABYLON.Vector3.Distance(focusPosition, center);
+
+            // Straight-line distance (for view culling)
+            const centerDist = BABYLON.Vector3.Distance(focusPosition, center);
             const onNearSide = this._isChunkOnNearHemisphere(center, focusPosition);
-            const withinView = this._isWithinViewDistance(dist);
+            const withinView = this._isWithinViewDistance(centerDist);
 
             if (!onNearSide || !withinView) {
                 if (node.terrain && node.terrain.mesh) {
@@ -381,7 +385,24 @@ export class ChunkedPlanetTerrain {
                 continue;
             }
 
-            const desiredLod = this._lodForDistance(dist);
+            // --- Surface distance along the sphere (arc length) ---
+            let surfaceDist = centerDist;
+            const planetCenter = BABYLON.Vector3.Zero();
+            const toChunk = center.subtract(planetCenter);
+            const toFocus = focusPosition.subtract(planetCenter);
+            const lenChunk = toChunk.length();
+            const lenFocus = toFocus.length();
+
+            if (lenChunk > 1e-3 && lenFocus > 1e-3) {
+                const dot =
+                    BABYLON.Vector3.Dot(toChunk, toFocus) /
+                    (lenChunk * lenFocus);
+                const clampedDot = Math.max(-1, Math.min(1, dot));
+                const angle = Math.acos(clampedDot); // radians
+                surfaceDist = this.radius * angle;
+            }
+
+            const desiredLod = this._lodForDistance(surfaceDist);
             const framesSinceChange = this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
 
             const canChangeLod = framesSinceChange >= this.lodChangeCooldownFrames;
