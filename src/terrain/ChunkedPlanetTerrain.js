@@ -92,13 +92,13 @@ export class ChunkedPlanetTerrain {
         if (dist < baseSize * 0.5) {
             // Very close to the player → finest detail
             desiredLevel = 5;
-        } else if (dist < baseSize * 1.0) {
+        } else if (dist < baseSize * 0.5) {
             desiredLevel = 4;
-        } else if (dist < baseSize * 2.0) {
+        } else if (dist < baseSize * 1.0) {
             desiredLevel = 3;
-        } else if (dist < baseSize * 4.0) {
+        } else if (dist < baseSize * 2.0) {
             desiredLevel = 2;
-        } else if (dist < baseSize * 8.0) {
+        } else if (dist < baseSize * 4.0) {
             desiredLevel = 1;
         } else {
             desiredLevel = 0;
