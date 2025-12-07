@@ -23,8 +23,8 @@ export class DayNightSystem {
         this.timeOfDay = options.startTimeOfDay ?? 0.25; // start around sunrise
 
         this.skyDistance = this.planetRadius * 2;
-        this.sunSize = this.planetRadius * 1;
-        this.moonSize = this.planetRadius * 0.6;
+        this.sunSize = this.planetRadius * 0.05;
+        this.moonSize = this.planetRadius * 0.1;
 
         this._createLights();
         this._createBillboards();
@@ -206,6 +206,7 @@ export class DayNightSystem {
         }
     }
 }
+
 
 
 
