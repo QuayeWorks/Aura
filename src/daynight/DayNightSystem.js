@@ -112,14 +112,20 @@ export class DayNightSystem {
         // Moon is always exactly opposite the sun (180° apart).
         const moonDir = sunDir.scale(-1);
 
-        // Store for HUD/debug
+        // Store directions for HUD/debug
         this.sunDir = sunDir.clone();
         this.moonDir = moonDir.clone();
 
-        const ORBIT_RADIUS = this.planetRadius * 10;
+        // Orbit distance is scaled by the planet's radius,
+        // so world positions reflect your actual planet size.
+        const orbitRadius = this.planetRadius * 10;
+        const sunPos = sunDir.scale(orbitRadius);
+        const moonPos = moonDir.scale(orbitRadius);
 
-        const sunPos = sunDir.scale(ORBIT_RADIUS);
-        const moonPos = moonDir.scale(ORBIT_RADIUS);
+        // Store world positions for HUD/debug
+        this.sunPos = sunPos.clone();
+        this.moonPos = moonPos.clone();
+
 
         // Lights point toward planet center (assumed origin)
         this.sunLight.position.copyFrom(sunPos);
@@ -168,9 +174,13 @@ export class DayNightSystem {
         return {
             timeOfDay: this.timeOfDay,
             sunDir: this.sunDir ? this.sunDir.clone() : null,
-            moonDir: this.moonDir ? this.moonDir.clone() : null
+            moonDir: this.moonDir ? this.moonDir.clone() : null,
+            sunPos: this.sunPos ? this.sunPos.clone() : null,
+            moonPos: this.moonPos ? this.moonPos.clone() : null,
+            planetRadius: this.planetRadius
         };
     }
+
 
     dispose() {
         if (this._beforeRenderObserver) {

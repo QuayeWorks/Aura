@@ -443,23 +443,38 @@ engine.runRenderLoop(() => {
         // Sun/Moon + time-of-day HUD
         if (dayNightSystem && sunMoonInfoText && dayNightSystem.getDebugInfo) {
             const dbg = dayNightSystem.getDebugInfo();
-            if (dbg && dbg.timeOfDay != null && dbg.sunDir && dbg.moonDir) {
+            if (
+                dbg &&
+                dbg.timeOfDay != null &&
+                dbg.sunDir &&
+                dbg.moonDir &&
+                dbg.sunPos &&
+                dbg.moonPos
+            ) {
                 const t = dbg.timeOfDay * 24.0;
                 const hour = Math.floor(t);
                 const minute = Math.floor((t - hour) * 60);
-
                 const pad = (n) => (n < 10 ? "0" + n : "" + n);
 
-                const s = dbg.sunDir;
-                const m = dbg.moonDir;
+                const sDir = dbg.sunDir;
+                const mDir = dbg.moonDir;
+                const sPos = dbg.sunPos;
+                const mPos = dbg.moonPos;
+
+                // Altitude above horizon in degrees (0° = horizon, 90° = straight up)
+                const radToDeg = 180 / Math.PI;
+                const sunAlt = Math.asin(sDir.y) * radToDeg;
+                const moonAlt = Math.asin(mDir.y) * radToDeg;
 
                 sunMoonInfoText.text =
                     `Time ${pad(hour)}:${pad(minute)}  ` +
-                    `sun(${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)})  ` +
-                    `moon(${m.x.toFixed(2)}, ${m.y.toFixed(2)}, ${m.z.toFixed(2)})`;
+                    `sunAlt:${sunAlt.toFixed(1)}°  moonAlt:${moonAlt.toFixed(1)}°\n` +
+                    `sunPos(${sPos.x.toFixed(0)}, ${sPos.y.toFixed(0)}, ${sPos.z.toFixed(0)})  ` +
+                    `moonPos(${mPos.x.toFixed(0)}, ${mPos.y.toFixed(0)}, ${mPos.z.toFixed(0)})`;
                 sunMoonInfoText.isVisible = true;
             }
         }
+
     } else {
         if (playerInfoText) playerInfoText.isVisible = false;
         if (lodInfoText) lodInfoText.isVisible = false;
