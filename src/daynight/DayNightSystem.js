@@ -109,7 +109,12 @@ export class DayNightSystem {
             0
         ).normalize();
 
+        // Moon is always exactly opposite the sun (180° apart).
         const moonDir = sunDir.scale(-1);
+
+        // Store for HUD/debug
+        this.sunDir = sunDir.clone();
+        this.moonDir = moonDir.clone();
 
         const ORBIT_RADIUS = this.planetRadius * 10;
 
@@ -157,6 +162,14 @@ export class DayNightSystem {
             this.scene.imageProcessingConfiguration.exposure =
                 baseExposure - (nightDarkening * moonFactor);
         }
+    }
+
+    getDebugInfo() {
+        return {
+            timeOfDay: this.timeOfDay,
+            sunDir: this.sunDir ? this.sunDir.clone() : null,
+            moonDir: this.moonDir ? this.moonDir.clone() : null
+        };
     }
 
     dispose() {

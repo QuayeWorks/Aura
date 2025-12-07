@@ -275,8 +275,22 @@ export function createHud(ui) {
     lodInfoText.isVisible = false;
     hudPanel.addControl(lodInfoText);
 
-    return { hudPanel, playerInfoText, lodInfoText };
+    const sunMoonInfoText = new BABYLON.GUI.TextBlock("sunMoonInfo");
+    sunMoonInfoText.text = "";
+    sunMoonInfoText.color = "#ffddaa";
+    sunMoonInfoText.fontSize = 15;
+    sunMoonInfoText.textHorizontalAlignment =
+        BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    sunMoonInfoText.textVerticalAlignment =
+        BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    sunMoonInfoText.paddingLeft = "12px";
+    sunMoonInfoText.paddingTop = "70px";
+    sunMoonInfoText.isVisible = false;
+    hudPanel.addControl(sunMoonInfoText);
+
+    return { hudPanel, playerInfoText, lodInfoText, sunMoonInfoText };
 }
+
 
 /**
  * Loading overlay: progress bar + text.

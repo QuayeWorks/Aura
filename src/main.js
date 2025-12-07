@@ -48,6 +48,7 @@ let loadingBarFill = null;
 let loadingPercentText = null;
 let playerInfoText = null;
 let lodInfoText = null;
+let sunMoonInfoText = null;
 let uiState = null;
 
 // Timing
@@ -136,6 +137,7 @@ function createScene() {
         hudPanel = hud.hudPanel;
         playerInfoText = hud.playerInfoText;
         lodInfoText = hud.lodInfoText;
+        sunMoonInfoText = hud.sunMoonInfoText;
     }
 
     // Loading overlay
@@ -437,10 +439,33 @@ engine.runRenderLoop(() => {
                 `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
             lodInfoText.isVisible = true;
         }
+
+        // Sun/Moon + time-of-day HUD
+        if (dayNightSystem && sunMoonInfoText && dayNightSystem.getDebugInfo) {
+            const dbg = dayNightSystem.getDebugInfo();
+            if (dbg && dbg.timeOfDay != null && dbg.sunDir && dbg.moonDir) {
+                const t = dbg.timeOfDay * 24.0;
+                const hour = Math.floor(t);
+                const minute = Math.floor((t - hour) * 60);
+
+                const pad = (n) => (n < 10 ? "0" + n : "" + n);
+
+                const s = dbg.sunDir;
+                const m = dbg.moonDir;
+
+                sunMoonInfoText.text =
+                    `Time ${pad(hour)}:${pad(minute)}  ` +
+                    `sun(${s.x.toFixed(2)}, ${s.y.toFixed(2)}, ${s.z.toFixed(2)})  ` +
+                    `moon(${m.x.toFixed(2)}, ${m.y.toFixed(2)}, ${m.z.toFixed(2)})`;
+                sunMoonInfoText.isVisible = true;
+            }
+        }
     } else {
         if (playerInfoText) playerInfoText.isVisible = false;
         if (lodInfoText) lodInfoText.isVisible = false;
+        if (sunMoonInfoText) sunMoonInfoText.isVisible = false;
     }
+
 
     scene.render();
 });
