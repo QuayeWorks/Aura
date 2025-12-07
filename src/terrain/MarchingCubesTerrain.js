@@ -1,3 +1,4 @@
+/* global BABYLON */
 // src/terrain/MarchingCubesTerrain.js
 
 // --- Optional Web Worker for SDF field generation (CPU offload) ---

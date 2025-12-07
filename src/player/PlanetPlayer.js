@@ -1,3 +1,4 @@
+/* global BABYLON */
 // PlanetPlayer.js
 // Simple gravity-based capsule controller for a spherical planet.
 

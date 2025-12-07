@@ -1,3 +1,4 @@
+/* global BABYLON */
 // src/Menus/MainMenuUI.js
 // Centralized UI creation for main menu, settings, HUD, and loading overlay.
 

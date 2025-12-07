@@ -1,3 +1,4 @@
+/* global BABYLON */
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";

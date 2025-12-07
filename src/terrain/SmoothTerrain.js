@@ -1,3 +1,4 @@
+/* global BABYLON */
 // src/terrain/SmoothTerrain.js
 import SimplexNoise from "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.js";
 
