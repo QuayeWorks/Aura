@@ -82,30 +82,35 @@ export class ChunkedPlanetTerrain {
             default: return 32;
         }
     }
-
-    // dist here is *surface distance along the planet*, in world units.
+        // dist here is *surface distance along the planet*, in world units.
     _lodForDistance(dist) {
+        // Approximate size of a base chunk at the equator.
+        // For your settings this is ~23,700 units.
         const baseSize =
-            this.chunkWorldSizeX || (this.radius ? this.radius * 0.25 : 1000);
+            this.chunkWorldSizeX ||
+            (this.radius ? this.radius * 0.25 : 1000);
 
         let desiredLevel;
-        if (dist < baseSize * 0.5) {
-            // Very close to the player → finest detail
+
+        // Tight high-detail ring around the player.
+        if (dist < baseSize * 0.25) {          // closest area
             desiredLevel = 5;
-        } else if (dist < baseSize * 0.5) {
+        } else if (dist < baseSize * 0.5) {    // still quite near
             desiredLevel = 4;
-        } else if (dist < baseSize * 1.0) {
+        } else if (dist < baseSize * 1.0) {    // within ~one base chunk
             desiredLevel = 3;
-        } else if (dist < baseSize * 2.0) {
+        } else if (dist < baseSize * 2.0) {    // mid-distance
             desiredLevel = 2;
-        } else if (dist < baseSize * 4.0) {
+        } else if (dist < baseSize * 4.0) {    // far but still on-screen
             desiredLevel = 1;
         } else {
-            desiredLevel = 0;
+            desiredLevel = 0;                  // horizon / far side
         }
 
+        // Never request more detail than the global max LOD.
         return Math.min(desiredLevel, this.lodLevel);
     }
+
 
     _isWithinViewDistance(dist) {
         const maxDist = this.maxBuildDistance || (this.radius ? this.radius * 2.0 : 1000);
