@@ -106,9 +106,10 @@ export class ChunkedPlanetTerrain {
     }
 
     _isWithinViewDistance(dist) {
-        const R = this.radius || 1.0;
-        return dist <= R * 0.10;
+        const maxDist = this.maxBuildDistance || (this.radius ? this.radius * 2.0 : 1000);
+        return dist <= maxDist;
     }
+
 
     _computeBaseChunkMetrics() {
         const diameter = this.radius * 2.0;
