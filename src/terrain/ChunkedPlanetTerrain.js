@@ -97,9 +97,9 @@ export class ChunkedPlanetTerrain {
             desiredLevel = 5;
         } else if (dist < baseSize * 0.2) {    // still quite near
             desiredLevel = 4;
-        } else if (dist < baseSize * 0.35) {    // within ~one base chunk
+        } else if (dist < baseSize * 0.5) {    // within ~one base chunk
             desiredLevel = 3;
-        } else if (dist < baseSize * 0.60) {    // mid-distance
+        } else if (dist < baseSize * 0.70) {    // mid-distance
             desiredLevel = 2;
         } else if (dist < baseSize * 1.0) {    // far but still on-screen
             desiredLevel = 1;
@@ -108,7 +108,6 @@ export class ChunkedPlanetTerrain {
         }
 
         // Never request more detail than the global max LOD.
-        console.log(baseSize);
         return Math.min(desiredLevel, this.lodLevel);
     }
 
