@@ -19,7 +19,7 @@ export class DayNightSystem {
         this.engine = scene.getEngine();
 
         this.planetRadius = options.planetRadius ?? 50;
-        this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 60);
+        this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 6);
         this.timeOfDay = options.startTimeOfDay ?? 0.5; // start around sunrise
 
         this.skyDistance = this.planetRadius * 10;
@@ -228,6 +228,7 @@ export class DayNightSystem {
         }
     }
 }
+
 
 
 
