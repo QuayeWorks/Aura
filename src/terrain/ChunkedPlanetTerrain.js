@@ -104,7 +104,7 @@ export class ChunkedPlanetTerrain {
         } else if (dist < baseSize * 4.0) {    // far but still on-screen
             desiredLevel = 1;
         } else {
-            desiredLevel = 5;                  // horizon / far side
+            desiredLevel = 3;                  // horizon / far side
         }
 
         // Never request more detail than the global max LOD.
