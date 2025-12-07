@@ -42,8 +42,8 @@ export class DayNightSystem {
             this.scene
         );
         this.sunLight.intensity = 1.2;
-        this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.1);
-        this.sunLight.specular = new BABYLON.Color3(1.0, 0.97, 0.1);
+        this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.9);
+        this.sunLight.specular = new BABYLON.Color3(1.0, 0.97, 0.9);
         this.sunLight.groundColor = new BABYLON.Color3(0, 0, 0);
 
         // Moon light
@@ -206,4 +206,5 @@ export class DayNightSystem {
         }
     }
 }
+
 
