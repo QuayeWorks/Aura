@@ -429,7 +429,8 @@ engine.runRenderLoop(() => {
             const stats = dbg.lodStats || {};
             const per = stats.perLod || [];
             const maxLod = stats.maxLodInUse ?? 0;
-            const info = planetTerrain.getDebugInfo(playerPosition);
+            
+            const info = terrain.getDebugInfo(playerPosition);
             const chunkSizeX = (info.chunkWorldSizeX ?? 0).toFixed(1);
 
             let nearStr = "";
@@ -512,6 +513,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
