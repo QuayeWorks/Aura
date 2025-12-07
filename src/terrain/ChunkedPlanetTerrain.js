@@ -87,21 +87,21 @@ export class ChunkedPlanetTerrain {
         // Approximate size of a base chunk at the equator.
         // For your settings this is ~23,700 units.
         const baseSize =
-            this.chunkWorldSizeX ||
-            (this.radius ? this.radius * 0.25 : 1000);
+            this.maxBuildDistance ||
+            (this.radius ? this.radius * 2.0 : 10000);
 
         let desiredLevel;
 
         // Tight high-detail ring around the player.
-        if (dist < baseSize * 0.25) {          // closest area
+        if (dist < baseSize * 0.10) {          // closest area
             desiredLevel = 5;
-        } else if (dist < baseSize * 0.5) {    // still quite near
+        } else if (dist < baseSize * 0.2 {    // still quite near
             desiredLevel = 4;
-        } else if (dist < baseSize * 1.0) {    // within ~one base chunk
+        } else if (dist < baseSize * 0.35) {    // within ~one base chunk
             desiredLevel = 3;
-        } else if (dist < baseSize * 2.0) {    // mid-distance
+        } else if (dist < baseSize * 0.60) {    // mid-distance
             desiredLevel = 2;
-        } else if (dist < baseSize * 4.0) {    // far but still on-screen
+        } else if (dist < baseSize * 1.0) {    // far but still on-screen
             desiredLevel = 1;
         } else {
             desiredLevel = 0;                  // horizon / far side
