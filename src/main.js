@@ -319,8 +319,8 @@ function startGame() {
                 planetRadius: PLANET_RADIUS_UNITS + 500,
                 walkSpeed: 4,
                 runSpeed: 22,
-                height: 10,
-                radius: 2
+                height: 5,
+                radius: 1
             });
 
             if (mainCamera && player && player.mesh) {
@@ -332,8 +332,8 @@ function startGame() {
                 mainCamera.lowerBetaLimit = 0.15;
                 mainCamera.upperBetaLimit = Math.PI / 2.1;
                 mainCamera.checkCollisions = false;
-                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.004;
-                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
+                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
+                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
 
                 mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
             }
@@ -429,6 +429,8 @@ engine.runRenderLoop(() => {
             const stats = dbg.lodStats || {};
             const per = stats.perLod || [];
             const maxLod = stats.maxLodInUse ?? 0;
+            const info = planetTerrain.getDebugInfo(playerPosition);
+            const chunkSizeX = (info.chunkWorldSizeX ?? 0).toFixed(1);
 
             let nearStr = "";
             if (dbg.nearestChunk) {
@@ -439,7 +441,7 @@ engine.runRenderLoop(() => {
 
             lodInfoText.text =
                 `Chunks ${dbg.chunkCountX}x${dbg.chunkCountZ}  baseRes:${dbg.baseChunkResolution}  cap:${dbg.lodCap}  maxUsed:${maxLod}\n` +
-                `chunkSizeX:${dbg.chunkWorldSizeX.toFixed(1)}\n` +
+                `chunkSizeX:${chunkSizeX}\n` +
                 `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
             lodInfoText.isVisible = true;
         }
@@ -510,6 +512,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
