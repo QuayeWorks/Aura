@@ -393,10 +393,17 @@ export class ChunkedPlanetTerrain {
             // --- Surface distance along the sphere (arc length) ---
             let surfaceDist = centerDist;
             const planetCenter = BABYLON.Vector3.Zero();
-            const toChunk = center.subtract(planetCenter);
+            let toChunk = center.subtract(planetCenter);
             const toFocus = focusPosition.subtract(planetCenter);
             const lenChunk = toChunk.length();
-            const lenFocus = toFocus.length();
+            let lenFocus = toFocus.length();
+
+            // SPECIAL CASE: root node lives at planet center → no direction.
+            // Treat it as if it points the same way as the player so it can subdivide.
+            if (lenChunk < 1e-3 && lenFocus > 1e-3) {
+                toChunk = toFocus.clone();
+                lenChunk = lenFocus;
+            }
 
             if (lenChunk > 1e-3 && lenFocus > 1e-3) {
                 const dot =
@@ -645,19 +652,41 @@ export class ChunkedPlanetTerrain {
         if (!focusPosition || !this.activeLeaves.length) {
             return info;
         }
+        
+        const planetCenter = BABYLON.Vector3.Zero();
+        const toFocus = focusPosition.subtract(planetCenter);
+        const lenFocus = toFocus.length();
 
         let bestDist = Infinity;
         for (const node of this.activeLeaves) {
             const center = node.getCenterWorldPosition();
-            const dist = BABYLON.Vector3.Distance(focusPosition, center);
-            if (dist < bestDist) {
-                bestDist = dist;
+            let toChunk = center.subtract(planetCenter);
+            let lenChunk = toChunk.length();
+
+            // Same root-node special case
+            if (lenChunk < 1e-3 && lenFocus > 1e-3) {
+                toChunk = toFocus.clone();
+                lenChunk = lenFocus;
+            }
+
+            let surfaceDist = BABYLON.Vector3.Distance(focusPosition, center);
+            if (lenChunk > 1e-3 && lenFocus > 1e-3) {
+                const dot =
+                    BABYLON.Vector3.Dot(toChunk, toFocus) /
+                    (lenChunk * lenFocus);
+                const clamped = Math.max(-1, Math.min(1, dot));
+                const angle = Math.acos(clamped);
+                surfaceDist = this.radius * angle;
+            }
+
+            if (surfaceDist < bestDist) {
+                bestDist = surfaceDist;
                 const lodDims = this._computeLodDimensions(node.level, node);
                 const nearestInfo = {
                     lodLevel: node.level,
                     dimX: lodDims.dimX,
                     dimZ: lodDims.dimZ,
-                    distance: dist
+                    distance: surfaceDist
                 };
                 info.nearestLeaf = nearestInfo;
                 info.nearestChunk = nearestInfo; // HUD compatibility
