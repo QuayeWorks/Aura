@@ -5,7 +5,7 @@ import { PlanetQuadtreeNode } from "./PlanetQuadtreeNode.js";
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-        this.maxBuildDistance = 34000;
+        this.maxBuildDistance = 40000;
 
         // Legacy grid options kept for compatibility with callers / HUD
         this.chunkCountX = options.chunkCountX ?? 3;
