@@ -108,8 +108,8 @@ function createScene() {
     // --- Day/Night cycle (24 minutes = full day) ---
     dayNightSystem = new DayNightSystem(scene, {
         planetRadius: PLANET_RADIUS_UNITS,
-        dayLengthSeconds: 24 * 6,
-        startTimeOfDay: 0.5, // ~120m
+        dayLengthSeconds: 24 * 60,
+        startTimeOfDay: 0.8, // ~9pm
         orbitUpDirection: new BABYLON.Vector3(0, 0, 1) // +Z is "up" for your spawn latitude
     });
 
@@ -366,7 +366,7 @@ function startGame() {
             mainCamera.upperBetaLimit = Math.PI / 2.1;
             mainCamera.checkCollisions = false;
             mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
-            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
+            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
         }
 
         gameState = GameState.PLAYING;
@@ -511,6 +511,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
