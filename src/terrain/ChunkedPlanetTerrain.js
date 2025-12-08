@@ -99,7 +99,7 @@ export class ChunkedPlanetTerrain {
             desiredLevel = 4;
         } else if (dist < baseSize * 0.45) {    // within ~one base chunk
             desiredLevel = 3;
-        } else if (dist < baseSize * 0.8) {    // mid-distance
+        } else if (dist < baseSize * 0.9) {    // mid-distance
             desiredLevel = 2;
         } else if (dist < baseSize * 1.0) {    // far but still on-screen
             desiredLevel = 1;
