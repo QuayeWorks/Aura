@@ -465,15 +465,20 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        // Capture total jobs for the initial build *once*,
-        // after we've queued the first batch of leaf builds.
-        if (
-            !this.initialBuildDone &&
-            this.initialBuildTotal === 0 &&
-            this.buildQueue.length > 0
-        ) {
-            this.initialBuildTotal = this.buildQueue.length;
-            this.initialBuildCompleted = 0;
+        // Track the total amount of work queued for the "initial build" phase.
+        //
+        // The previous logic only captured the queue length the first time we
+        // enqueued work, which meant any follow-up jobs scheduled while the
+        // loader was still visible were ignored. That caused onInitialBuildDone
+        // to fire early, dismissing the loading overlay before all chunks were
+        // built. By updating the total to include newly queued jobs until the
+        // initial build is marked complete, the loading bar now reflects the
+        // full workload and the game waits appropriately.
+        if (!this.initialBuildDone && this.buildQueue.length > 0) {
+            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+            if (pendingJobs > this.initialBuildTotal) {
+                this.initialBuildTotal = pendingJobs;
+            }
         }
     }
 
