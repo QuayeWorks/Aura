@@ -109,7 +109,7 @@ function createScene() {
     dayNightSystem = new DayNightSystem(scene, {
         planetRadius: PLANET_RADIUS_UNITS,
         dayLengthSeconds: 24 * 60,
-        startTimeOfDay: 0.8, // ~9pm
+        startTimeOfDay: 0.875, // ~9pm
         orbitUpDirection: new BABYLON.Vector3(0, 0, 1) // +Z is "up" for your spawn latitude
     });
 
@@ -511,6 +511,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
