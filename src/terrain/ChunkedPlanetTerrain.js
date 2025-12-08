@@ -266,11 +266,6 @@ export class ChunkedPlanetTerrain {
             node: this.rootNode,
             lodLevel: 0
         });
-
-        if (!this.initialBuildDone && this.initialBuildTotal === 0) {
-            this.initialBuildTotal = this.buildQueue.length;
-            this.initialBuildCompleted = 0;
-        }
     }
 
     _onChunkBuilt() {
@@ -463,13 +458,16 @@ export class ChunkedPlanetTerrain {
             const targetLod = leaf.level;
             if (leaf.lastBuiltLod !== targetLod) {
                 this._scheduleNodeRebuild(leaf, targetLod, false);
-                // Capture total jobs for initial build if not set yet
-                if (!this.initialBuildDone && this.initialBuildTotal === 0) {
-                    this.initialBuildTotal = this.buildQueue.length;
-                }
             }
         }
+
+        // Capture total jobs for initial build *after* we've queued all leaf builds
+        if (!this.initialBuildDone && this.initialBuildTotal === 0 && this.buildQueue.length > 0) {
+            this.initialBuildTotal = this.buildQueue.length;
+            this.initialBuildCompleted = 0;
+        }
     }
+
 
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
