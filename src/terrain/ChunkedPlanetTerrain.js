@@ -93,13 +93,13 @@ export class ChunkedPlanetTerrain {
         let desiredLevel;
 
         // Tight high-detail ring around the player.
-        if (dist < baseSize * 0.05) {          // closest area
+        if (dist < baseSize * 0.025) {          // closest area
             desiredLevel = 5;
-        } else if (dist < baseSize * 0.2) {    // still quite near
+        } else if (dist < baseSize * 0.1) {    // still quite near
             desiredLevel = 4;
         } else if (dist < baseSize * 0.4) {    // within ~one base chunk
             desiredLevel = 3;
-        } else if (dist < baseSize * 0.80) {    // mid-distance
+        } else if (dist < baseSize * 0.7) {    // mid-distance
             desiredLevel = 2;
         } else if (dist < baseSize * 1.0) {    // far but still on-screen
             desiredLevel = 1;
