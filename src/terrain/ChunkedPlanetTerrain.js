@@ -5,7 +5,7 @@ import { PlanetQuadtreeNode } from "./PlanetQuadtreeNode.js";
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-        this.maxBuildDistance = 40000;
+        this.maxBuildDistance = 34000;
 
         // Legacy grid options kept for compatibility with callers / HUD
         this.chunkCountX = options.chunkCountX ?? 3;
@@ -93,13 +93,13 @@ export class ChunkedPlanetTerrain {
         let desiredLevel;
 
         // Tight high-detail ring around the player.
-        if (dist < baseSize * 0.10) {          // closest area
+        if (dist < baseSize * 0.05) {          // closest area
             desiredLevel = 5;
         } else if (dist < baseSize * 0.2) {    // still quite near
             desiredLevel = 4;
-        } else if (dist < baseSize * 0.5) {    // within ~one base chunk
+        } else if (dist < baseSize * 0.4) {    // within ~one base chunk
             desiredLevel = 3;
-        } else if (dist < baseSize * 0.70) {    // mid-distance
+        } else if (dist < baseSize * 0.80) {    // mid-distance
             desiredLevel = 2;
         } else if (dist < baseSize * 1.0) {    // far but still on-screen
             desiredLevel = 1;
