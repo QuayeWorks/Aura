@@ -253,20 +253,24 @@ export class ChunkedPlanetTerrain {
         });
     }
 
-    _initializeQuadtree() {
+        _initializeQuadtree() {
         this._disposeQuadtree();
 
         this.chunkOverlap = this.cellSize;
+
+        // Create a fresh root node; no children yet
         this.rootNode = this._createRootNode();
         this.activeLeaves = [this.rootNode];
 
-        // Ensure a terrain instance exists for the root and schedule its build
-        this._ensureTerrainForNode(this.rootNode);
-        this.buildQueue.push({
-            node: this.rootNode,
-            lodLevel: 0
-        });
+        // Reset build bookkeeping
+        this.buildQueue.length = 0;
+
+        // Initial build tracking – nothing queued yet
+        this.initialBuildTotal = 0;
+        this.initialBuildCompleted = 0;
+        this.initialBuildDone = false;
     }
+
 
     _onChunkBuilt() {
         if (this.initialBuildDone || this.initialBuildTotal === 0) {
@@ -374,7 +378,10 @@ export class ChunkedPlanetTerrain {
 
             // Straight-line distance (for view culling)
             const centerDist = BABYLON.Vector3.Distance(focusPosition, center);
-            const onNearSide = this._isChunkOnNearHemisphere(center, focusPosition);
+            const onNearSide = this._isChunkOnNearHemisphere(
+                center,
+                focusPosition
+            );
             const withinView = this._isWithinViewDistance(centerDist);
 
             if (!onNearSide || !withinView) {
@@ -388,17 +395,10 @@ export class ChunkedPlanetTerrain {
             // --- Surface distance along the sphere (arc length) ---
             let surfaceDist = centerDist;
             const planetCenter = BABYLON.Vector3.Zero();
-            let toChunk = center.subtract(planetCenter);
+            const toChunk = center.subtract(planetCenter);
             const toFocus = focusPosition.subtract(planetCenter);
-            let lenChunk = toChunk.length();
+            const lenChunk = toChunk.length();
             const lenFocus = toFocus.length();
-
-            // SPECIAL CASE: root node lives at planet center → no direction.
-            // Treat it as if it points the same way as the player so it can subdivide.
-            if (lenChunk < 1e-3 && lenFocus > 1e-3) {
-                toChunk = toFocus.clone();
-                lenChunk = lenFocus;
-            }
 
             if (lenChunk > 1e-3 && lenFocus > 1e-3) {
                 const dot =
@@ -410,10 +410,13 @@ export class ChunkedPlanetTerrain {
             }
 
             const desiredLod = this._lodForDistance(surfaceDist);
-            const framesSinceChange = this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
+            const framesSinceChange =
+                this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
+            const canChangeLod =
+                framesSinceChange >= this.lodChangeCooldownFrames;
 
-            const canChangeLod = framesSinceChange >= this.lodChangeCooldownFrames;
-            const belowDesired = node.level < desiredLod && node.level < this.lodLevel;
+            const belowDesired =
+                node.level < desiredLod && node.level < this.lodLevel;
             if (belowDesired && node.isLeaf() && canChangeLod) {
                 // Subdivide and reuse the parent terrain later if possible
                 this._releaseNodeTerrain(node);
@@ -434,6 +437,7 @@ export class ChunkedPlanetTerrain {
                 continue;
             }
 
+            // Leaf that should be visible
             newLeaves.push(node);
             stats.totalVisible++;
             if (node.level >= 0 && node.level < stats.perLod.length) {
@@ -447,12 +451,12 @@ export class ChunkedPlanetTerrain {
             if (node.terrain && node.terrain.mesh) {
                 node.terrain.mesh.setEnabled(true);
             }
-
         }
 
         this.activeLeaves = newLeaves;
         this.lastLodStats = stats;
 
+        // Queue builds for any leaves that need them
         for (const leaf of newLeaves) {
             this._ensureTerrainForNode(leaf);
             const targetLod = leaf.level;
@@ -461,8 +465,13 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        // Capture total jobs for initial build *after* we've queued all leaf builds
-        if (!this.initialBuildDone && this.initialBuildTotal === 0 && this.buildQueue.length > 0) {
+        // Capture total jobs for the initial build *once*,
+        // after we've queued the first batch of leaf builds.
+        if (
+            !this.initialBuildDone &&
+            this.initialBuildTotal === 0 &&
+            this.buildQueue.length > 0
+        ) {
             this.initialBuildTotal = this.buildQueue.length;
             this.initialBuildCompleted = 0;
         }
