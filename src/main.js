@@ -304,8 +304,8 @@ function startGame() {
 
     if (!terrain) {
         terrain = new ChunkedPlanetTerrain(scene, {
-            chunkCountX: 16,
-            chunkCountZ: 16,
+            chunkCountX: 8,
+            chunkCountZ: 8,
             baseChunkResolution: 128,
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
@@ -511,6 +511,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
