@@ -273,63 +273,51 @@ export class ChunkedPlanetTerrain {
 
 
     _onChunkBuilt() {
-        // If we have no baseline batch, or we've already finished, ignore.
-        if (this.initialBuildDone || this.initialBuildTotal === 0) {
+        // If we've already fired the callback, don't do anything.
+        if (this.initialBuildDone) {
             return;
         }
 
-        this.initialBuildCompleted++;
+        const stats = this.lastLodStats;
+        const targetLod = Math.min(3, this.lodLevel); // require LOD >= 3
+        const total = stats.totalVisible;
 
-        // First condition: we've finished the initial batch of jobs.
-        if (this.initialBuildCompleted < this.initialBuildTotal) {
+        if (!total) {
             return;
         }
 
-        // Second condition: the terrain near the camera is detailed enough.
-        let nearLod = 0;
-        const focus = this.lastCameraPosition;
-        if (focus && typeof this.getDebugInfo === "function") {
-            const dbg = this.getDebugInfo(focus);
-            if (dbg && dbg.nearestChunk && typeof dbg.nearestChunk.lodLevel === "number") {
-                nearLod = dbg.nearestChunk.lodLevel;
+        let highLodCount = 0;
+        for (let l = targetLod; l < stats.perLod.length; l++) {
+            highLodCount += stats.perLod[l];
+        }
+
+        // Only when *all* visible chunks are LOD >= 3 do we finish.
+        if (highLodCount === total) {
+            this.initialBuildDone = true;
+            if (typeof this.onInitialBuildDone === "function") {
+                this.onInitialBuildDone();
             }
         }
-
-        const requiredLod = Math.min(4, this.lodLevel); // require at least LOD 4 (or max available)
-        if (nearLod < requiredLod) {
-            // We've finished the first batch, but detail isn't high enough yet.
-            // More rebuild jobs will call _onChunkBuilt() again as LOD increases.
-            return;
-        }
-
-        // Both conditions satisfied → initial build is truly done.
-        this.initialBuildDone = true;
-        if (typeof this.onInitialBuildDone === "function") {
-            this.onInitialBuildDone();
-        }
     }
+
 
 
     getInitialBuildProgress() {
-        if (this.initialBuildTotal === 0) return 0;
+        const stats = this.lastLodStats;
+        const targetLod = Math.min(3, this.lodLevel); // we care about LOD >= 3
+        const total = stats.totalVisible;
 
-        const countProgress = this.initialBuildCompleted / this.initialBuildTotal;
+        if (!total) return 0;
 
-        // LOD-based progress: 0..1 based on nearest chunk's lod vs max lod
-        let lodProgress = 0;
-        const focus = this.lastCameraPosition;
-        if (focus && typeof this.getDebugInfo === "function") {
-            const dbg = this.getDebugInfo(focus);
-            if (dbg && dbg.nearestChunk && typeof dbg.nearestChunk.lodLevel === "number") {
-                const nearLod = dbg.nearestChunk.lodLevel;
-                lodProgress = nearLod / Math.max(1, this.lodLevel);
-            }
+        let highLodCount = 0;
+        for (let l = targetLod; l < stats.perLod.length; l++) {
+            highLodCount += stats.perLod[l];
         }
 
-        // Blend: 70% job count, 30% LOD refinement
-        const blended = 0.7 * countProgress + 0.3 * lodProgress;
-        return Math.max(0, Math.min(1, blended));
+        // Fraction of visible chunks that are at LOD >= 3
+        return highLodCount / total;
     }
+
 
 
     _isChunkOnNearHemisphere(chunkCenter, focusPos) {
