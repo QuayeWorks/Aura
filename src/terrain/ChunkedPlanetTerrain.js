@@ -279,7 +279,7 @@ export class ChunkedPlanetTerrain {
         }
 
         const stats = this.lastLodStats;
-        const targetLod = Math.min(3, this.lodLevel); // require LOD >= 3
+        const targetLod = Math.min(1, this.lodLevel); // require LOD >= 1
         const total = stats.totalVisible;
 
         if (!total) {
