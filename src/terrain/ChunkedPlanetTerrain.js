@@ -273,51 +273,63 @@ export class ChunkedPlanetTerrain {
 
 
     _onChunkBuilt() {
-        // If we've already fired the callback, don't do anything.
-        if (this.initialBuildDone) {
+        // If we have no baseline batch, or we've already finished, ignore.
+        if (this.initialBuildDone || this.initialBuildTotal === 0) {
             return;
         }
 
-        const stats = this.lastLodStats;
-        const targetLod = Math.min(1, this.lodLevel); // require LOD >= 1
-        const total = stats.totalVisible;
+        this.initialBuildCompleted++;
 
-        if (!total) {
+        // First condition: we've finished the initial batch of jobs.
+        if (this.initialBuildCompleted < this.initialBuildTotal) {
             return;
         }
 
-        let highLodCount = 0;
-        for (let l = targetLod; l < stats.perLod.length; l++) {
-            highLodCount += stats.perLod[l];
-        }
-
-        // Only when *all* visible chunks are LOD >= 3 do we finish.
-        if (highLodCount === total) {
-            this.initialBuildDone = true;
-            if (typeof this.onInitialBuildDone === "function") {
-                this.onInitialBuildDone();
+        // Second condition: the terrain near the camera is detailed enough.
+        let nearLod = 0;
+        const focus = this.lastCameraPosition;
+        if (focus && typeof this.getDebugInfo === "function") {
+            const dbg = this.getDebugInfo(focus);
+            if (dbg && dbg.nearestChunk && typeof dbg.nearestChunk.lodLevel === "number") {
+                nearLod = dbg.nearestChunk.lodLevel;
             }
         }
-    }
 
+        const requiredLod = Math.min(4, this.lodLevel); // require at least LOD 4 (or max available)
+        if (nearLod < requiredLod) {
+            // We've finished the first batch, but detail isn't high enough yet.
+            // More rebuild jobs will call _onChunkBuilt() again as LOD increases.
+            return;
+        }
+
+        // Both conditions satisfied → initial build is truly done.
+        this.initialBuildDone = true;
+        if (typeof this.onInitialBuildDone === "function") {
+            this.onInitialBuildDone();
+        }
+    }
 
 
     getInitialBuildProgress() {
-        const stats = this.lastLodStats;
-        const targetLod = Math.min(3, this.lodLevel); // we care about LOD >= 3
-        const total = stats.totalVisible;
+        if (this.initialBuildTotal === 0) return 0;
 
-        if (!total) return 0;
+        const countProgress = this.initialBuildCompleted / this.initialBuildTotal;
 
-        let highLodCount = 0;
-        for (let l = targetLod; l < stats.perLod.length; l++) {
-            highLodCount += stats.perLod[l];
+        // LOD-based progress: 0..1 based on nearest chunk's lod vs max lod
+        let lodProgress = 0;
+        const focus = this.lastCameraPosition;
+        if (focus && typeof this.getDebugInfo === "function") {
+            const dbg = this.getDebugInfo(focus);
+            if (dbg && dbg.nearestChunk && typeof dbg.nearestChunk.lodLevel === "number") {
+                const nearLod = dbg.nearestChunk.lodLevel;
+                lodProgress = nearLod / Math.max(1, this.lodLevel);
+            }
         }
 
-        // Fraction of visible chunks that are at LOD >= 3
-        return highLodCount / total;
+        // Blend: 70% job count, 30% LOD refinement
+        const blended = 0.7 * countProgress + 0.3 * lodProgress;
+        return Math.max(0, Math.min(1, blended));
     }
-
 
 
     _isChunkOnNearHemisphere(chunkCenter, focusPos) {
@@ -493,13 +505,20 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        if (
-            !this.initialBuildDone &&
-            this.initialBuildTotal === 0 &&
-            this.buildQueue.length > 0
-        ) {
-            this.initialBuildTotal = this.buildQueue.length;
-            this.initialBuildCompleted = 0;
+        // Track the total amount of work queued for the "initial build" phase.
+        //
+        // The previous logic only captured the queue length the first time we
+        // enqueued work, which meant any follow-up jobs scheduled while the
+        // loader was still visible were ignored. That caused onInitialBuildDone
+        // to fire early, dismissing the loading overlay before all chunks were
+        // built. By updating the total to include newly queued jobs until the
+        // initial build is marked complete, the loading bar now reflects the
+        // full workload and the game waits appropriately.
+        if (!this.initialBuildDone && this.buildQueue.length > 0) {
+            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+            if (pendingJobs > this.initialBuildTotal) {
+                this.initialBuildTotal = pendingJobs;
+            }
         }
     }
 
