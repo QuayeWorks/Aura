@@ -295,6 +295,7 @@ function startGame() {
     if (mainMenuPanel) mainMenuPanel.isVisible = false;
     if (settingsPanel) settingsPanel.isVisible = false;
     if (hudPanel) hudPanel.isVisible = true;
+    // no loading overlay – jump straight into the game
     if (playerInfoText) playerInfoText.isVisible = false;
     if (lodInfoText) lodInfoText.isVisible = false;
 
@@ -341,7 +342,7 @@ function startGame() {
             applyGameVisuals();
             setFirefliesVisible(false);
 
-            if (loadingOverlay) loadingOverlay.isVisible = false;
+            // loading overlay is no longer used
             if (playerInfoText) playerInfoText.isVisible = true;
             if (lodInfoText) lodInfoText.isVisible = true;
             if (hudPanel) hudPanel.isVisible = true;
@@ -353,7 +354,7 @@ function startGame() {
         applyGameVisuals();
         setFirefliesVisible(false);
 
-        if (loadingOverlay) loadingOverlay.isVisible = false;
+        // no loading overlay
         if (playerInfoText) playerInfoText.isVisible = !!player;
         if (lodInfoText) lodInfoText.isVisible = !!player;
         if (hudPanel) hudPanel.isVisible = true;
@@ -396,18 +397,6 @@ engine.runRenderLoop(() => {
         terrain.updateStreaming(focusPos);
     }
 
-    // Loading bar update
-    if (terrain && loadingOverlay && loadingOverlay.isVisible) {
-        if (!terrain.initialBuildDone && terrain.getInitialBuildProgress) {
-            const p = terrain.getInitialBuildProgress();
-            const pct = Math.max(0, Math.min(1, p));
-            loadingPercentText.text = `Generating planet: ${(pct * 100).toFixed(1)}%`;
-            loadingBarFill.width = (pct * 100).toFixed(1) + "%";
-        } else {
-            loadingBarFill.width = "100%";
-            loadingPercentText.text = "Generating planet: 100%";
-        }
-    }
 
     // Update player & HUD
     if (player && gameState === GameState.PLAYING) {
@@ -510,6 +499,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
