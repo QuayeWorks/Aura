@@ -295,7 +295,6 @@ function startGame() {
     if (mainMenuPanel) mainMenuPanel.isVisible = false;
     if (settingsPanel) settingsPanel.isVisible = false;
     if (hudPanel) hudPanel.isVisible = true;
-    if (loadingOverlay) loadingOverlay.isVisible = true;
     if (playerInfoText) playerInfoText.isVisible = false;
     if (lodInfoText) lodInfoText.isVisible = false;
 
