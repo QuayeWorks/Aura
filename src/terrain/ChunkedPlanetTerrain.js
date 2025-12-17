@@ -69,6 +69,16 @@ export class ChunkedPlanetTerrain {
 
         // Build the initial quadtree (replaces the old fixed grid)
         this._initializeQuadtree();
+        
+        // Build de-dupe / in-flight tracking
+        this.queuedJobKeys = new Set();   // jobs waiting in buildQueue
+        this.inFlightJobKeys = new Set(); // jobs currently rebuilding (async)
+
+        this.lodEvalEveryNFrames = options.lodEvalEveryNFrames ?? 3;
+        this.lodEvalMinMove = options.lodEvalMinMove ?? (this.cellSize * 2);
+        this._lastLodEvalPos = null;
+
+
     }
 
     _lodFactorFor(level) {
@@ -391,12 +401,20 @@ export class ChunkedPlanetTerrain {
     }
 
     _scheduleNodeRebuild(node, lodLevel, meshOnly = false) {
-        this.buildQueue.push({
-            node,
-            lodLevel,
-            meshOnly
-        });
+        if (!node) return;
+
+        // If already built at this LOD (and not a meshOnly carve refresh), skip.
+        if (!meshOnly && node.lastBuiltLod === lodLevel) return;
+
+        const key = this._jobKey(node, lodLevel, meshOnly);
+
+        // If queued or currently building, skip.
+        if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
+
+        this.queuedJobKeys.add(key);
+        this.buildQueue.push({ node, lodLevel, meshOnly });
     }
+
 
     _updateQuadtree(focusPosition) {
         if (!this.rootNode) return;
@@ -448,8 +466,8 @@ export class ChunkedPlanetTerrain {
                 const angle = Math.acos(clampedDot); // radians
                 surfaceDist = this.radius * angle;
             }
-
-            const desiredLod = this._lodForDistance(surfaceDist);
+            const desiredRaw = this._lodForDistance(surfaceDist);
+            const desiredLod = this._applyLodHysteresis(node, desiredRaw, surfaceDist);
             const framesSinceChange =
                 this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
             const canChangeLod =
@@ -525,43 +543,73 @@ export class ChunkedPlanetTerrain {
 
     _processBuildQueue(maxPerFrame = 1) {
         let count = 0;
+
         while (count < maxPerFrame && this.buildQueue.length > 0) {
             const job = this.buildQueue.shift();
-            if (!job || !job.node) {
-                continue;
-            }
+            if (!job || !job.node) continue;
 
             const node = job.node;
+            const key = this._jobKey(node, job.lodLevel, job.meshOnly);
+
+            // This job is no longer queued.
+            this.queuedJobKeys.delete(key);
 
             this._ensureTerrainForNode(node);
 
-            if (job.meshOnly) {
-                node.terrain.rebuildMeshOnly();
+            // If something else already built it while queued, skip.
+            if (!job.meshOnly && node.lastBuiltLod === job.lodLevel) {
+                count++;
+                continue;
+            }
+
+            // Mark as in-flight so we don't enqueue duplicates while async running.
+            this.inFlightJobKeys.add(key);
+
+            const finish = () => {
+                if (!job.meshOnly) {
+                    node.lastBuiltLod = job.lodLevel;
+                    this._applyRelevantCarvesToNode(node);
+                }
                 this._tagColliderForTerrain(node.terrain, job.lodLevel);
                 this._onChunkBuilt();
+
+                this.inFlightJobKeys.delete(key);
+            };
+
+            if (job.meshOnly) {
+                try {
+                    node.terrain.rebuildMeshOnly();
+                    finish();
+                } catch (e) {
+                    console.error("Mesh-only rebuild failed:", e);
+                    this.inFlightJobKeys.delete(key);
+                }
                 count++;
                 continue;
             }
 
             const lodDims = this._computeLodDimensions(job.lodLevel, node);
-            const maybePromise = node.terrain.rebuildWithSettings({
-                origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
-                dimX: lodDims.dimX,
-                dimY: lodDims.dimY,
-                dimZ: lodDims.dimZ,
-                cellSize: lodDims.cellSize
-            });
 
-            const finish = () => {
-                node.lastBuiltLod = job.lodLevel;
-                this._applyRelevantCarvesToNode(node);
-                this._tagColliderForTerrain(node.terrain, job.lodLevel);
-                this._onChunkBuilt();
-            };
+            let maybePromise;
+            try {
+                maybePromise = node.terrain.rebuildWithSettings({
+                    origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
+                    dimX: lodDims.dimX,
+                    dimY: lodDims.dimY,
+                    dimZ: lodDims.dimZ,
+                    cellSize: lodDims.cellSize
+                });
+            } catch (e) {
+                console.error("Chunk rebuild threw:", e);
+                this.inFlightJobKeys.delete(key);
+                count++;
+                continue;
+            }
 
             if (maybePromise && typeof maybePromise.then === "function") {
                 maybePromise.then(finish).catch((err) => {
                     console.error("Chunk rebuild failed:", err);
+                    this.inFlightJobKeys.delete(key);
                 });
             } else {
                 finish();
@@ -570,6 +618,7 @@ export class ChunkedPlanetTerrain {
             count++;
         }
     }
+
 
     _nodeIntersectsSphere(node, center, radius) {
         const minX = node.bounds.minX;
@@ -610,10 +659,45 @@ export class ChunkedPlanetTerrain {
             node.terrain.rebuildMeshOnly();
         }
     }
+    
+     _jobKey(node, lodLevel, meshOnly) {
+        // node.id exists (PlanetQuadtreeNode constructed with an id)
+        return `${node.id}|${lodLevel}|${meshOnly ? 1 : 0}`;
+    }
+    _applyLodHysteresis(node, desiredLod, surfaceDist) {
+        // hysteresis width: 15% band. Increase to 25% if still thrashy.
+        const H = 0.15;
 
-    // -------------------------------------------------
-    // Public API used by main.js
-    // -------------------------------------------------
+        // If we haven't stabilized yet, accept the first desired.
+        const stable = (node.stableLod ?? desiredLod);
+
+        // If we want to INCREASE detail (go up), require being clearly inside the band.
+        if (desiredLod > stable) {
+            // “enter” condition: must be noticeably closer than the threshold band
+            // We approximate by requiring a stronger desired signal (surfaceDist smaller).
+            // Practical: allow upgrades immediately.
+            node.stableLod = desiredLod;
+            return desiredLod;
+        }
+
+        // If we want to DECREASE detail (go down), only do it if we’re well past the boundary.
+        if (desiredLod < stable) {
+            // block downgrades unless we moved far enough away since last change
+            const last = node.lastStableSurfaceDist ?? surfaceDist;
+            const grew = surfaceDist > last * (1 + H);
+            if (grew) {
+                node.stableLod = desiredLod;
+                node.lastStableSurfaceDist = surfaceDist;
+                return desiredLod;
+            }
+            return stable;
+        }
+
+        node.stableLod = stable;
+        node.lastStableSurfaceDist = surfaceDist;
+        return stable;
+    }
+
 
     setLodLevel(level) {
         const clamped = Math.max(0, Math.min(5, Math.round(level)));
