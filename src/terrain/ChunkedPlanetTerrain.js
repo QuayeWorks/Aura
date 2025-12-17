@@ -719,10 +719,19 @@ export class ChunkedPlanetTerrain {
                       focusPosition.z
                   );
         }
-
         if (this.lastCameraPosition) {
-            this._updateQuadtree(this.lastCameraPosition);
+            const moved =
+                !this._lastLodEvalPos ||
+                BABYLON.Vector3.Distance(this.lastCameraPosition, this._lastLodEvalPos) >= this.lodEvalMinMove;
+
+            const frameGate = (this.lodUpdateCounter % this.lodEvalEveryNFrames) === 0;
+
+            if (moved && frameGate) {
+                this._updateQuadtree(this.lastCameraPosition);
+                this._lastLodEvalPos = this.lastCameraPosition.clone();
+            }
         }
+
 
         this._processBuildQueue();
     }
