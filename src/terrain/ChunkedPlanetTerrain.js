@@ -78,6 +78,14 @@ export class ChunkedPlanetTerrain {
         this.lodEvalMinMove = options.lodEvalMinMove ?? (this.cellSize * 2);
         this._lastLodEvalPos = null;
 
+        // Budgeted building
+        this.buildBudgetMs = options.buildBudgetMs ?? 6;          // try 4–8ms
+        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 1;
+        
+        // Track active async builds
+        this.activeBuilds = 0;
+
+
 
     }
 
@@ -541,83 +549,106 @@ export class ChunkedPlanetTerrain {
     }
 
 
-    _processBuildQueue(maxPerFrame = 1) {
-        let count = 0;
+_processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
+    const start = (typeof performance !== "undefined" && performance.now)
+        ? performance.now()
+        : Date.now();
 
-        while (count < maxPerFrame && this.buildQueue.length > 0) {
-            const job = this.buildQueue.shift();
-            if (!job || !job.node) continue;
+    const nowMs = () => (typeof performance !== "undefined" && performance.now)
+        ? performance.now()
+        : Date.now();
 
-            const node = job.node;
-            const key = this._jobKey(node, job.lodLevel, job.meshOnly);
+    // Don’t start more work if we’re already saturated with async jobs
+    if (this.activeBuilds >= this.maxConcurrentBuilds) return;
 
-            // This job is no longer queued.
-            this.queuedJobKeys.delete(key);
+    while (this.buildQueue.length > 0) {
+        // Stop if we used our time budget
+        if (nowMs() - start >= budgetMs) return;
 
-            this._ensureTerrainForNode(node);
+        // Respect concurrency limit (important for async rebuilds)
+        if (this.activeBuilds >= this.maxConcurrentBuilds) return;
 
-            // If something else already built it while queued, skip.
-            if (!job.meshOnly && node.lastBuiltLod === job.lodLevel) {
-                count++;
-                continue;
+        const job = this.buildQueue.shift();
+        if (!job || !job.node) continue;
+
+        const node = job.node;
+        const key = this._jobKey(node, job.lodLevel, job.meshOnly);
+
+        // This job is no longer queued.
+        this.queuedJobKeys?.delete(key);
+
+        // Skip if already built (unless meshOnly)
+        if (!job.meshOnly && node.lastBuiltLod === job.lodLevel) {
+            this.inFlightJobKeys?.delete(key);
+            continue;
+        }
+
+        // Skip if already building the same thing
+        if (this.inFlightJobKeys?.has(key)) continue;
+
+        // Mark in-flight and bump concurrency
+        this.inFlightJobKeys?.add(key);
+        this.activeBuilds++;
+
+        this._ensureTerrainForNode(node);
+
+        const finishOk = () => {
+            if (!job.meshOnly) {
+                node.lastBuiltLod = job.lodLevel;
+                this._applyRelevantCarvesToNode(node);
             }
+            this._tagColliderForTerrain(node.terrain, job.lodLevel);
+            this._onChunkBuilt();
 
-            // Mark as in-flight so we don't enqueue duplicates while async running.
-            this.inFlightJobKeys.add(key);
+            this.inFlightJobKeys?.delete(key);
+            this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+        };
 
-            const finish = () => {
-                if (!job.meshOnly) {
-                    node.lastBuiltLod = job.lodLevel;
-                    this._applyRelevantCarvesToNode(node);
-                }
-                this._tagColliderForTerrain(node.terrain, job.lodLevel);
-                this._onChunkBuilt();
+        const finishErr = (err) => {
+            console.error("Chunk rebuild failed:", err);
+            this.inFlightJobKeys?.delete(key);
+            this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+        };
 
-                this.inFlightJobKeys.delete(key);
-            };
-
-            if (job.meshOnly) {
-                try {
-                    node.terrain.rebuildMeshOnly();
-                    finish();
-                } catch (e) {
-                    console.error("Mesh-only rebuild failed:", e);
-                    this.inFlightJobKeys.delete(key);
-                }
-                count++;
-                continue;
-            }
-
-            const lodDims = this._computeLodDimensions(job.lodLevel, node);
-
-            let maybePromise;
+        // Mesh-only builds are synchronous — budget still helps by limiting how many start in this frame
+        if (job.meshOnly) {
             try {
-                maybePromise = node.terrain.rebuildWithSettings({
-                    origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
-                    dimX: lodDims.dimX,
-                    dimY: lodDims.dimY,
-                    dimZ: lodDims.dimZ,
-                    cellSize: lodDims.cellSize
-                });
+                node.terrain.rebuildMeshOnly();
+                finishOk();
             } catch (e) {
-                console.error("Chunk rebuild threw:", e);
-                this.inFlightJobKeys.delete(key);
-                count++;
-                continue;
+                finishErr(e);
             }
+            // continue loop, but budget check at top will stop us if we’re out of time
+            continue;
+        }
 
-            if (maybePromise && typeof maybePromise.then === "function") {
-                maybePromise.then(finish).catch((err) => {
-                    console.error("Chunk rebuild failed:", err);
-                    this.inFlightJobKeys.delete(key);
-                });
-            } else {
-                finish();
-            }
+        // Full rebuild
+        const lodDims = this._computeLodDimensions(job.lodLevel, node);
 
-            count++;
+        let maybePromise;
+        try {
+            maybePromise = node.terrain.rebuildWithSettings({
+                origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
+                dimX: lodDims.dimX,
+                dimY: lodDims.dimY,
+                dimZ: lodDims.dimZ,
+                cellSize: lodDims.cellSize
+            });
+        } catch (e) {
+            finishErr(e);
+            continue;
+        }
+
+        // If async, it won’t block the frame; we just return to let future frames schedule more
+        if (maybePromise && typeof maybePromise.then === "function") {
+            maybePromise.then(finishOk).catch(finishErr);
+        } else {
+            // If synchronous, this call already happened (and may have spiked)
+            finishOk();
         }
     }
+}
+
 
 
     _nodeIntersectsSphere(node, center, radius) {
@@ -733,7 +764,7 @@ export class ChunkedPlanetTerrain {
         }
 
 
-        this._processBuildQueue();
+         this._processBuildQueueBudgeted(this.buildBudgetMs);
     }
 
     carveSphere(worldPos, radius) {
