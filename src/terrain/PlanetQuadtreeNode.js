@@ -12,10 +12,23 @@ export class PlanetQuadtreeNode {
         this.bounds = bounds; // { minX, maxX, minY, maxY, minZ, maxZ }
         this.parent = parent;
         this.children = [];
-        this.terrain = null; // MarchingCubesTerrain instance when leaf
+
+        // Terrain + build state
+        this.terrain = null;                 // MarchingCubesTerrain instance when leaf
+        this.lastBuiltLod = null;             // LOD actually built on GPU
+        this.currentLod = null;               // LOD currently considered "active"
+        this.targetLod = null;                // LOD streaming system wants
+        this.isBuilding = false;              // Prevent duplicate rebuilds
+
+        // Stability / anti-thrash
         this.lastLodChangeFrame = 0;
-        this.lastBuiltLod = null;
+        this.lastStableSurfaceDist = Infinity;
+        this.stableLod = null;
+
+        // Lifetime tracking (LRU / residency)
+        this.lastTouchedFrame = 0;
     }
+
 
     isLeaf() {
         return this.children.length === 0;
@@ -85,9 +98,18 @@ export class PlanetQuadtreeNode {
             if (child.terrain) {
                 onReleaseTerrain?.(child);
             }
+
+            // Fully reset child state
             child.terrain = null;
             child.children = [];
+            child.isBuilding = false;
+            child.lastBuiltLod = null;
+            child.currentLod = null;
+            child.targetLod = null;
+            child.stableLod = null;
         }
+
         this.children = [];
     }
+
 }
