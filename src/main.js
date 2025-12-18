@@ -80,8 +80,8 @@ function createScene() {
     mainCamera.lowerBetaLimit = 0.15;
     mainCamera.upperBetaLimit = Math.PI / 2.1;
     mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
-    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.004;
-    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.007;
+    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.001;
+    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
     mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
 
     // Lights for menu + in-game
@@ -365,8 +365,8 @@ function startGame() {
             mainCamera.lowerBetaLimit = 0.15;
             mainCamera.upperBetaLimit = Math.PI / 2.1;
             mainCamera.checkCollisions = false;
-            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
-            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.005;
+            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.001;
+            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
         }
 
         gameState = GameState.PLAYING;
@@ -499,6 +499,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
