@@ -304,8 +304,8 @@ function startGame() {
 
     if (!terrain) {
         terrain = new ChunkedPlanetTerrain(scene, {
-            chunkCountX: 32,
-            chunkCountZ: 32,
+            chunkCountX: 16,
+            chunkCountZ: 16,
             baseChunkResolution: 128,
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
@@ -317,10 +317,10 @@ function startGame() {
             // Create player on planet surface
             player = new PlanetPlayer(scene, terrain, {
                 planetRadius: PLANET_RADIUS_UNITS + 500,
-                walkSpeed: 4,
-                runSpeed: 22,
-                height: 5,
-                radius: 1
+                walkSpeed: 2,
+                runSpeed: 11,
+                height: 2,
+                radius: 0.5
             });
 
             if (mainCamera && player && player.mesh) {
@@ -499,6 +499,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
