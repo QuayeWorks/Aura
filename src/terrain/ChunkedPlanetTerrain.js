@@ -595,7 +595,6 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         const finishOk = () => {
             if (!job.meshOnly) {
                 node.lastBuiltLod = job.lodLevel;
-                this._applyRelevantCarvesToNode(node);
             }
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
             this._onChunkBuilt();
@@ -675,21 +674,45 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         return (dx * dx + dy * dy + dz * dz) <= radius * radius;
     }
 
+    _collectCarvesForNode(node) {
+    if (!this.carveHistory || this.carveHistory.length === 0 || !node) return [];
+
+    const out = [];
+
+    // Node AABB
+    const b = node.bounds;
+
+    for (const op of this.carveHistory) {
+        // op.position might be a BABYLON.Vector3 in your history.
+        const px = op.position.x;
+        const py = op.position.y;
+        const pz = op.position.z;
+        const r = op.radius;
+
+        // AABB-sphere intersection (fast)
+        const cx = Math.max(b.minX, Math.min(px, b.maxX));
+        const cy = Math.max(b.minY, Math.min(py, b.maxY));
+        const cz = Math.max(b.minZ, Math.min(pz, b.maxZ));
+
+        const dx = px - cx;
+        const dy = py - cy;
+        const dz = pz - cz;
+
+        if ((dx * dx + dy * dy + dz * dz) > (r * r)) continue;
+
+        // IMPORTANT: return plain object for worker (structured clone safe)
+        out.push({
+            position: { x: px, y: py, z: pz },
+            radius: r
+        });
+    }
+
+    return out;
+}
+
+
     _applyRelevantCarvesToNode(node) {
-        if (!this.carveHistory.length || !node || !node.terrain) return;
 
-        let touched = false;
-        for (const op of this.carveHistory) {
-            if (!this._nodeIntersectsSphere(node, op.position, op.radius)) {
-                continue;
-            }
-            node.terrain.carveSphere(op.position, op.radius, { deferRebuild: true });
-            touched = true;
-        }
-
-        if (touched) {
-            node.terrain.rebuildMeshOnly();
-        }
     }
     
      _jobKey(node, lodLevel, meshOnly) {
