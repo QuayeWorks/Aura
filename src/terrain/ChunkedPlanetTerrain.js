@@ -44,7 +44,7 @@ export class ChunkedPlanetTerrain {
         this.inFlightJobKeys = new Set();
 
         this.buildBudgetMs = options.buildBudgetMs ?? 6; // ms budget per frame
-        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 20;
+        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 1;
         this.activeBuilds = 0;
 
 
