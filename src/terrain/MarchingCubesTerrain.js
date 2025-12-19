@@ -12,7 +12,7 @@ function ensureFieldWorker() {
 
     // Worker lives next to this file
     FIELD_WORKER = new Worker(
-        new URL("./terrainFieldWorker.js", import.meta.url),
+        new URL("./workers/terrainFieldWorker.js", import.meta.url),
         { type: "module" }
     );
 
@@ -78,7 +78,7 @@ function ensureMeshWorker() {
     if (MESH_WORKER) return MESH_WORKER;
 
     MESH_WORKER = new Worker(
-        new URL("./terrainMeshWorker.js", import.meta.url),
+        new URL("./workers/terrainMeshWorker.js", import.meta.url),
         { type: "module" }
     );
 
