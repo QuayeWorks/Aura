@@ -62,6 +62,8 @@ export class ChunkedPlanetTerrain {
         this.onInitialBuildDone = null;
 
         this.lastCameraPosition = null;
+        
+        this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
 
         this.lastLodStats = {
             totalVisible: 0,
@@ -522,14 +524,34 @@ export class ChunkedPlanetTerrain {
         this.activeLeaves = newLeaves;
         this.lastLodStats = stats;
 
-        // Queue builds for any leaves that need them
+        // Queue builds for any leaves that need them (progressive refinement)
         for (const leaf of newLeaves) {
             this._ensureTerrainForNode(leaf);
-            const targetLod = leaf.level;
-            if (leaf.lastBuiltLod !== targetLod) {
-                this._scheduleNodeRebuild(leaf, targetLod, {});
+        
+            const desiredLod = leaf.level;               // leaf.level is your stabilized target
+            const built = (leaf.lastBuiltLod ?? null);   // null means never built
+        
+            // First time this leaf becomes visible: build LOD 1 first (fast), then refine.
+            if (built === null) {
+                const coarse = Math.min(this.initialCoarseLod ?? 1, desiredLod);
+        
+                this._scheduleNodeRebuild(leaf, coarse, {});
+        
+                if (desiredLod > coarse) {
+                    this._scheduleNodeRebuild(leaf, desiredLod, {});
+                }
+        
+                continue;
             }
+        
+            // Already built: only upgrade progressively (no downgrades here)
+            if (desiredLod > built) {
+                this._scheduleNodeRebuild(leaf, desiredLod, {});
+            }
+        
+            // If desiredLod < built: do nothing (stickiness). Downgrades should happen via eviction/memory policy later.
         }
+
 
         // Track the total amount of work queued for the "initial build" phase.
         //
