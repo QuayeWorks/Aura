@@ -6,6 +6,53 @@ let FIELD_WORKER = null;
 let FIELD_JOB_ID = 0;
 const FIELD_JOB_PROMISES = new Map();
 
+// --- Web Worker for FULL mesh extraction (field + marching cubes) ---
+let MESH_WORKER = null;
+let MESH_JOB_ID = 0;
+const MESH_JOB_PROMISES = new Map();
+
+function ensureMeshWorker() {
+    if (typeof Worker === "undefined") return null;
+    if (MESH_WORKER) return MESH_WORKER;
+
+    MESH_WORKER = new Worker(
+        new URL("./workers/terrainMeshWorker.js", import.meta.url),
+        { type: "module" }
+    );
+
+    MESH_WORKER.onmessage = (e) => {
+        const msg = e.data;
+        if (!msg || typeof msg.id === "undefined") return;
+
+        const entry = MESH_JOB_PROMISES.get(msg.id);
+        if (!entry) return;
+        MESH_JOB_PROMISES.delete(msg.id);
+
+        if (msg.type === "meshDone") entry.resolve(msg);
+        else if (msg.type === "meshError") entry.reject(new Error(msg.message || "Worker mesh error"));
+    };
+
+    MESH_WORKER.onerror = (err) => {
+        for (const [, entry] of MESH_JOB_PROMISES) entry.reject(err);
+        MESH_JOB_PROMISES.clear();
+    };
+
+    return MESH_WORKER;
+}
+
+function buildMeshAsync(payload) {
+    const worker = ensureMeshWorker();
+    if (!worker) return Promise.reject(new Error("Web Worker not available"));
+
+    const id = ++MESH_JOB_ID;
+
+    return new Promise((resolve, reject) => {
+        MESH_JOB_PROMISES.set(id, { resolve, reject });
+        worker.postMessage({ type: "buildMesh", id, ...payload });
+    });
+}
+
+
 function ensureFieldWorker() {
     if (typeof Worker === "undefined") return null;
     if (FIELD_WORKER) return FIELD_WORKER;
@@ -457,6 +504,44 @@ export class MarchingCubesTerrain {
         }
     }
 
+	_applyMeshBuffers(positions, normals, indices, colors) {
+    if (!positions || positions.length === 0 || !indices || indices.length === 0) {
+        if (this.mesh) this.mesh.setEnabled(false);
+        return;
+    }
+
+    const vd = new BABYLON.VertexData();
+    vd.positions = Array.from(positions);
+    vd.normals   = Array.from(normals);
+    vd.indices   = Array.from(indices);
+    vd.colors    = Array.from(colors);
+
+    if (!this.mesh) {
+        this.mesh = new BABYLON.Mesh("marchingCubesTerrain", this.scene);
+
+        if (!this.material) {
+            this.material = new BABYLON.StandardMaterial("terrainMat", this.scene);
+            this.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
+            this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            this.material.backFaceCulling = false;
+        }
+
+        this.mesh.material = this.material;
+    } else {
+        this.mesh.setEnabled(true);
+    }
+
+    if (this.mesh.material) this.mesh.material.useVertexColors = true;
+
+    this.mesh.isPickable = true;
+    this.mesh.checkCollisions = true;
+    this.mesh.metadata = this.mesh.metadata || {};
+    this.mesh.metadata.isVoxelTerrain = true;
+    this.mesh.metadata.isTerrain = true;
+
+    vd.applyToMesh(this.mesh, true);
+}
+
     // Index helper into 1D field array
     _index(x, y, z) {
         return x + this.dimX * (y + this.dimY * z);
@@ -696,67 +781,12 @@ export class MarchingCubesTerrain {
     // Public: carve out a ball of emptiness at worldPos
     // options.deferRebuild === true  => only change field, caller will rebuild mesh
     carveSphere(worldPos, radius, options = {}) {
-        const deferRebuild = !!options.deferRebuild;
-        const r2 = radius * radius;
 
-        // Compute the bounds of the sphere in local grid coordinates
-        const minX = Math.max(
-            0,
-            Math.floor((worldPos.x - radius - this.origin.x) / this.cellSize)
-        );
-        const maxX = Math.min(
-            this.dimX - 1,
-            Math.ceil((worldPos.x + radius - this.origin.x) / this.cellSize)
-        );
-
-        const minY = Math.max(
-            0,
-            Math.floor((worldPos.y - radius - this.origin.y) / this.cellSize)
-        );
-        const maxY = Math.min(
-            this.dimY - 1,
-            Math.ceil((worldPos.y + radius - this.origin.y) / this.cellSize)
-        );
-
-        const minZ = Math.max(
-            0,
-            Math.floor((worldPos.z - radius - this.origin.z) / this.cellSize)
-        );
-        const maxZ = Math.min(
-            this.dimZ - 1,
-            Math.ceil((worldPos.z + radius - this.origin.z) / this.cellSize)
-        );
-
-        for (let z = minZ; z <= maxZ; z++) {
-            for (let y = minY; y <= maxY; y++) {
-                for (let x = minX; x <= maxX; x++) {
-                    const idx = this._index(x, y, z);
-                    const pos = this.origin.add(
-                        new BABYLON.Vector3(
-                            x * this.cellSize,
-                            y * this.cellSize,
-                            z * this.cellSize
-                        )
-                    );
-
-                    const d2 = BABYLON.Vector3.DistanceSquared(pos, worldPos);
-
-                    // If we’re inside the carving sphere, push field to positive (empty)
-                    if (d2 <= r2 && this.field[idx] < this.isoLevel) {
-                        this.field[idx] = this.isoLevel + 0.01;
-                    }
-                }
-            }
-        }
-
-        if (!deferRebuild) {
-            this._buildMesh();
-        }
     }
 
     // Rebuild mesh from current field without touching the field
     rebuildMeshOnly() {
-        this._buildMesh();
+
     }
 
 
@@ -1036,57 +1066,54 @@ export class MarchingCubesTerrain {
     // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
     // If this.useWorker is true, this may return a Promise that resolves
     // when the worker has finished building the field + mesh.
-    rebuildWithSettings(settings) {
-        // Update core parameters
-        if (settings.dimX && settings.dimY && settings.dimZ) {
-            this.dimX = settings.dimX;
-            this.dimY = settings.dimY;
-            this.dimZ = settings.dimZ;
-        }
+	rebuildWithSettings(settings) {
+	    if (settings.dimX && settings.dimY && settings.dimZ) {
+	        this.dimX = settings.dimX;
+	        this.dimY = settings.dimY;
+	        this.dimZ = settings.dimZ;
+	    }
+	    if (settings.cellSize) this.cellSize = settings.cellSize;
+	    if (settings.origin) {
+	        this.origin = settings.origin.clone
+	            ? settings.origin.clone()
+	            : new BABYLON.Vector3(settings.origin.x, settings.origin.y, settings.origin.z);
+	    }
+	
+	    // NEW: carves passed in from ChunkedPlanetTerrain
+	    this.carves = settings.carves || this.carves || [];
+	    this._buildVersion = (this._buildVersion || 0) + 1;
+	    const myVersion = this._buildVersion;
+	
+	    if (this.useWorker && typeof Worker !== "undefined") {
+	        return buildMeshAsync({
+	            version: myVersion,
+	            dimX: this.dimX,
+	            dimY: this.dimY,
+	            dimZ: this.dimZ,
+	            cellSize: this.cellSize,
+	            radius: this.radius,
+	            isoLevel: this.isoLevel,
+	            origin: { x: this.origin.x, y: this.origin.y, z: this.origin.z },
+	            carves: this.carves,           // [{position:{x,y,z}, radius}]
+	            wantColors: true
+	        })
+	        .then((msg) => {
+	            // Version gate: ignore stale results
+	            if (msg.version !== this._buildVersion) return;
+	            this._applyMeshBuffers(msg.positions, msg.normals, msg.indices, msg.colors);
+	        })
+	        .catch((err) => {
+	            console.error("Mesh worker rebuild failed, falling back:", err);
+	            this._buildInitialField();
+	            this._buildMesh();
+	        });
+	    } else {
+	        this._buildInitialField();
+	        this._buildMesh();
+	        return null;
+	    }
+	}
 
-        if (settings.cellSize) {
-            this.cellSize = settings.cellSize;
-        }
-
-        if (settings.origin) {
-            this.origin = settings.origin.clone
-                ? settings.origin.clone()
-                : new BABYLON.Vector3(
-                      settings.origin.x,
-                      settings.origin.y,
-                      settings.origin.z
-                  );
-        }
-
-        // Recreate field for new resolution
-        this.field = new Float32Array(this.dimX * this.dimY * this.dimZ);
-
-        if (this.useWorker && typeof Worker !== "undefined") {
-            // Async path: build field in worker, then build mesh on main thread
-            return buildFieldAsync(
-                this.dimX,
-                this.dimY,
-                this.dimZ,
-                this.cellSize,
-                this.radius,
-                this.origin
-            )
-                .then((field) => {
-                    this.field = field;
-                    this._buildMesh();
-                })
-                .catch((err) => {
-                    console.error("Worker rebuild failed, falling back:", err);
-                    this._buildInitialField();
-                    this._buildMesh();
-                });
-        } else {
-            // Synchronous CPU path
-            this._buildInitialField();
-            this._buildMesh();
-            return null;
-        }
-    }
 
 
     // Rebuild this chunk at a new world-space origin (used by streaming).
