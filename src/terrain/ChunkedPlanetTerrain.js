@@ -680,16 +680,7 @@ _collectCarvesForNode(node) {
         // Carves are applied in the mesh worker via settings.carves.
         // Intentionally a no-op.
     }
-            node.terrain.carveSphere(op.position, op.radius, { deferRebuild: true });
-            touched = true;
-        }
-
-        if (touched) {
-            node.terrain.rebuildMeshOnly();
-        }
-    }
-
-    // -------------------------------------------------
+// -------------------------------------------------
     // Public API used by main.js
     // -------------------------------------------------
 
