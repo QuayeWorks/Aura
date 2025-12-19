@@ -318,7 +318,7 @@ function startGame() {
             player = new PlanetPlayer(scene, terrain, {
                 planetRadius: PLANET_RADIUS_UNITS + 500,
                 walkSpeed: 2,
-                runSpeed: 11,
+                runSpeed: 55,
                 height: 2,
                 radius: 0.35
             });
@@ -499,6 +499,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
