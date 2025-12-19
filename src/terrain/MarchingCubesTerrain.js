@@ -596,8 +596,6 @@ _applyMeshBuffers(positions, normals, indices, colors) {
 
     this.mesh.isPickable = true;
     this.mesh.checkCollisions = true;
-	this.mesh.cullingStrategy = BABYLON.AbstractMesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
-	this.mesh.refreshBoundingInfo(true);
     this.mesh.metadata = this.mesh.metadata || {};
     this.mesh.metadata.isVoxelTerrain = true;
     this.mesh.metadata.isTerrain = true;
