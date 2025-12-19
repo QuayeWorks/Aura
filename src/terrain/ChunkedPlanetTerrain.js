@@ -39,6 +39,10 @@ export class ChunkedPlanetTerrain {
         this.carveHistory = [];
         this.carveRevision = 0; // increments when carve history changes
 
+        // Build de-dupe / in-flight tracking
+        this.queuedJobKeys = new Set();
+        this.inFlightJobKeys = new Set();
+
         this.buildBudgetMs = options.buildBudgetMs ?? 6; // ms budget per frame
         this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 1;
         this.activeBuilds = 0;
@@ -403,7 +407,6 @@ export class ChunkedPlanetTerrain {
 }
 
     _scheduleNodeRebuild(node, lodLevel, options = {}) {
-    if (!options || typeof options !== 'object') options = {};
     if (!node) return;
 
     const force = !!options.force;
