@@ -396,6 +396,12 @@ export class ChunkedPlanetTerrain {
         node.lastBuiltLod = null;
     }
 
+    _jobKey(node, lodLevel, carveRevision = 0) {
+    // Ensure node has a stable id (your PlanetQuadtreeNode already has .id in your setup)
+    const id = (node && node.id != null) ? node.id : "noid";
+    return `${id}|lod:${lodLevel}|carve:${carveRevision}`;
+}
+
     _scheduleNodeRebuild(node, lodLevel, options = {}) {
     if (!node) return;
 
