@@ -403,6 +403,7 @@ export class ChunkedPlanetTerrain {
 }
 
     _scheduleNodeRebuild(node, lodLevel, options = {}) {
+    if (!options || typeof options !== 'object') options = {};
     if (!node) return;
 
     const force = !!options.force;
@@ -523,7 +524,7 @@ export class ChunkedPlanetTerrain {
             this._ensureTerrainForNode(leaf);
             const targetLod = leaf.level;
             if (leaf.lastBuiltLod !== targetLod) {
-                this._scheduleNodeRebuild(leaf, targetLod, false);
+                this._scheduleNodeRebuild(leaf, targetLod, {});
             }
         }
 
