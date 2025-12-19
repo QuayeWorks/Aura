@@ -55,6 +55,38 @@ let uiState = null;
 // Timing
 let lastFrameTime = performance.now();
 
+// --- Camera anti-clipping (ArcRotate spring arm) ---
+const CAM_PAD = 0.8;      // stay this far away from terrain
+const CAM_SMOOTH = 0.25;  // 0..1 (higher = snappier)
+
+function clampArcRotateRadiusAgainstTerrain(scene, camera, targetPos) {
+    if (!scene || !camera || !targetPos) return;
+
+    // Desired camera position given current alpha/beta/radius
+    const desiredPos = camera.position.clone();
+    const origin = targetPos.clone();
+
+    const toCam = desiredPos.subtract(origin);
+    const desiredDist = toCam.length();
+    if (desiredDist < 1e-3) return;
+
+    const dir = toCam.scale(1 / desiredDist);
+
+    // Raycast from target -> camera
+    const ray = new BABYLON.Ray(origin, dir, desiredDist + 2.0);
+
+    // Only collide with terrain meshes (your terrain sets metadata.isTerrain = true)
+    const hit = scene.pickWithRay(ray, (m) => !!(m && m.isPickable && m.metadata && m.metadata.isTerrain));
+
+    let targetRadius = desiredDist;
+    if (hit && hit.hit) {
+        targetRadius = Math.max(camera.lowerRadiusLimit ?? 1.0, hit.distance - CAM_PAD);
+    }
+
+    // Smooth radius changes to avoid jitter
+    camera.radius = BABYLON.Scalar.Lerp(camera.radius, targetRadius, CAM_SMOOTH);
+}
+
 function createScene() {
     scene = new BABYLON.Scene(engine);
 
@@ -402,6 +434,21 @@ engine.runRenderLoop(() => {
     if (player && gameState === GameState.PLAYING) {
         if (dtSeconds > 0) {
             player.update(dtSeconds);
+            // === CAMERA TERRAIN CLIP PREVENTION (ADD THIS BLOCK) ===
+            if (mainCamera && player.mesh) {
+                // Player "head" position (planet-aware up)
+                const up = player.mesh.position.clone();
+                if (up.lengthSquared() > 0) up.normalize();
+    
+                const headPos = player.mesh.position.add(up.scale(2.0)); // tweak height if needed
+    
+                clampArcRotateRadiusAgainstTerrain(
+                    scene,
+                    mainCamera,
+                    headPos
+                );
+            }
+            // === END CAMERA FIX ===
         }
 
         if (playerInfoText && player.mesh) {
@@ -499,6 +546,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
