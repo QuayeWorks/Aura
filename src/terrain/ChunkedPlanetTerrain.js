@@ -37,6 +37,12 @@ export class ChunkedPlanetTerrain {
         this.terrainPool = [];
         this.buildQueue = [];
         this.carveHistory = [];
+        this.carveRevision = 0; // increments when carve history changes
+
+        this.buildBudgetMs = options.buildBudgetMs ?? 6; // ms budget per frame
+        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 1;
+        this.activeBuilds = 0;
+
 
         // Cached world-space chunk metrics
         this.chunkWorldSizeX = 0;
@@ -69,24 +75,6 @@ export class ChunkedPlanetTerrain {
 
         // Build the initial quadtree (replaces the old fixed grid)
         this._initializeQuadtree();
-        
-        // Build de-dupe / in-flight tracking
-        this.queuedJobKeys = new Set();   // jobs waiting in buildQueue
-        this.inFlightJobKeys = new Set(); // jobs currently rebuilding (async)
-
-        this.lodEvalEveryNFrames = options.lodEvalEveryNFrames ?? 3;
-        this.lodEvalMinMove = options.lodEvalMinMove ?? (this.cellSize * 2);
-        this._lastLodEvalPos = null;
-
-        // Budgeted building
-        this.buildBudgetMs = options.buildBudgetMs ?? 6;          // try 4–8ms
-        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 1;
-        
-        // Track active async builds
-        this.activeBuilds = 0;
-
-
-
     }
 
     _lodFactorFor(level) {
@@ -408,21 +396,23 @@ export class ChunkedPlanetTerrain {
         node.lastBuiltLod = null;
     }
 
-    _scheduleNodeRebuild(node, lodLevel, meshOnly = false) {
-        if (!node) return;
+    _scheduleNodeRebuild(node, lodLevel, options = {}) {
+    if (!node) return;
 
-        // If already built at this LOD (and not a meshOnly carve refresh), skip.
-        if (!meshOnly && node.lastBuiltLod === lodLevel) return;
+    const force = !!options.force;
+    const revision = this.carveRevision;
 
-        const key = this._jobKey(node, lodLevel, meshOnly);
+    // Skip if already built for this revision & LOD (unless forced)
+    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revision) return;
 
-        // If queued or currently building, skip.
-        if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
+    const key = this._jobKey(node, lodLevel, revision);
 
-        this.queuedJobKeys.add(key);
-        this.buildQueue.push({ node, lodLevel, meshOnly });
-    }
+    // If queued or currently building, skip.
+    if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
 
+    this.queuedJobKeys.add(key);
+    this.buildQueue.push({ node, lodLevel, revision, force });
+}
 
     _updateQuadtree(focusPosition) {
         if (!this.rootNode) return;
@@ -474,8 +464,8 @@ export class ChunkedPlanetTerrain {
                 const angle = Math.acos(clampedDot); // radians
                 surfaceDist = this.radius * angle;
             }
-            const desiredRaw = this._lodForDistance(surfaceDist);
-            const desiredLod = this._applyLodHysteresis(node, desiredRaw, surfaceDist);
+
+            const desiredLod = this._lodForDistance(surfaceDist);
             const framesSinceChange =
                 this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
             const canChangeLod =
@@ -549,79 +539,63 @@ export class ChunkedPlanetTerrain {
     }
 
 
+    _processBuildQueue(maxPerFrame = 1) {
+    // Legacy signature kept; internally we use a time budget.
+    this._processBuildQueueBudgeted(this.buildBudgetMs);
+}
+
 _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
-    const start = (typeof performance !== "undefined" && performance.now)
-        ? performance.now()
-        : Date.now();
+    const start = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
 
-    const nowMs = () => (typeof performance !== "undefined" && performance.now)
-        ? performance.now()
-        : Date.now();
-
-    // Don’t start more work if we’re already saturated with async jobs
+    // Respect async concurrency limit
     if (this.activeBuilds >= this.maxConcurrentBuilds) return;
 
     while (this.buildQueue.length > 0) {
-        // Stop if we used our time budget
         if (nowMs() - start >= budgetMs) return;
-
-        // Respect concurrency limit (important for async rebuilds)
         if (this.activeBuilds >= this.maxConcurrentBuilds) return;
 
         const job = this.buildQueue.shift();
         if (!job || !job.node) continue;
 
         const node = job.node;
-        const key = this._jobKey(node, job.lodLevel, job.meshOnly);
+        const revision = job.revision ?? this.carveRevision;
+        const key = this._jobKey(node, job.lodLevel, revision);
 
-        // This job is no longer queued.
-        this.queuedJobKeys?.delete(key);
+        // This job is no longer queued
+        this.queuedJobKeys.delete(key);
 
-        // Skip if already built (unless meshOnly)
-        if (!job.meshOnly && node.lastBuiltLod === job.lodLevel) {
-            this.inFlightJobKeys?.delete(key);
+        // Ensure terrain instance exists
+        this._ensureTerrainForNode(node);
+
+        // If already built for this revision & LOD (unless forced), skip
+        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision) {
             continue;
         }
 
-        // Skip if already building the same thing
-        if (this.inFlightJobKeys?.has(key)) continue;
+        // Prevent duplicates while in-flight
+        if (this.inFlightJobKeys.has(key)) continue;
+        this.inFlightJobKeys.add(key);
 
-        // Mark in-flight and bump concurrency
-        this.inFlightJobKeys?.add(key);
         this.activeBuilds++;
 
-        this._ensureTerrainForNode(node);
-
         const finishOk = () => {
-            if (!job.meshOnly) {
-                node.lastBuiltLod = job.lodLevel;
-            }
+            node.lastBuiltLod = job.lodLevel;
+            node.lastBuiltRevision = revision;
+
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
             this._onChunkBuilt();
 
-            this.inFlightJobKeys?.delete(key);
+            this.inFlightJobKeys.delete(key);
             this.activeBuilds = Math.max(0, this.activeBuilds - 1);
         };
 
         const finishErr = (err) => {
             console.error("Chunk rebuild failed:", err);
-            this.inFlightJobKeys?.delete(key);
+            this.inFlightJobKeys.delete(key);
             this.activeBuilds = Math.max(0, this.activeBuilds - 1);
         };
 
-        // Mesh-only builds are synchronous — budget still helps by limiting how many start in this frame
-        if (job.meshOnly) {
-            try {
-                node.terrain.rebuildMeshOnly();
-                finishOk();
-            } catch (e) {
-                finishErr(e);
-            }
-            // continue loop, but budget check at top will stop us if we’re out of time
-            continue;
-        }
-
-        // Full rebuild
         const lodDims = this._computeLodDimensions(job.lodLevel, node);
 
         let maybePromise;
@@ -632,23 +606,52 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
                 cellSize: lodDims.cellSize,
-                carves: this._collectCarvesForNode(node) // filter carveHistory by node bounds
+                carves: this._collectCarvesForNode(node)
             });
         } catch (e) {
             finishErr(e);
             continue;
         }
 
-        // If async, it won’t block the frame; we just return to let future frames schedule more
         if (maybePromise && typeof maybePromise.then === "function") {
             maybePromise.then(finishOk).catch(finishErr);
         } else {
-            // If synchronous, this call already happened (and may have spiked)
             finishOk();
         }
     }
 }
 
+
+_collectCarvesForNode(node) {
+    if (!this.carveHistory || this.carveHistory.length === 0 || !node) return [];
+
+    const out = [];
+    const b = node.bounds;
+
+    for (const op of this.carveHistory) {
+        const px = op.position.x;
+        const py = op.position.y;
+        const pz = op.position.z;
+        const r = op.radius;
+
+        const cx = Math.max(b.minX, Math.min(px, b.maxX));
+        const cy = Math.max(b.minY, Math.min(py, b.maxY));
+        const cz = Math.max(b.minZ, Math.min(pz, b.maxZ));
+
+        const dx = px - cx;
+        const dy = py - cy;
+        const dz = pz - cz;
+
+        if ((dx * dx + dy * dy + dz * dz) > (r * r)) continue;
+
+        out.push({
+            position: { x: px, y: py, z: pz },
+            radius: r
+        });
+    }
+
+    return out;
+}
 
 
     _nodeIntersectsSphere(node, center, radius) {
@@ -673,86 +676,22 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
 
         return (dx * dx + dy * dy + dz * dz) <= radius * radius;
     }
-
-    _collectCarvesForNode(node) {
-    if (!this.carveHistory || this.carveHistory.length === 0 || !node) return [];
-
-    const out = [];
-
-    // Node AABB
-    const b = node.bounds;
-
-    for (const op of this.carveHistory) {
-        // op.position might be a BABYLON.Vector3 in your history.
-        const px = op.position.x;
-        const py = op.position.y;
-        const pz = op.position.z;
-        const r = op.radius;
-
-        // AABB-sphere intersection (fast)
-        const cx = Math.max(b.minX, Math.min(px, b.maxX));
-        const cy = Math.max(b.minY, Math.min(py, b.maxY));
-        const cz = Math.max(b.minZ, Math.min(pz, b.maxZ));
-
-        const dx = px - cx;
-        const dy = py - cy;
-        const dz = pz - cz;
-
-        if ((dx * dx + dy * dy + dz * dz) > (r * r)) continue;
-
-        // IMPORTANT: return plain object for worker (structured clone safe)
-        out.push({
-            position: { x: px, y: py, z: pz },
-            radius: r
-        });
-    }
-
-    return out;
-}
-
-
     _applyRelevantCarvesToNode(node) {
-
+        // Carves are applied in the mesh worker via settings.carves.
+        // Intentionally a no-op.
     }
-    
-     _jobKey(node, lodLevel, meshOnly) {
-        // node.id exists (PlanetQuadtreeNode constructed with an id)
-        return `${node.id}|${lodLevel}|${meshOnly ? 1 : 0}`;
-    }
-    _applyLodHysteresis(node, desiredLod, surfaceDist) {
-        // hysteresis width: 15% band. Increase to 25% if still thrashy.
-        const H = 0.15;
-
-        // If we haven't stabilized yet, accept the first desired.
-        const stable = (node.stableLod ?? desiredLod);
-
-        // If we want to INCREASE detail (go up), require being clearly inside the band.
-        if (desiredLod > stable) {
-            // “enter” condition: must be noticeably closer than the threshold band
-            // We approximate by requiring a stronger desired signal (surfaceDist smaller).
-            // Practical: allow upgrades immediately.
-            node.stableLod = desiredLod;
-            return desiredLod;
+            node.terrain.carveSphere(op.position, op.radius, { deferRebuild: true });
+            touched = true;
         }
 
-        // If we want to DECREASE detail (go down), only do it if we’re well past the boundary.
-        if (desiredLod < stable) {
-            // block downgrades unless we moved far enough away since last change
-            const last = node.lastStableSurfaceDist ?? surfaceDist;
-            const grew = surfaceDist > last * (1 + H);
-            if (grew) {
-                node.stableLod = desiredLod;
-                node.lastStableSurfaceDist = surfaceDist;
-                return desiredLod;
-            }
-            return stable;
+        if (touched) {
+            node.terrain.rebuildMeshOnly();
         }
-
-        node.stableLod = stable;
-        node.lastStableSurfaceDist = surfaceDist;
-        return stable;
     }
 
+    // -------------------------------------------------
+    // Public API used by main.js
+    // -------------------------------------------------
 
     setLodLevel(level) {
         const clamped = Math.max(0, Math.min(5, Math.round(level)));
@@ -774,35 +713,31 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
                       focusPosition.z
                   );
         }
+
         if (this.lastCameraPosition) {
-            const moved =
-                !this._lastLodEvalPos ||
-                BABYLON.Vector3.Distance(this.lastCameraPosition, this._lastLodEvalPos) >= this.lodEvalMinMove;
-
-            const frameGate = (this.lodUpdateCounter % this.lodEvalEveryNFrames) === 0;
-
-            if (moved && frameGate) {
-                this._updateQuadtree(this.lastCameraPosition);
-                this._lastLodEvalPos = this.lastCameraPosition.clone();
-            }
+            this._updateQuadtree(this.lastCameraPosition);
         }
 
-
-         this._processBuildQueueBudgeted(this.buildBudgetMs);
+        this._processBuildQueue();
     }
 
     carveSphere(worldPos, radius) {
+        const pos = worldPos.clone ? worldPos.clone() : worldPos;
+
         this.carveHistory.push({
-            position: worldPos.clone ? worldPos.clone() : worldPos,
+            position: pos,
             radius
         });
+
+        // Bump revision so rebuilds at the same LOD are not deduped away.
+        this.carveRevision++;
 
         const intersectingLeaves = [];
         const stack = [this.rootNode];
         while (stack.length > 0) {
             const node = stack.pop();
             if (!node) continue;
-            if (!this._nodeIntersectsSphere(node, worldPos, radius)) {
+            if (!this._nodeIntersectsSphere(node, pos, radius)) {
                 continue;
             }
             if (node.isLeaf()) {
@@ -812,14 +747,10 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
             }
         }
 
+        // Schedule full worker rebuilds (no main-thread mesh-only rebuilds)
         for (const leaf of intersectingLeaves) {
-            this._ensureTerrainForNode(leaf);
-            leaf.terrain.carveSphere(worldPos, radius, { deferRebuild: true });
-            this.buildQueue.push({
-                node: leaf,
-                lodLevel: leaf.level,
-                meshOnly: true
-            });
+            const lod = (typeof leaf.lastBuiltLod === "number") ? leaf.lastBuiltLod : leaf.level;
+            this._scheduleNodeRebuild(leaf, lod, { force: true });
         }
     }
 
