@@ -632,7 +632,8 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
                 dimX: lodDims.dimX,
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
-                cellSize: lodDims.cellSize
+                cellSize: lodDims.cellSize,
+                carves: this._collectCarvesForNode(node) // filter carveHistory by node bounds
             });
         } catch (e) {
             finishErr(e);
