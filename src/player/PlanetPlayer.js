@@ -36,7 +36,12 @@ export class PlanetPlayer {
         this.accel = options.accel ?? 20;           // how fast we reach target speed
         this.gravity = options.gravity ?? 10;       // "m/s^2" toward planet center
         this.jumpSpeed = options.jumpSpeed ?? 10;
-        this.groundFriction = options.groundFriction ?? 8;
+        
+        // Jump grace: prevents fall-safeguard/ground-snap from cancelling an intentional jump
+        this.jumpGraceSeconds = options.jumpGraceSeconds ?? 0.25;
+        this._jumpGraceRemaining = 0;
+        this._minUpwardVelForGrace = options.minUpwardVelForGrace ?? 0.25;
+this.groundFriction = options.groundFriction ?? 8;
         this.airFriction = options.airFriction ?? 1;
 
         this.groundSnapDistance =
@@ -190,7 +195,16 @@ export class PlanetPlayer {
         const up = pos.scale(1 / r);   // radial up
         const down = up.scale(-1);
 
-        // ---------------------------
+        
+
+        // Jump grace countdown + radial velocity gating
+        if (this._jumpGraceRemaining > 0) {
+            this._jumpGraceRemaining = Math.max(0, this._jumpGraceRemaining - dtSeconds);
+        }
+        const radialVel = BABYLON.Vector3.Dot(this.velocity, up); // + = moving away from center
+        const isMovingUp = radialVel > this._minUpwardVelForGrace;
+        const inJumpGrace = (this._jumpGraceRemaining > 0) && isMovingUp;
+// ---------------------------
         // 1) Gravity
         // ---------------------------
         this.velocity.addInPlace(down.scale(this.gravity * dtSeconds));
@@ -276,6 +290,9 @@ export class PlanetPlayer {
             this.velocity.addInPlace(up.scale(this.jumpSpeed));
             this.isGrounded = false;
         }
+            // Grace window so ground snap / fail-safe won't cancel the jump
+            this._jumpGraceRemaining = this.jumpGraceSeconds;
+
         // consume jump for this frame
         this.inputJumpRequested = false;
 
@@ -288,7 +305,7 @@ export class PlanetPlayer {
         // If we drop far below the expected surface shell, snap back to the
         // last known safe grounded position.
         const newR = this.mesh.position.length();
-        if (newR < this.fallResetRadius) {
+        if (!inJumpGrace && newR < this.fallResetRadius) {
             if (this.lastSafePosition) {
                 this.mesh.position.copyFrom(this.lastSafePosition);
             } else {
@@ -315,7 +332,9 @@ export class PlanetPlayer {
         // 5b) Emergency surface recovery if we've been ungrounded too long
         if (!this.isGrounded) {
             this.framesSinceGrounded++;
-            if (this.framesSinceGrounded > this.maxUngroundedFramesBeforeRecover) {
+
+            // Don't emergency-teleport while actively jumping upward
+            if (!inJumpGrace && this.framesSinceGrounded > this.maxUngroundedFramesBeforeRecover) {
                 this._emergencySurfaceRecovery();
             }
         } else {
@@ -434,7 +453,17 @@ export class PlanetPlayer {
         const up = pos.scale(1 / r);
         const down = up.scale(-1);
 
-        // Capsule geometry
+        
+
+        // If we're in jump grace and moving upward, don't snap to ground this frame
+        if (this._jumpGraceRemaining > 0) {
+            const radialVelNow = BABYLON.Vector3.Dot(this.velocity, up);
+            if (radialVelNow > this._minUpwardVelForGrace) {
+                this.isGrounded = false;
+                return;
+            }
+        }
+// Capsule geometry
         const bottomToCenter = this.height * 0.5;
         const surfaceClearance = this.capsuleRadius * 0.1; // small gap above surface
 
@@ -495,7 +524,9 @@ export class PlanetPlayer {
             }
 
             // Update last safe grounded position
-            this.lastSafePosition = this.mesh.position.clone();
+            if (this._jumpGraceRemaining <= 0) {
+                this.lastSafePosition = this.mesh.position.clone();
+            }
 
         } else {
             // --- No ground hit this frame ---
@@ -525,7 +556,9 @@ export class PlanetPlayer {
 
                     groundedThisFrame = true;
                     // This still counts as standing on solid ground for safety
-                    this.lastSafePosition = this.mesh.position.clone();
+                    if (this._jumpGraceRemaining <= 0) {
+                this.lastSafePosition = this.mesh.position.clone();
+            }
                 }
             }
 
@@ -579,5 +612,3 @@ export class PlanetPlayer {
         );
     }
 }
-
-
