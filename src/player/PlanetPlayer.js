@@ -38,7 +38,7 @@ export class PlanetPlayer {
         this.jumpSpeed = options.jumpSpeed ?? 10;
         
         // Jump grace: prevents fall-safeguard/ground-snap from cancelling an intentional jump
-        this.jumpGraceSeconds = options.jumpGraceSeconds ?? 1;
+        this.jumpGraceSeconds = options.jumpGraceSeconds ?? 3;
         this._jumpGraceRemaining = 0;
         this._minUpwardVelForGrace = options.minUpwardVelForGrace ?? 1;
 this.groundFriction = options.groundFriction ?? 8;
@@ -612,4 +612,5 @@ this.groundFriction = options.groundFriction ?? 8;
         );
     }
 }
+
 
