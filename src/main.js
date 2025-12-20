@@ -352,7 +352,8 @@ function startGame() {
                 walkSpeed: 2,
                 runSpeed: 55,
                 height: 2,
-                radius: 0.35
+                radius: 0.35,
+                jumpGraceSeconds: 2
             });
 
             if (mainCamera && player && player.mesh) {
@@ -546,6 +547,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
