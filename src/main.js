@@ -236,6 +236,8 @@ const minimapUpdateEveryNFrames = 2;  // update every N frames for performance
 
 let minimapCamera = null;
 let minimapRTT = null;
+let minimapInitialized = false;
+let uiMinimap = null;
 let minimapFrameCounter = 0;
 
 function createMinimap(scene, terrain, guiTexture) {
@@ -244,62 +246,55 @@ function createMinimap(scene, terrain, guiTexture) {
     minimapCamera.minZ = 0.1;
     minimapCamera.maxZ = 500000;
 
-    // Orthographic window size (controls zoom)
     minimapCamera.orthoLeft = -minimapWorldRadius;
     minimapCamera.orthoRight = minimapWorldRadius;
     minimapCamera.orthoTop = minimapWorldRadius;
     minimapCamera.orthoBottom = -minimapWorldRadius;
 
-    // Render target
     minimapRTT = new BABYLON.RenderTargetTexture(
         "minimapRTT",
         { width: minimapSize, height: minimapSize },
         scene,
         false,
-        true,
-        BABYLON.Engine.TEXTURETYPE_UNSIGNED_INT
+        true
     );
 
-    // Only render terrain (and optionally props you want on the map)
     minimapRTT.renderList = [];
-    // If you have a list of terrain meshes, push them here.
-    // If not, we can add dynamically by scanning mesh metadata each update.
-    // We'll do dynamic scan in the update function below.
-
     minimapRTT.activeCamera = minimapCamera;
     minimapRTT.refreshRate = BABYLON.RenderTargetTexture.REFRESHRATE_RENDER_ON_DEMAND;
-
     scene.customRenderTargets.push(minimapRTT);
 
-    // GUI Image in bottom-left
+    // Container so marker can be centered easily
+    const container = new BABYLON.GUI.Rectangle("minimapContainer");
+    container.width = "220px";
+    container.height = "220px";
+    container.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+    container.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+    container.left = "16px";
+    container.top = "-16px";
+    container.thickness = 2;
+    container.color = "#ffffff";
+    container.cornerRadius = 12;
+    container.background = "black";
+    container.alpha = 0.95;
+
+    guiTexture.addControl(container);
+
     const mapImg = new BABYLON.GUI.Image("minimapImage", minimapRTT);
-    mapImg.width = "220px";
-    mapImg.height = "220px";
-    mapImg.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    mapImg.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-    mapImg.left = "16px";
-    mapImg.top = "-16px";
-    mapImg.alpha = 0.95;
-    mapImg.cornerRadius = 12;
-    mapImg.thickness = 2;
-    mapImg.color = "#ffffff";
+    mapImg.stretch = BABYLON.GUI.Image.STRETCH_FILL;
+    container.addControl(mapImg);
 
-    guiTexture.addControl(mapImg);
-
-    // Optional: player marker dot overlay
     const marker = new BABYLON.GUI.Ellipse("minimapMarker");
     marker.width = "10px";
     marker.height = "10px";
     marker.color = "white";
     marker.thickness = 2;
     marker.background = "red";
-    marker.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    marker.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-    marker.left = "16px";   // aligned to image (we’ll reposition each update)
-    marker.top = "-16px";
-    guiTexture.addControl(marker);
+    marker.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+    marker.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    container.addControl(marker);
 
-    return { mapImg, marker };
+    return { container, mapImg, marker };
 }
 
 function updateMinimap(scene, player, uiRefs) {
@@ -574,7 +569,7 @@ engine.runRenderLoop(() => {
             }
 
             if (!minimapInitialized) {
-                uiMinimap = createMinimap(scene, terrain, guiTexture);
+                uiMinimap = createMinimap(scene, terrain, ui);
                 minimapInitialized = true;
             }
             updateMinimap(scene, player, uiMinimap);
@@ -677,3 +672,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
