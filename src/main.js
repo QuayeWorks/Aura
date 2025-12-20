@@ -353,7 +353,7 @@ function startGame() {
                 runSpeed: 55,
                 height: 2,
                 radius: 0.35,
-                jumpGraceSeconds: 2
+                jumpGraceSeconds: 5
             });
 
             if (mainCamera && player && player.mesh) {
@@ -547,6 +547,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
