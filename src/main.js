@@ -124,7 +124,7 @@ function createScene() {
     );
     // We want illumination only from the sun + moon system,
     // so keep these "legacy" lights effectively disabled.
-    hemi.intensity = 0.1;
+    hemi.intensity = 0.2;
     hemi.groundColor = new BABYLON.Color3(0.05, 0.05, 0.1);
 
     const dir = new BABYLON.DirectionalLight(
@@ -132,7 +132,7 @@ function createScene() {
         new BABYLON.Vector3(-0.5, -1.0, -0.3),
         scene
     );
-    dir.intensity = 0.1;
+    dir.intensity = 0.2;
 
     // --- Fireflies / menu ambiance ---
     createFireflies();
@@ -546,6 +546,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
