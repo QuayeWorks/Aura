@@ -63,7 +63,7 @@ export class DayNightSystem {
             this.scene
         );
         // Base intensities (we also scale in _update)
-        this.sunLight.intensity = 3.0;
+        this.sunLight.intensity = 3.5;
         this.sunLight.diffuse = new BABYLON.Color3(1.0, 0.97, 0.9);
         this.sunLight.specular = new BABYLON.Color3(1.0, 0.97, 0.9);
         this.sunLight.groundColor = new BABYLON.Color3(0, 0, 0);
@@ -74,7 +74,7 @@ export class DayNightSystem {
             new BABYLON.Vector3(0, -1, 0),
             this.scene
         );
-        this.moonLight.intensity = 0.8;
+        this.moonLight.intensity = 1.0;
         this.moonLight.diffuse = new BABYLON.Color3(0.6, 0.7, 1.0);
         this.moonLight.specular = new BABYLON.Color3(0.6, 0.7, 1.0);
         this.moonLight.groundColor = new BABYLON.Color3(0, 0, 0);
@@ -190,8 +190,8 @@ export class DayNightSystem {
         const sunFactor = BABYLON.Scalar.Clamp((sunHeight + 0.1) / 1.1, 0, 1);
 
         // Much brighter direct lights
-        const maxSun = 3.5; // you can push this up to ~5 if needed
-        const maxMoon = 1.2;
+        const maxSun = 5.0; // you can push this up to ~5 if needed
+        const maxMoon = 2.0;
 
         this.sunLight.intensity = maxSun * sunFactor;
 
@@ -201,8 +201,8 @@ export class DayNightSystem {
         // Atmospheric skylight: bright blue during day, soft ambient at night
         if (this.skyLight) {
             // Daytime sky: mostly driven by sunFactor
-            const skyDayIntensity = 1.2;  // strong blue dome at noon
-            const skyNightIntensity = 0.25; // faint ambient from stars/moon
+            const skyDayIntensity = 2.0;  // strong blue dome at noon
+            const skyNightIntensity = 0.5; // faint ambient from stars/moon
 
             const skyIntensity =
                 skyDayIntensity * sunFactor + skyNightIntensity * moonFactor;
@@ -259,6 +259,7 @@ export class DayNightSystem {
         }
     }
 }
+
 
 
 
