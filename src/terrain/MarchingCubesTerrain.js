@@ -364,7 +364,12 @@ export class MarchingCubesTerrain {
             0.5
         ); // [-1,1]
 
-        const continentHeight = continents * (600.0 * 3.0);  // +/- 1800m
+		const baseR = 10800.0;
+		const scale = R / baseR;
+		
+		// broader macro elevation
+		const continentHeight = continents * (900.0 * scale * 3.0); // ~ +/- 2700m at R≈10800
+
 
         // -------- 3) RIDGED MOUNTAIN CHAINS --------
         let ridges = this._ridgedFbm3(
@@ -383,7 +388,17 @@ export class MarchingCubesTerrain {
         ridges = Math.max(0, ridges - 0.3) / 0.7;
         ridges = ridges * ridges;
 
-        const mountainHeight = ridges * (1200.0 * 3.0);       // up to ~3.6 km
+        // Scale heights based on planet size.
+		// These values are "meters" when 1 unit == 1 meter.
+		const baseR = 10800.0;
+		const scale = R / baseR;
+		
+		// Guarantee high peaks: target mountain max ~7000m (scaled with planet radius)
+		const mountainMax = 7000.0 * scale;
+		
+		// Keep ridges sharp and meaningful
+		const mountainHeight = ridges * mountainMax;
+
 
         // -------- 4) MACRO VALLEYS / BASINS --------
         const valleysNoise = this._fbmNoise3(
@@ -471,9 +486,16 @@ export class MarchingCubesTerrain {
         const dist = worldPos.length();
         const h = dist - R; // height above base radius (can be negative)
 
-        // Sea level, relative to R
-        const seaLevel = 220;      // meters above base radius
-        const beachWidth = 40;     // +/- around sea level for beaches
+		const baseR = 10800.0;
+		const scale = R / baseR;
+
+		// Sea level, relative to R
+		const seaLevel = 220 * scale;
+		
+		// These were too thin to reliably show at coarse LOD.
+		// Make an actual coastline band.
+		const shallowWaterDepth = 80 * scale;  // below sea
+		const sandBand = 220 * scale;          // above sea
 
         // Unit direction for latitude effects (snow at poles)
         let nx = 0, ny = 1, nz = 0;
@@ -506,23 +528,29 @@ export class MarchingCubesTerrain {
             return BABYLON.Color3.Lerp(rock, lava, t);
         }
 
-        // -------- DEEP WATER (terrain well below sea level) --------
-        if (h < seaLevel - beachWidth) {
-            // Darker bluish seafloor
-            return new BABYLON.Color3(0.02, 0.12, 0.25);
-        }
+		// -------- DEEP WATER / SEAFLOOR COLOR (terrain under water plane) --------
+		if (h < seaLevel - shallowWaterDepth) {
+		    return new BABYLON.Color3(0.02, 0.12, 0.25);
+		}
 
-        // -------- SHALLOW WATER + BEACH RING --------
-        if (h <= seaLevel + beachWidth) {
-            // Blend from shallow water to sand across the band
-            const t = (h - (seaLevel - beachWidth)) / (2 * beachWidth); // 0..1
-            const shallow = new BABYLON.Color3(0.15, 0.45, 0.75);       // shallow water tint
-            const sand    = new BABYLON.Color3(0.96, 0.88, 0.60);       // beach sand
-            return BABYLON.Color3.Lerp(shallow, sand, t);
-        }
+		// -------- SHALLOW WATER TINT (terrain near sea level but underwater) --------
+		if (h < seaLevel) {
+		    const t = (h - (seaLevel - shallowWaterDepth)) / shallowWaterDepth; // 0..1
+		    const deep = new BABYLON.Color3(0.02, 0.12, 0.25);
+		    const shallow = new BABYLON.Color3(0.15, 0.45, 0.75);
+		    return BABYLON.Color3.Lerp(deep, shallow, t);
+		}
 
-        // From this point on we're above the beach band.
-        const aboveSea = h - (seaLevel + beachWidth); // 0 at top of beach
+				// -------- SAND (above sea level) --------
+		if (h < seaLevel + sandBand) {
+		    const t = (h - seaLevel) / sandBand; // 0..1
+		    const wetSand = new BABYLON.Color3(0.86, 0.78, 0.52);
+		    const drySand = new BABYLON.Color3(0.96, 0.88, 0.60);
+		    return BABYLON.Color3.Lerp(wetSand, drySand, t);
+		}
+
+		// From this point on we’re above the sand band.
+		const aboveSea = h - (seaLevel + sandBand);
 
         // Small fake noise for grass variation
         const n = this._hashNoise(
