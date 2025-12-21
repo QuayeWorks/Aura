@@ -388,7 +388,7 @@ function startGame() {
                 mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.001;
                 mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.002;
 
-                mainCamera.radius = PLANET_RADIUS_UNITS * 0.02;
+                mainCamera.radius = PLANET_RADIUS_UNITS * 0.002;
             }
 
             // Switch to playing visuals
@@ -573,6 +573,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
