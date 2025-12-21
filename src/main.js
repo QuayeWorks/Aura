@@ -168,7 +168,6 @@ function createScene() {
     mainMenuPanel = createMainMenu(ui, {
         onPlay: () => startGame(),
         onSettings: () => showSettings()
-        minimap.setEnabled(false);
     });
 
     // Settings menu
@@ -573,6 +572,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
