@@ -45,18 +45,6 @@ export function createMinimapViewport({
   minimapCamera.minZ = 0.1;
   minimapCamera.maxZ = 500000;
 
-  // Ensure dual-camera rendering
-  // If your game already uses activeCameras elsewhere, we preserve mainCamera and append minimapCamera.
-  if (!scene.activeCameras || scene.activeCameras.length === 0) {
-    scene.activeCameras = [mainCamera, minimapCamera];
-  } else {
-    // Ensure mainCamera is first
-    const cams = scene.activeCameras.filter((c) => c !== minimapCamera);
-    if (!cams.includes(mainCamera)) cams.unshift(mainCamera);
-    cams.push(minimapCamera);
-    scene.activeCameras = cams;
-  }
-
   // UI frame overlay (optional)
   let frame = null;
   let dot = null;
@@ -93,12 +81,22 @@ export function createMinimapViewport({
 
   function setEnabled(v) {
     enabled = !!v;
-    minimapCamera.viewport = enabled
-      ? new BABYLON.Viewport(viewX, viewY, viewW, viewH)
-      : new BABYLON.Viewport(0, 0, 0, 0);
-
+  
+    if (enabled) {
+      // Use both cameras while playing
+      scene.activeCameras = [mainCamera, minimapCamera];
+      minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
+    } else {
+      // IMPORTANT: go back to single-camera mode so GUI picking works in menus
+      scene.activeCameras = null;
+      scene.activeCamera = mainCamera;
+  
+      minimapCamera.viewport = new BABYLON.Viewport(0, 0, 0, 0);
+    }
+  
     if (frame) frame.isVisible = enabled;
   }
+
 
   function updateFromPlayerMesh(playerMesh) {
     if (!enabled) return;
@@ -132,4 +130,5 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
