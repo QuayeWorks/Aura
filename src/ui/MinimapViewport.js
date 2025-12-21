@@ -52,6 +52,9 @@ export function createMinimapViewport({
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
     frame.width = sizeW;
     frame.height = sizeH;
+    frame.background = "rgba(0,0,0,0.65)"; // stronger dark backing
+    frame.zIndex = 5000;
+    frame.thickness = 2;
     frame.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
     frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
     frame.left = padLeft;
@@ -68,6 +71,7 @@ export function createMinimapViewport({
     dot = new BABYLON.GUI.Ellipse("minimapDot");
     dot.width = options.dotSize ?? "10px";
     dot.height = options.dotSize ?? "10px";
+    dot.zIndex = 5001;
     dot.color = options.dotBorderColor ?? "white";
     dot.thickness = options.dotThickness ?? 2;
     dot.background = options.dotFillColor ?? "red";
@@ -130,5 +134,6 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
