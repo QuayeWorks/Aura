@@ -1,6 +1,7 @@
 /* global BABYLON */
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
+import { createMinimapViewport } from "./ui/MinimapViewport.js";
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 import { PlanetPlayer } from "./player/PlanetPlayer.js";
 import { DayNightSystem } from "./daynight/DayNightSystem.js";
@@ -150,6 +151,17 @@ function createScene() {
     // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
+    const minimap = createMinimapViewport({
+      scene,
+      mainCamera,
+      ui,
+      options: {
+        worldRadius: 350,
+        height: 800
+      }
+    });
+
+
     // Main menu
     mainMenuPanel = createMainMenu(ui, {
         onPlay: () => startGame(),
@@ -183,6 +195,7 @@ function createScene() {
         loadingPercentText = loading.loadingPercentText;
     }
 
+    
     // Hook up centralized UI state helpers
     uiState = createUIStateHelpers({
         scene,
@@ -227,123 +240,6 @@ function createScene() {
     return scene;
 }
 
-
-// --- MINIMAP SETUP ---
-const minimapSize = 256;              // 256 or 512
-const minimapWorldRadius = 350;       // how much area around player you see (world units)
-const minimapHeight = 800;            // how high above player (world units)
-const minimapUpdateEveryNFrames = 2;  // update every N frames for performance
-
-let minimapCamera = null;
-let minimapRTT = null;
-let minimapInitialized = false;
-let uiMinimap = null;
-let minimapFrameCounter = 0;
-
-function createMinimap(scene, terrain, guiTexture) {
-    minimapCamera = new BABYLON.FreeCamera("minimapCamera", new BABYLON.Vector3(0, 0, 0), scene);
-    minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
-    minimapCamera.minZ = 0.1;
-    minimapCamera.maxZ = 500000;
-
-    minimapCamera.orthoLeft = -minimapWorldRadius;
-    minimapCamera.orthoRight = minimapWorldRadius;
-    minimapCamera.orthoTop = minimapWorldRadius;
-    minimapCamera.orthoBottom = -minimapWorldRadius;
-
-    minimapRTT = new BABYLON.RenderTargetTexture(
-        "minimapRTT",
-        { width: minimapSize, height: minimapSize },
-        scene,
-        false,
-        true
-    );
-
-    minimapRTT.renderList = [];
-    minimapRTT.activeCamera = minimapCamera;
-    minimapRTT.refreshRate = BABYLON.RenderTargetTexture.REFRESHRATE_RENDER_ON_DEMAND;
-    scene.customRenderTargets.push(minimapRTT);
-
-    // Container so marker can be centered easily
-    const container = new BABYLON.GUI.Rectangle("minimapContainer");
-    container.width = "220px";
-    container.height = "220px";
-    container.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    container.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-    container.left = "16px";
-    container.top = "-16px";
-    container.thickness = 2;
-    container.color = "#ffffff";
-    container.cornerRadius = 12;
-    container.background = "black";
-    container.alpha = 0.95;
-
-    guiTexture.addControl(container);
-
-    const mapImg = new BABYLON.GUI.Image("minimapImage", minimapRTT);
-    mapImg.stretch = BABYLON.GUI.Image.STRETCH_FILL;
-    container.addControl(mapImg);
-
-    const marker = new BABYLON.GUI.Ellipse("minimapMarker");
-    marker.width = "10px";
-    marker.height = "10px";
-    marker.color = "white";
-    marker.thickness = 2;
-    marker.background = "red";
-    marker.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-    marker.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-    container.addControl(marker);
-
-    return { container, mapImg, marker };
-}
-
-function updateMinimap(scene, player, uiRefs) {
-    if (!minimapCamera || !minimapRTT || !player || !player.mesh) return;
-
-    minimapFrameCounter++;
-    if (minimapFrameCounter % minimapUpdateEveryNFrames !== 0) return;
-
-    const pos = player.mesh.position;
-
-    // Planet “up” from center (0,0,0)
-    const up = pos.clone();
-    const len = up.length();
-    if (len < 1e-3) return;
-    up.scaleInPlace(1 / len);
-
-    // Place camera above player, looking “down” toward planet center
-    const camPos = pos.add(up.scale(minimapHeight));
-    minimapCamera.position.copyFrom(camPos);
-    minimapCamera.setTarget(pos); // local area view
-
-    // Ensure RTT render list has terrain meshes (matches your vertex colors)
-    // Use metadata.isTerrain you already set on terrain meshes
-    minimapRTT.renderList.length = 0;
-    for (const m of scene.meshes) {
-        if (m && m.isEnabled() && m.isVisible && m.metadata && m.metadata.isTerrain) {
-            minimapRTT.renderList.push(m);
-        }
-    }
-
-    // Render now (on demand)
-    minimapRTT.render(true);
-
-    // Marker stays centered in the minimap image (player is always at center)
-    // If you later want a “north-up” map with moving marker, we can extend it.
-    if (uiRefs && uiRefs.marker && uiRefs.mapImg) {
-        const img = uiRefs.mapImg;
-        uiRefs.marker.left = img.left;
-        uiRefs.marker.top = img.top;
-        uiRefs.marker.width = "10px";
-        uiRefs.marker.height = "10px";
-        // We need to offset marker to the center of the map image:
-        // Babylon GUI doesn't allow direct "center within control" anchoring easily,
-        // so easiest is: create a container stackpanel, but we’ll keep it simple:
-        uiRefs.marker.left = "16px";   // same as image
-        uiRefs.marker.top = "-16px";
-        uiRefs.marker._currentMeasure.left = 0; // avoid internal stale layout (safe no-op)
-    }
-}
 
 // --------------------
 // Visual themes
@@ -499,6 +395,8 @@ function startGame() {
             if (hudPanel) hudPanel.isVisible = true;
 
             gameState = GameState.PLAYING;
+            minimap.setEnabled(gameState === GameState.PLAYING);
+
         };
     } else {
         // Planet already exists – just resume quickly
@@ -521,6 +419,7 @@ function startGame() {
         }
 
         gameState = GameState.PLAYING;
+        minimap.setEnabled(gameState === GameState.PLAYING);
     }
 }
 
@@ -568,11 +467,7 @@ engine.runRenderLoop(() => {
                 );
             }
 
-            if (!minimapInitialized) {
-                uiMinimap = createMinimap(scene, terrain, ui);
-                minimapInitialized = true;
-            }
-            updateMinimap(scene, player, uiMinimap);
+            minimap.updateFromPlayerMesh(player.mesh);
 
             // === END CAMERA FIX ===
         }
@@ -672,4 +567,5 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
