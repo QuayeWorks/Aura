@@ -330,6 +330,7 @@ function showMainMenu() {
 
 
 function showSettings() {
+    if (minimap) minimap.setEnabled(false);
     if (uiState && uiState.showSettings) {
         uiState.showSettings();
     }
@@ -572,6 +573,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
