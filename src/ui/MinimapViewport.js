@@ -73,6 +73,8 @@ export function createMinimapViewport({
     frame.cornerRadius = options.cornerRadius ?? 12;
     frame.background = "transparent";
     frame.alpha = options.alpha ?? 0.95;
+    frame.isPointerBlocker = false;
+
     ui.addControl(frame);
 
     dot = new BABYLON.GUI.Ellipse("minimapDot");
@@ -83,6 +85,7 @@ export function createMinimapViewport({
     dot.background = options.dotFillColor ?? "red";
     dot.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     dot.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+    dot.isPointerBlocker = false;
     frame.addControl(dot);
   }
 
@@ -129,3 +132,4 @@ export function createMinimapViewport({
     dispose
   };
 }
+
