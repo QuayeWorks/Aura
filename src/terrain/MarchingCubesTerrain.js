@@ -320,7 +320,6 @@ export class MarchingCubesTerrain {
     _sampleSdf(pos) {
         const p = pos;
         const R = this.radius;  // e.g. 10800
-
         // Distance from planet center
         const distSq = p.x * p.x + p.y * p.y + p.z * p.z;
         const dist = Math.sqrt(distSq);
@@ -364,11 +363,8 @@ export class MarchingCubesTerrain {
             0.5
         ); // [-1,1]
 
-		const baseR = 10800.0;
-		const scale = R / baseR;
-		
 		// broader macro elevation
-		const continentHeight = continents * (900.0 * scale * 3.0); // ~ +/- 2700m at R≈10800
+		const continentHeight = continents * (900.0 * 3.0); // ~ +/- 2700m at R≈10800
 
 
         // -------- 3) RIDGED MOUNTAIN CHAINS --------
@@ -390,11 +386,9 @@ export class MarchingCubesTerrain {
 
         // Scale heights based on planet size.
 		// These values are "meters" when 1 unit == 1 meter.
-		const baseR = 10800.0;
-		const scale = R / baseR;
 		
 		// Guarantee high peaks: target mountain max ~7000m (scaled with planet radius)
-		const mountainMax = 7000.0 * scale;
+		const mountainMax = 7000.0;
 		
 		// Keep ridges sharp and meaningful
 		const mountainHeight = ridges * mountainMax;
@@ -486,16 +480,13 @@ export class MarchingCubesTerrain {
         const dist = worldPos.length();
         const h = dist - R; // height above base radius (can be negative)
 
-		const baseR = 10800.0;
-		const scale = R / baseR;
-
 		// Sea level, relative to R
-		const seaLevel = 220 * scale;
+		const seaLevel = 220;
 		
 		// These were too thin to reliably show at coarse LOD.
 		// Make an actual coastline band.
-		const shallowWaterDepth = 80 * scale;  // below sea
-		const sandBand = 220 * scale;          // above sea
+		const shallowWaterDepth = 80;  // below sea
+		const sandBand = 220;          // above sea
 
         // Unit direction for latitude effects (snow at poles)
         let nx = 0, ny = 1, nz = 0;
