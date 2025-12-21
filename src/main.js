@@ -34,6 +34,7 @@ let scene = null;
 let terrain = null;
 let player = null;
 let dayNightSystem = null;
+let minimap = null;
 
 
 // Camera + environment
@@ -151,7 +152,7 @@ function createScene() {
     // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
-    const minimap = createMinimapViewport({
+    minimap = createMinimapViewport({
       scene,
       mainCamera,
       ui,
@@ -161,7 +162,8 @@ function createScene() {
       }
     });
 
-
+    minimap.setEnabled(false);
+    
     // Main menu
     mainMenuPanel = createMainMenu(ui, {
         onPlay: () => startGame(),
@@ -292,6 +294,7 @@ function createFireflies() {
         const phase = Math.random() * Math.PI * 2;
         orb.metadata = { phase, baseY: orb.position.y };
         orb.isPickable = false;
+        orb.layerMask = 0x1;
     }
 
     scene.registerBeforeRender(() => {
@@ -567,5 +570,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
