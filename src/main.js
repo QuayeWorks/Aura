@@ -168,6 +168,7 @@ function createScene() {
     mainMenuPanel = createMainMenu(ui, {
         onPlay: () => startGame(),
         onSettings: () => showSettings()
+        minimap.setEnabled(false);
     });
 
     // Settings menu
@@ -217,6 +218,7 @@ function createScene() {
 
     // Start in menu
     showMainMenu();
+    
 
 
 
@@ -321,6 +323,7 @@ function setFirefliesVisible(isVisible) {
 // State transitions
 // --------------------
 function showMainMenu() {
+    minimap.setEnabled(false);
     if (uiState && uiState.showMainMenu) {
         uiState.showMainMenu();
     }
@@ -570,6 +573,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
