@@ -162,6 +162,8 @@ function createScene() {
       }
     });
 
+    minimap.setOverlayVisible(false); // hides frame + dot
+
     minimap.setEnabled(false);
     
     // Main menu
@@ -573,6 +575,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
