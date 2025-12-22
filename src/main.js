@@ -162,9 +162,8 @@ function createScene() {
       }
     });
 
-    minimap.setOverlayVisible(false); // hides frame + dot
-
     minimap.setEnabled(false);
+    minimap.setOverlayVisible(false); // hides frame + dot
     
     // Main menu
     mainMenuPanel = createMainMenu(ui, {
@@ -575,6 +574,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
