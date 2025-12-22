@@ -101,6 +101,11 @@ export function createMinimapViewport({
     if (frame) frame.isVisible = enabled;
   }
 
+  function setOverlayVisible(v) {
+      if (frame) frame.isVisible = v;
+      if (dot) dot.isVisible = v;
+  }
+
 
   function updateFromPlayerMesh(playerMesh) {
     if (!enabled) return;
@@ -130,10 +135,12 @@ export function createMinimapViewport({
     MAIN_LAYER,
     MINIMAP_LAYER,
     setEnabled,
+    setOverlayVisible,
     updateFromPlayerMesh,
     dispose
   };
 }
+
 
 
 
