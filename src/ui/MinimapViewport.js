@@ -77,7 +77,7 @@ export function createMinimapViewport({
     frame.zIndex = 5001;
     frame.isPointerBlocker = false;
   
-    //ui.addControl(frame);
+    ui.addControl(frame);
   
     dot = new BABYLON.GUI.Ellipse("minimapDot");
     dot.width = options.dotSize ?? "10px";
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
