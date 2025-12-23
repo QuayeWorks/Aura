@@ -257,6 +257,10 @@ function createScene() {
         }
     });
 
+    scene.autoClear = true;
+    scene.autoClearDepthAndStencil = true;
+    scene.useRightHandedSystem = scene.useRightHandedSystem;
+
     return scene;
 }
 
@@ -595,6 +599,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
