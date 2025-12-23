@@ -403,7 +403,7 @@ function startGame() {
             if (hudPanel) hudPanel.isVisible = true;
 
             gameState = GameState.PLAYING;
-            minimap.setEnabled(false);
+            minimap.setEnabled(true);
             minimap.setOverlayVisible(false);
 
 
@@ -429,7 +429,7 @@ function startGame() {
         }
 
         gameState = GameState.PLAYING;
-        minimap.setEnabled(false);
+        minimap.setEnabled(true);
         minimap.setOverlayVisible(false);
 
     }
@@ -579,6 +579,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
