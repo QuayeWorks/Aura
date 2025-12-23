@@ -169,8 +169,8 @@ function createScene() {
             minimapLayer: 0x2, 
             viewportX: 0.01,
             viewportY: 0.01,
-            viewportW: 0.3,
-            viewportH: 0.3,
+            viewportW: 0.15,
+            viewportH: 0.15,
             uiLeft: "0%",
             uiTop: "0%",
             uiWidth: "100%",
@@ -597,5 +597,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
