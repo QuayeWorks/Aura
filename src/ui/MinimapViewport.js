@@ -9,7 +9,7 @@ export function createMinimapViewport({
   options = {}
 }) {
   const MAIN_LAYER = options.mainLayer ?? 0x1;
-  const MINIMAP_LAYER = options.minimapLayer ?? 0x2;
+  const MINIMAP_LAYER = options.minimapLayer ?? 0x1;
 
   const viewX = options.viewportX ?? 0.02;
   const viewY = options.viewportY ?? 0.02;
@@ -20,8 +20,8 @@ export function createMinimapViewport({
   const height = options.height ?? 800;          // height above player
   const padLeft = options.uiLeft ?? "2%";
   const padTop = options.uiTop ?? "-2%";
-  const sizeW = options.uiWidth ?? "25%";
-  const sizeH = options.uiHeight ?? "25%";
+  const sizeW = options.uiWidth ?? "50%";
+  const sizeH = options.uiHeight ?? "50%";
 
   // Ensure main camera renders normal layer
   if (mainCamera) mainCamera.layerMask = MAIN_LAYER;
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
