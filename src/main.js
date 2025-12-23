@@ -169,12 +169,12 @@ function createScene() {
             minimapLayer: 0x2, 
             viewportX: 0.01,
             viewportY: 0.01,
-            viewportW: 0.15,
-            viewportH: 0.15,
+            viewportW: 0.3,
+            viewportH: 0.3,
             uiLeft: "0%",
             uiTop: "0%",
-            uiWidth: "100%",
-            uiHeight: "100%"
+            uiWidth: "50%",
+            uiHeight: "50%"
           }
         });
     }
@@ -597,6 +597,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
