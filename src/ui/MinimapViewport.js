@@ -44,23 +44,23 @@ export function createMinimapViewport({
   minimapCamera.orthoBottom = -worldRadius;
 
   minimapCamera.minZ = 0.1;
-  minimapCamera.maxZ = 50000;
+  minimapCamera.maxZ = Math.max(50000, (options.maxZ ?? 200000));
 
   // Prevent depth buffer conflicts between minimap + main camera
+  // (Some Babylon builds don't expose camera.onBeforeRenderObservable)
   scene.autoClear = false;
   scene.autoClearDepthAndStencil = false;
   
-  minimapCamera.onBeforeRenderObservable.add(() => {
-      const engine = scene.getEngine();
+  const engine = scene.getEngine();
+  
+  scene.onBeforeCameraRenderObservable.add((cam) => {
+    if (cam === minimapCamera) {
       engine.setViewport(minimapCamera.viewport);
       engine.clear(new BABYLON.Color4(0, 0, 0, 1), true, true, true);
-  });
-  
-  // Main camera clears full frame normally
-  mainCamera.onBeforeRenderObservable.add(() => {
-      const engine = scene.getEngine();
+    } else if (cam === mainCamera) {
       engine.setViewport(mainCamera.viewport);
       engine.clear(scene.clearColor, true, true, true);
+    }
   });
 
   // UI frame overlay (optional)
@@ -176,6 +176,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
