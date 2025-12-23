@@ -151,6 +151,9 @@ function createScene() {
 
     // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    const MAIN_LAYER = 0x1;
+    ui.layer.layerMask = MAIN_LAYER;   // ✅ GUI renders only on cameras that see MAIN_LAYER
+
 
     if (!minimap) {
         console.log("createMinimapViewport CALLED");
@@ -163,10 +166,10 @@ function createScene() {
             height: 800,
             mainLayer: 0x1,
             minimapLayer: 0x2, 
-            viewportX: 0,
-            viewportY: 0,
-            viewportW: 0.9,
-            viewportH: 0.9,
+            viewportX: 0.01,
+            viewportY: 0.01,
+            viewportW: 0.1,
+            viewportH: 0.1,
             uiLeft: "0%",
             uiTop: "0%",
             uiWidth: "0%",
@@ -593,6 +596,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
