@@ -35,7 +35,7 @@ export function createMinimapViewport({
   minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
   minimapCamera.layerMask = MINIMAP_LAYER;
 
-  minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
+  //minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
 
   minimapCamera.orthoLeft = -worldRadius;
   minimapCamera.orthoRight = worldRadius;
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
