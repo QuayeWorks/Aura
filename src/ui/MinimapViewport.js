@@ -50,14 +50,17 @@ export function createMinimapViewport({
   let dot = null;
   
   if (ui) {
+    // --- Safety: remove any previous minimap UI controls (prevents duplicates) ---
+    const oldFrame = ui.getControlByName?.("minimapFrame");
+    if (oldFrame) oldFrame.dispose();
+    const oldDot = ui.getControlByName?.("minimapDot");
+    if (oldDot) oldDot.dispose();
+  
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
     frame.width = vpToPercent(viewW);
     frame.height = vpToPercent(viewH);
-  
     frame.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
     frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
-  
-    // Match the viewport's bottom-left anchor
     frame.left = vpToPercent(viewX);
     frame.top = "-" + vpToPercent(viewY);
   
@@ -65,11 +68,8 @@ export function createMinimapViewport({
     frame.color = options.borderColor ?? "#ffffff";
     frame.cornerRadius = options.cornerRadius ?? 12;
     frame.alpha = options.alpha ?? 0.95;
-  
-    // Solid backing so it reads as UI
-    frame.background = options.background ?? "rgba(0,0,0,0.55)";
-  
     frame.clipChildren = true;
+    frame.background = options.background ?? "rgba(0,0,0,0.55)";
     frame.zIndex = 5000;
     frame.isPointerBlocker = false;
   
@@ -81,15 +81,14 @@ export function createMinimapViewport({
     dot.color = options.dotBorderColor ?? "white";
     dot.thickness = options.dotThickness ?? 2;
     dot.background = options.dotFillColor ?? "red";
-  
     dot.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     dot.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-  
     dot.zIndex = 5001;
     dot.isPointerBlocker = false;
   
     frame.addControl(dot);
   }
+
 
 
   let enabled = true;
@@ -155,6 +154,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
