@@ -43,7 +43,7 @@ export function createMinimapViewport({
   minimapCamera.orthoBottom = -worldRadius;
 
   minimapCamera.minZ = 0.1;
-  minimapCamera.maxZ = 500000;
+  minimapCamera.maxZ = 5000;
 
   // UI frame overlay (optional)
   let frame = null;
@@ -102,7 +102,7 @@ export function createMinimapViewport({
   }
 
   function setEnabled(v) {
-    enabled = !!v;
+    enabled = v;
   
     if (enabled) {
       // Use both cameras while playing
@@ -113,10 +113,10 @@ export function createMinimapViewport({
       scene.activeCameras = null;
       scene.activeCamera = mainCamera;
   
-      //minimapCamera.viewport = new BABYLON.Viewport(0, 0, 0, 0);
+      minimapCamera.viewport = new BABYLON.Viewport(0, 0, 0, 0);
     }
   
-    if (frame) frame.isVisible = enabled;
+    //if (frame) frame.isVisible = enabled;
   }
 
   function setOverlayVisible(v) {
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
