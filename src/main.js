@@ -404,7 +404,7 @@ function startGame() {
 
             gameState = GameState.PLAYING;
             minimap.setEnabled(true);
-            minimap.setOverlayVisible(false);
+            minimap.setOverlayVisible(true);
 
 
         };
@@ -430,7 +430,7 @@ function startGame() {
 
         gameState = GameState.PLAYING;
         minimap.setEnabled(true);
-        minimap.setOverlayVisible(false);
+        minimap.setOverlayVisible(true);
 
     }
 }
@@ -579,6 +579,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
