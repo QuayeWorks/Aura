@@ -64,11 +64,13 @@ export function createMinimapViewport({
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
     frame.width = vpToPercent(viewW);
     frame.height = vpToPercent(viewH);
+    
     frame.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
     frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+    
     frame.left = vpToPercent(viewX);
-    frame.top = "-" + vpToPercent(viewY);
-  
+    frame.top  = "-" + vpToPercent(viewY + viewH); // ✅ FIX
+    
     frame.thickness = options.thickness ?? 2;
     frame.color = options.borderColor ?? "#ffffff";
     frame.cornerRadius = options.cornerRadius ?? 12;
@@ -77,6 +79,7 @@ export function createMinimapViewport({
     frame.background = options.background ?? "rgba(0,0,0,0.05)";
     frame.zIndex = 1000;
     frame.isPointerBlocker = false;
+
   
     uiMinimap.addControl(frame);
   
@@ -158,6 +161,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
