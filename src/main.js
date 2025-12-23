@@ -404,7 +404,7 @@ function startGame() {
 
             gameState = GameState.PLAYING;
             minimap.setEnabled(false);
-            minimap.setOverlayVisible(fasle);
+            minimap.setOverlayVisible(false);
 
 
         };
@@ -579,6 +579,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
