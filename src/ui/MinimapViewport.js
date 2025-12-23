@@ -35,7 +35,7 @@ export function createMinimapViewport({
   minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
   minimapCamera.layerMask = MINIMAP_LAYER;
 
-  //minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
+  minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
 
   minimapCamera.orthoLeft = -worldRadius;
   minimapCamera.orthoRight = worldRadius;
@@ -53,10 +53,10 @@ export function createMinimapViewport({
     // --- Safety: remove any previous minimap UI controls (prevents duplicates) ---
     if (ui && ui.getControlByName) {
       const oldFrame = ui.getControlByName("minimapFrame");
-      if (oldFrame) oldFrame.dispose();
+      oldFrame.dispose();
     
       const oldDot = ui.getControlByName("minimapDot");
-      if (oldDot) oldDot.dispose();
+      oldDot.dispose();
     }
 
   
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
