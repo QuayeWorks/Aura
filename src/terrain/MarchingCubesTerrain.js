@@ -618,7 +618,7 @@ _applyMeshBuffers(positions, normals, indices, colors) {
     this.mesh.metadata = this.mesh.metadata || {};
     this.mesh.metadata.isVoxelTerrain = true;
     this.mesh.metadata.isTerrain = true;
-	//this.mesh.layerMask = 0x1 | 0x2;
+	this.mesh.layerMask = 0x1 | 0x2;
 
     vertexData.applyToMesh(this.mesh, true);
 }
