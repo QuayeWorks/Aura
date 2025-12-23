@@ -32,6 +32,24 @@ export function createMinimapViewport({
     mainCamera.position.clone(),
     scene
   );
+
+  // Prevent depth buffer conflicts between minimap + main camera
+  scene.autoClear = false;
+  scene.autoClearDepthAndStencil = false;
+  
+  minimapCamera.onBeforeRenderObservable.add(() => {
+      const engine = scene.getEngine();
+      engine.setViewport(minimapCamera.viewport);
+      engine.clear(new BABYLON.Color4(0, 0, 0, 1), true, true, true);
+  });
+  
+  // Main camera clears full frame normally
+  mainCamera.onBeforeRenderObservable.add(() => {
+      const engine = scene.getEngine();
+      engine.setViewport(mainCamera.viewport);
+      engine.clear(scene.clearColor, true, true, true);
+  });
+
   minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
   minimapCamera.layerMask = MINIMAP_LAYER;
 
@@ -158,6 +176,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
