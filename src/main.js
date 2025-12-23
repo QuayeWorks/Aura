@@ -173,8 +173,8 @@ function createScene() {
             viewportH: 0.3,
             uiLeft: "0%",
             uiTop: "0%",
-            uiWidth: "50%",
-            uiHeight: "50%"
+            uiWidth: "5%",
+            uiHeight: "5%"
           }
         });
     }
@@ -597,6 +597,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
