@@ -48,44 +48,52 @@ export function createMinimapViewport({
   // UI frame overlay (optional)
   let frame = null;
   let dot = null;
+  // UI frame overlay (optional)
+  let frame = null;
+  let dot = null;
+  
   if (ui) {
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
     frame.width = vpToPercent(viewW);
     frame.height = vpToPercent(viewH);
-    frame.background = "rgba(0,0,0,0.65)"; // stronger dark backing
-    frame.thickness = 2;
+  
     frame.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
     frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+  
+    // Match the viewport's bottom-left anchor
     frame.left = vpToPercent(viewX);
     frame.top = "-" + vpToPercent(viewY);
+  
     frame.thickness = options.thickness ?? 2;
     frame.color = options.borderColor ?? "#ffffff";
     frame.cornerRadius = options.cornerRadius ?? 12;
     frame.alpha = options.alpha ?? 0.95;
-    frame.clipChildren = true;           // prevents any child bleed
-    frame.background = "rgba(0,0,0,0.35)";
+  
+    // Solid backing so it reads as UI
+    frame.background = options.background ?? "rgba(0,0,0,0.55)";
+  
+    frame.clipChildren = true;
     frame.zIndex = 5000;
     frame.isPointerBlocker = false;
-
-
+  
     ui.addControl(frame);
-
+  
     dot = new BABYLON.GUI.Ellipse("minimapDot");
     dot.width = options.dotSize ?? "10px";
     dot.height = options.dotSize ?? "10px";
-
     dot.color = options.dotBorderColor ?? "white";
     dot.thickness = options.dotThickness ?? 2;
     dot.background = options.dotFillColor ?? "red";
+  
     dot.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     dot.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+  
     dot.zIndex = 5001;
     dot.isPointerBlocker = false;
-    dot.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
-    dot.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-
+  
     frame.addControl(dot);
   }
+
 
   let enabled = true;
 
@@ -150,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
