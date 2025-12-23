@@ -13,15 +13,15 @@ export function createMinimapViewport({
 
   const viewX = options.viewportX ?? 0.02;
   const viewY = options.viewportY ?? 0.02;
-  const viewW = options.viewportW ?? 0.5;
-  const viewH = options.viewportH ?? 0.5;
+  const viewW = options.viewportW ?? 0.1;
+  const viewH = options.viewportH ?? 0.1;
 
   const worldRadius = options.worldRadius ?? 350; // zoom (world units around player)
   const height = options.height ?? 800;          // height above player
   const padLeft = options.uiLeft ?? "0%";
   const padTop = options.uiTop ?? "0%";
-  const sizeW = options.uiWidth ?? "100%";
-  const sizeH = options.uiHeight ?? "100%";
+  const sizeW = options.uiWidth ?? "1%";
+  const sizeH = options.uiHeight ?? "1%";
 
   // Ensure main camera renders normal layer
   if (mainCamera) mainCamera.layerMask = MAIN_LAYER;
@@ -161,6 +161,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
