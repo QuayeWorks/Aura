@@ -43,7 +43,7 @@ export function createMinimapViewport({
   minimapCamera.orthoBottom = -worldRadius;
 
   minimapCamera.minZ = 0.1;
-  minimapCamera.maxZ = 5000;
+  minimapCamera.maxZ = 9999;
 
   // UI frame overlay (optional)
   let frame = null;
@@ -73,7 +73,7 @@ export function createMinimapViewport({
     frame.cornerRadius = options.cornerRadius ?? 12;
     frame.alpha = options.alpha ?? 0.95;
     frame.clipChildren = true;
-    frame.background = options.background ?? "rgba(0,0,0,0.55)";
+    frame.background = options.background ?? "rgba(0,0,0,0.15)";
     frame.zIndex = 5001;
     frame.isPointerBlocker = false;
   
@@ -87,7 +87,7 @@ export function createMinimapViewport({
     dot.background = options.dotFillColor ?? "red";
     dot.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     dot.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-    dot.zIndex = 5001;
+    dot.zIndex = 10000;
     dot.isPointerBlocker = false;
   
     frame.addControl(dot);
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
