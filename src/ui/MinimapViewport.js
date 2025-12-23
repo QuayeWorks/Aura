@@ -13,8 +13,8 @@ export function createMinimapViewport({
 
   const viewX = options.viewportX ?? 0.02;
   const viewY = options.viewportY ?? 0.02;
-  const viewW = options.viewportW ?? 0.25;
-  const viewH = options.viewportH ?? 0.25;
+  const viewW = options.viewportW ?? 0.5;
+  const viewH = options.viewportH ?? 0.5;
 
   const worldRadius = options.worldRadius ?? 350; // zoom (world units around player)
   const height = options.height ?? 800;          // height above player
@@ -161,6 +161,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
