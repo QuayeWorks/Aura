@@ -66,10 +66,14 @@ export function createMinimapViewport({
     frame.height = vpToPercent(viewH);
     
     frame.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+    frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    
+    // Viewport y is from bottom, GUI top is from top:
+    const guiTop = 1.0 - (viewY + viewH);
     
     frame.left = vpToPercent(viewX);
-    frame.top  = "-" + vpToPercent(viewY + viewH); // ✅ FIX
+    frame.top  = vpToPercent(guiTop);
+
     
     frame.thickness = options.thickness ?? 2;
     frame.color = options.borderColor ?? "#ffffff";
@@ -91,7 +95,7 @@ export function createMinimapViewport({
     dot.background = options.dotFillColor ?? "red";
     dot.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     dot.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
-    dot.zIndex = 1000;
+    dot.zIndex = 1001;
     dot.isPointerBlocker = false;
   
     frame.addControl(dot);
@@ -161,6 +165,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
