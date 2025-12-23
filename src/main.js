@@ -152,15 +152,18 @@ function createScene() {
     // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
-    minimap = createMinimapViewport({
-      scene,
-      mainCamera,
-      ui,
-      options: {
-        worldRadius: 350,
-        height: 800
-      }
-    });
+    if (!minimap) {
+        minimap = createMinimapViewport({
+          scene,
+          mainCamera,
+          ui,
+          options: {
+            worldRadius: 350,
+            height: 800
+          }
+        });
+    }
+
 
     minimap.setEnabled(false);
     minimap.setOverlayVisible(false); // hides frame + dot
@@ -579,6 +582,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
