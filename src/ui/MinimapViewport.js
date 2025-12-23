@@ -124,7 +124,7 @@ export function createMinimapViewport({
   
     if (enabled) {
       // Use both cameras while playing
-      scene.activeCameras = [minimapCamera, mainCamera];
+      scene.activeCameras = [mainCamera, minimapCamera];
       minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
     } else {
       // IMPORTANT: go back to single-camera mode so GUI picking works in menus
@@ -176,32 +176,3 @@ export function createMinimapViewport({
     dispose
   };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
