@@ -74,7 +74,7 @@ export function createMinimapViewport({
     frame.alpha = options.alpha ?? 0.95;
     frame.clipChildren = true;
     frame.background = options.background ?? "rgba(0,0,0,0.55)";
-    frame.zIndex = 5000;
+    frame.zIndex = 5001;
     frame.isPointerBlocker = false;
   
     ui.addControl(frame);
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
