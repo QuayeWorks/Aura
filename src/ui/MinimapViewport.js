@@ -5,7 +5,7 @@
 export function createMinimapViewport({
   scene,
   mainCamera,
-  ui,
+  uiMinimap,
   options = {}
 }) {
   const MAIN_LAYER = options.mainLayer ?? 0x1;
@@ -32,23 +32,6 @@ export function createMinimapViewport({
     mainCamera.position.clone(),
     scene
   );
-
-  // Prevent depth buffer conflicts between minimap + main camera
-  // (Some Babylon builds don't expose camera.onBeforeRenderObservable)
-  scene.autoClear = false;
-  scene.autoClearDepthAndStencil = false;
-  
-  const engine = scene.getEngine();
-  
-  scene.onBeforeCameraRenderObservable.add((cam) => {
-    if (cam === minimapCamera) {
-      engine.setViewport(minimapCamera.viewport);
-      engine.clear(new BABYLON.Color4(0, 0, 0, 1), true, true, true);
-    } else if (cam === mainCamera) {
-      engine.setViewport(mainCamera.viewport);
-      engine.clear(scene.clearColor, true, true, true);
-    }
-  });
   
   minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
   minimapCamera.layerMask = MINIMAP_LAYER;
@@ -67,13 +50,13 @@ export function createMinimapViewport({
   let frame = null;
   let dot = null;
   
-  if (ui) {
+  if (uiMinimap) {
     // --- Safety: remove any previous minimap UI controls (prevents duplicates) ---
-    if (ui && ui.getControlByName) {
-      const oldFrame = ui.getControlByName("minimapFrame");
+    if (uiMinimap && uiMinimap.getControlByName) {
+      const oldFrame = uiMinimap.getControlByName("minimapFrame");
       if (oldFrame) oldFrame.dispose();
     
-      const oldDot = ui.getControlByName("minimapDot");
+      const oldDot = uiMinimap.getControlByName("minimapDot");
       if (oldDot) oldDot.dispose();
     }
 
@@ -95,7 +78,7 @@ export function createMinimapViewport({
     frame.zIndex = 1000;
     frame.isPointerBlocker = false;
   
-    ui.addControl(frame);
+    uiMinimap.addControl(frame);
   
     dot = new BABYLON.GUI.Ellipse("minimapDot");
     dot.width = options.dotSize ?? "10px";
@@ -124,7 +107,7 @@ export function createMinimapViewport({
   
     if (enabled) {
       // Use both cameras while playing
-      scene.activeCameras = [minimapCamera, mainCamera];
+      scene.activeCameras = [mainCamera, minimapCamera];
       minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
     } else {
       // IMPORTANT: go back to single-camera mode so GUI picking works in menus
@@ -176,4 +159,5 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
