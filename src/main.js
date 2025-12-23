@@ -153,6 +153,7 @@ function createScene() {
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
     if (!minimap) {
+        console.log("createMinimapViewport CALLED");
         minimap = createMinimapViewport({
           scene,
           mainCamera,
@@ -582,6 +583,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
