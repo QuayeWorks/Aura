@@ -48,9 +48,6 @@ export function createMinimapViewport({
   // UI frame overlay (optional)
   let frame = null;
   let dot = null;
-  // UI frame overlay (optional)
-  let frame = null;
-  let dot = null;
   
   if (ui) {
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
@@ -158,6 +155,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
