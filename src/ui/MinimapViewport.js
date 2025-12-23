@@ -113,7 +113,7 @@ export function createMinimapViewport({
       scene.activeCameras = null;
       scene.activeCamera = mainCamera;
   
-      minimapCamera.viewport = new BABYLON.Viewport(0, 0, 0, 0);
+      //minimapCamera.viewport = new BABYLON.Viewport(0, 0, 0, 0);
     }
   
     if (frame) frame.isVisible = enabled;
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
