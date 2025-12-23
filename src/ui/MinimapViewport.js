@@ -51,10 +51,14 @@ export function createMinimapViewport({
   
   if (ui) {
     // --- Safety: remove any previous minimap UI controls (prevents duplicates) ---
-    const oldFrame = ui.getControlByName?.("minimapFrame");
-    if (oldFrame) oldFrame.dispose();
-    const oldDot = ui.getControlByName?.("minimapDot");
-    if (oldDot) oldDot.dispose();
+    if (ui && ui.getControlByName) {
+      const oldFrame = ui.getControlByName("minimapFrame");
+      if (oldFrame) oldFrame.dispose();
+    
+      const oldDot = ui.getControlByName("minimapDot");
+      if (oldDot) oldDot.dispose();
+    }
+
   
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
     frame.width = vpToPercent(viewW);
@@ -154,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
