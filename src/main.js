@@ -160,7 +160,15 @@ function createScene() {
           ui,
           options: {
             worldRadius: 350,
-            height: 800
+            height: 800,
+            viewportX: 0.02,
+            viewportY: 0.02,
+            viewportW: 0.25,
+            viewportH: 0.25,
+            uiLeft: "1%",
+            uiTop: "-1%",
+            uiWidth: "100%",
+            uiHeight: "100%"
           }
         });
     }
@@ -583,6 +591,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
