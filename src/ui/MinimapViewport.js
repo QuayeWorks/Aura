@@ -9,7 +9,7 @@ export function createMinimapViewport({
   options = {}
 }) {
   const MAIN_LAYER = options.mainLayer ?? 0x1;
-  const MINIMAP_LAYER = options.minimapLayer ?? 0x1;
+  const MINIMAP_LAYER = options.minimapLayer ?? 0x2;
 
   const viewX = options.viewportX ?? 0.02;
   const viewY = options.viewportY ?? 0.02;
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
