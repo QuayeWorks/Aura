@@ -152,6 +152,8 @@ function createScene() {
     // --- UI ---
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
     const MAIN_LAYER = 0x1;
+    const uiMinimap = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI_MINIMAP");
+    uiMinimap.layer.layerMask = 0x2; // MINIMAP only
     ui.layer.layerMask = MAIN_LAYER;   
 
     if (!minimap) {
@@ -159,7 +161,7 @@ function createScene() {
         minimap = createMinimapViewport({
           scene,
           mainCamera,
-          ui,
+          uiMinimap,
           options: {
             worldRadius: 350,
             height: 800,
@@ -595,6 +597,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
