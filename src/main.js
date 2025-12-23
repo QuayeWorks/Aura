@@ -161,12 +161,12 @@ function createScene() {
           options: {
             worldRadius: 350,
             height: 800,
-            viewportX: 0.02,
-            viewportY: 0.02,
-            viewportW: 0.25,
-            viewportH: 0.25,
-            uiLeft: "1%",
-            uiTop: "-1%",
+            viewportX: 0.9,
+            viewportY: 0.9,
+            viewportW: 0.9,
+            viewportH: 0.9,
+            uiLeft: "0%",
+            uiTop: "0%",
             uiWidth: "0%",
             uiHeight: "0%"
           }
@@ -591,6 +591,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
