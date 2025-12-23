@@ -90,7 +90,7 @@ export function createMinimapViewport({
     dot.zIndex = 5001;
     dot.isPointerBlocker = false;
   
-    //frame.addControl(dot);
+    frame.addControl(dot);
   }
 
 
@@ -158,6 +158,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
