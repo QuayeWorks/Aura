@@ -324,6 +324,7 @@ function setFirefliesVisible(isVisible) {
 // --------------------
 function showMainMenu() {
     minimap.setEnabled(false);
+    minimap.setOverlayVisible(false);
     if (uiState && uiState.showMainMenu) {
         uiState.showMainMenu();
     }
@@ -402,7 +403,9 @@ function startGame() {
             if (hudPanel) hudPanel.isVisible = true;
 
             gameState = GameState.PLAYING;
-            minimap.setEnabled(gameState === GameState.PLAYING);
+            minimap.setEnabled(false);
+            minimap.setOverlayVisible(fasle);
+
 
         };
     } else {
@@ -426,7 +429,9 @@ function startGame() {
         }
 
         gameState = GameState.PLAYING;
-        minimap.setEnabled(gameState === GameState.PLAYING);
+        minimap.setEnabled(false);
+        minimap.setOverlayVisible(false);
+
     }
 }
 
@@ -574,6 +579,7 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
+
 
 
 
