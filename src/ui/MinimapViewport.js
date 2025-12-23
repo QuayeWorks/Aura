@@ -33,19 +33,6 @@ export function createMinimapViewport({
     scene
   );
 
-  minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
-  minimapCamera.layerMask = MINIMAP_LAYER;
-
-  minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
-
-  minimapCamera.orthoLeft = -worldRadius;
-  minimapCamera.orthoRight = worldRadius;
-  minimapCamera.orthoTop = worldRadius;
-  minimapCamera.orthoBottom = -worldRadius;
-
-  minimapCamera.minZ = 0.1;
-  minimapCamera.maxZ = Math.max(50000, (options.maxZ ?? 200000));
-
   // Prevent depth buffer conflicts between minimap + main camera
   // (Some Babylon builds don't expose camera.onBeforeRenderObservable)
   scene.autoClear = false;
@@ -62,6 +49,19 @@ export function createMinimapViewport({
       engine.clear(scene.clearColor, true, true, true);
     }
   });
+  
+  minimapCamera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+  minimapCamera.layerMask = MINIMAP_LAYER;
+
+  minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
+
+  minimapCamera.orthoLeft = -worldRadius;
+  minimapCamera.orthoRight = worldRadius;
+  minimapCamera.orthoTop = worldRadius;
+  minimapCamera.orthoBottom = -worldRadius;
+
+  minimapCamera.minZ = 0.1;
+  minimapCamera.maxZ = Math.max(50000, (options.maxZ ?? 200000));
 
   // UI frame overlay (optional)
   let frame = null;
@@ -176,6 +176,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
