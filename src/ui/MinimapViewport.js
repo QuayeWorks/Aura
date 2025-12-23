@@ -103,22 +103,21 @@ export function createMinimapViewport({
   }
 
   function setEnabled(v) {
-    enabled = v;
+    enabled = !!v;
   
     if (enabled) {
-      // Use both cameras while playing
       scene.activeCameras = [mainCamera, minimapCamera];
       minimapCamera.viewport = new BABYLON.Viewport(viewX, viewY, viewW, viewH);
     } else {
-      // IMPORTANT: go back to single-camera mode so GUI picking works in menus
       scene.activeCameras = null;
       scene.activeCamera = mainCamera;
-  
       minimapCamera.viewport = new BABYLON.Viewport(0, 0, 0, 0);
     }
   
-    //if (frame) frame.isVisible = enabled;
+    if (frame) frame.isVisible = enabled;
+    if (dot) dot.isVisible = enabled;
   }
+
 
   function setOverlayVisible(v) {
       if (frame) frame.isVisible = v;
@@ -159,5 +158,6 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
