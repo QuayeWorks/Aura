@@ -52,38 +52,52 @@ export function createMinimapViewport({
   
   if (uiMinimap) {
     // --- Safety: remove any previous minimap UI controls (prevents duplicates) ---
-    if (uiMinimap && uiMinimap.getControlByName) {
+    if (uiMinimap.getControlByName) {
       const oldFrame = uiMinimap.getControlByName("minimapFrame");
       if (oldFrame) oldFrame.dispose();
-    
+  
       const oldDot = uiMinimap.getControlByName("minimapDot");
       if (oldDot) oldDot.dispose();
     }
-
+  
+    const engine = scene.getEngine();
+  
+    const computeFramePixels = () => {
+      const w = engine.getRenderWidth(true);
+      const h = engine.getRenderHeight(true);
+  
+      // Viewport coords: bottom-left origin
+      const pxLeft = Math.round(viewX * w);
+      const pxTop  = Math.round((1.0 - (viewY + viewH)) * h); // GUI top-left origin
+      const pxW    = Math.round(viewW * w);
+      const pxH    = Math.round(viewH * h);
+  
+      return { pxLeft, pxTop, pxW, pxH };
+    };
   
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
-    frame.width = vpToPercent(viewW);
-    frame.height = vpToPercent(viewH);
-    
+  
+    // Pixel-perfect sizing/positioning to match the viewport exactly
+    const { pxLeft, pxTop, pxW, pxH } = computeFramePixels();
+    frame.width  = pxW + "px";
+    frame.height = pxH + "px";
+  
     frame.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
-    frame.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
-    
-    // Viewport y is from bottom, GUI top is from top:
-    const guiTop = 1.0 - (viewY + viewH);
-    
-    frame.left = vpToPercent(viewX);
-    frame.top  = vpToPercent(guiTop);
-
-    
+    frame.verticalAlignment   = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
+    frame.left = pxLeft + "px";
+    frame.top  = pxTop + "px";
+  
     frame.thickness = options.thickness ?? 2;
     frame.color = options.borderColor ?? "#ffffff";
     frame.cornerRadius = options.cornerRadius ?? 12;
     frame.alpha = options.alpha ?? 0.95;
     frame.clipChildren = true;
-    frame.background = options.background ?? "rgba(0,0,0,0.05)";
+  
+    // Give it enough backing so the world behind doesn't look like minimap bleed
+    frame.background = options.background ?? "rgba(0,0,0,0.55)";
+  
     frame.zIndex = 1000;
     frame.isPointerBlocker = false;
-
   
     uiMinimap.addControl(frame);
   
@@ -99,6 +113,16 @@ export function createMinimapViewport({
     dot.isPointerBlocker = false;
   
     frame.addControl(dot);
+  
+    // Keep it pixel-perfect when the canvas resizes (window resize / DPR changes)
+    engine.onResizeObservable.add(() => {
+      if (!frame) return;
+      const r = computeFramePixels();
+      frame.width  = r.pxW + "px";
+      frame.height = r.pxH + "px";
+      frame.left   = r.pxLeft + "px";
+      frame.top    = r.pxTop + "px";
+    });
   }
 
 
@@ -165,6 +189,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
