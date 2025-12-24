@@ -64,8 +64,8 @@ export function createMinimapViewport({
   
     const computeFramePixels = () => {
       const uiSize = uiMinimap.getSize();
-      const w = uiSize.width;
-      const h = uiSize.height;
+      const w = (uiSize.width) *2;
+      const h = (uiSize.height) *2;
     
       const pxLeft = Math.round(viewX * w);
       const pxTop  = Math.round((1.0 - (viewY + viewH)) * h);
@@ -190,6 +190,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
