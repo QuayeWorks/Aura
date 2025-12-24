@@ -63,17 +63,18 @@ export function createMinimapViewport({
     const engine = scene.getEngine();
   
     const computeFramePixels = () => {
-      const w = engine.getRenderWidth(true);
-      const h = engine.getRenderHeight(true);
-  
-      // Viewport coords: bottom-left origin
+      const uiSize = uiMinimap.getSize();
+      const w = uiSize.width;
+      const h = uiSize.height;
+    
       const pxLeft = Math.round(viewX * w);
-      const pxTop  = Math.round((1.0 - (viewY + viewH)) * h); // GUI top-left origin
+      const pxTop  = Math.round((1.0 - (viewY + viewH)) * h);
       const pxW    = Math.round(viewW * w);
       const pxH    = Math.round(viewH * h);
-  
+    
       return { pxLeft, pxTop, pxW, pxH };
     };
+
   
     frame = new BABYLON.GUI.Rectangle("minimapFrame");
   
@@ -189,6 +190,7 @@ export function createMinimapViewport({
     dispose
   };
 }
+
 
 
 
