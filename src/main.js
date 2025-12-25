@@ -1,7 +1,9 @@
 /* global BABYLON */
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
-import { createMinimapViewport } from "./ui/MinimapViewport.js";
+// Minimap is intentionally disabled for now.
+// (Keep the import commented to avoid bundling/confusion until RTT-based minimap returns.)
+// import { createMinimapViewport } from "./ui/MinimapViewport.js";
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 import { PlanetPlayer } from "./player/PlanetPlayer.js";
 import { DayNightSystem } from "./daynight/DayNightSystem.js";
@@ -150,66 +152,44 @@ function createScene() {
 
 
     // --- UI ---
-    /*ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
-    const MAIN_LAYER = 0x1;
-    const uiMinimap = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI_MINIMAP");
-    uiMinimap.layer.layerMask = 0x2; // MINIMAP only
-    ui.layer.layerMask = MAIN_LAYER;
-
-    if (!minimap) {
-        console.log("createMinimapViewport CALLED");
-        minimap = createMinimapViewport({
-          scene,
-          mainCamera,
-          uiMinimap,
-          options: {
-            worldRadius: 350,
-            height: 800,
-            mainLayer: 0x1,
-            minimapLayer: 0x2, 
-            viewportX: 0.01,
-            viewportY: 0.01,
-            viewportW: 0.3,
-            viewportH: 0.3
-          }
-        });
-    }
-
-
-    minimap.setEnabled(false);
-    minimap.setOverlayVisible(false); */
+    // NOTE: You intentionally removed/disabled Babylon GUI for now.
+    // Keep ui = null and make all UI setup conditional so gameplay can run without UI.
+    ui = null;
     
-    // Main menu
-    mainMenuPanel = createMainMenu(ui, {
-        onPlay: () => startGame(),
-        onSettings: () => showSettings()
-    });
+    // Babylon GUI is optional. If you re-enable it later, just set `ui` to an ADT and this block will run.
+    if (ui) {
+        // Main menu
+        mainMenuPanel = createMainMenu(ui, {
+            onPlay: () => startGame(),
+            onSettings: () => showSettings()
+        });
 
-    // Settings menu
-    settingsPanel = createSettingsMenu(ui, {
-        onBack: () => showMainMenu(),
-        onLodChange: (value) => {
-            if (terrain && terrain.setLodLevel) {
-                terrain.setLodLevel(value);
+        // Settings menu
+        settingsPanel = createSettingsMenu(ui, {
+            onBack: () => showMainMenu(),
+            onLodChange: (value) => {
+                if (terrain && terrain.setLodLevel) {
+                    terrain.setLodLevel(value);
+                }
             }
+        });
+
+        // HUD
+        {
+            const hud = createHud(ui);
+            hudPanel = hud.hudPanel;
+            playerInfoText = hud.playerInfoText;
+            lodInfoText = hud.lodInfoText;
+            sunMoonInfoText = hud.sunMoonInfoText;
         }
-    });
 
-    // HUD
-    {
-        const hud = createHud(ui);
-        hudPanel = hud.hudPanel;
-        playerInfoText = hud.playerInfoText;
-        lodInfoText = hud.lodInfoText;
-        sunMoonInfoText = hud.sunMoonInfoText;
-    }
-
-    // Loading overlay
-    {
-        const loading = createLoadingOverlay(ui);
-        loadingOverlay = loading.loadingOverlay;
-        loadingBarFill = loading.loadingBarFill;
-        loadingPercentText = loading.loadingPercentText;
+        // Loading overlay
+        {
+            const loading = createLoadingOverlay(ui);
+            loadingOverlay = loading.loadingOverlay;
+            loadingBarFill = loading.loadingBarFill;
+            loadingPercentText = loading.loadingPercentText;
+        }
     }
 
     
@@ -232,6 +212,21 @@ function createScene() {
 
     // Start in menu
     showMainMenu();
+
+    // If Babylon GUI is disabled, you still need a way to transition states.
+    // - Enter starts the game from the menu.
+    // - Escape returns to the menu from gameplay.
+    if (!ui) {
+        window.addEventListener("keydown", (e) => {
+            if (e.repeat) return;
+            if (e.code === "Enter" && gameState === GameState.MENU) {
+                startGame();
+            }
+            if (e.code === "Escape" && gameState === GameState.PLAYING) {
+                showMainMenu();
+            }
+        });
+    }
     
 
 
@@ -337,8 +332,10 @@ function setFirefliesVisible(isVisible) {
 // State transitions
 // --------------------
 function showMainMenu() {
-    minimap.setEnabled(false);
-    minimap.setOverlayVisible(false);
+    if (minimap) {
+        minimap.setEnabled(false);
+        minimap.setOverlayVisible(false);
+    }
     if (uiState && uiState.showMainMenu) {
         uiState.showMainMenu();
     }
@@ -443,8 +440,11 @@ function startGame() {
         }
 
         gameState = GameState.PLAYING;
-        minimap.setEnabled(true);
-        minimap.setOverlayVisible(true);
+        // Minimap is intentionally disabled. Keep these guarded for future RTT minimap return.
+        if (minimap) {
+            minimap.setEnabled(true);
+            minimap.setOverlayVisible(true);
+        }
 
     }
 }
@@ -493,7 +493,11 @@ engine.runRenderLoop(() => {
                 );
             }
 
-            minimap.updateFromPlayerMesh(player.mesh);
+            if (minimap) {
+            if (minimap) {
+                minimap.updateFromPlayerMesh(player.mesh);
+            }
+            }
 
             // === END CAMERA FIX ===
         }
