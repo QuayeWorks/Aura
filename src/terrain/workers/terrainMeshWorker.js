@@ -30,7 +30,6 @@ self.onmessage = (e) => {
     isoLevel,
     origin,     // {x,y,z}
     carves,     // [{ position:{x,y,z}, radius }]
-    biomeSettings, // biome config (optional)
     wantColors  // boolean
   } = msg;
 
@@ -48,8 +47,7 @@ self.onmessage = (e) => {
       field, dimX, dimY, dimZ,
       cellSize, isoLevel, origin,
       radius,
-      wantColors !== false,
-      biomeSettings || null
+      wantColors !== false
     );
 
     self.postMessage(
@@ -249,130 +247,88 @@ function hashNoise(x, y, z) {
   return 1.0 - (((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
 }
 
-function getColorForWorldPos(x, y, z, radius, biomeSettings) {
+function getColorForWorldPos(x, y, z, radius) {
   const dist = Math.sqrt(x * x + y * y + z * z);
   const h = dist - radius;
 
-  const upx = dist > 1e-6 ? (x / dist) : 0;
-  const upy = dist > 1e-6 ? (y / dist) : 1;
-  const upz = dist > 1e-6 ? (z / dist) : 0;
+  const ny = dist > 1e-6 ? (y / dist) : 0;
 
-  // Settings (meters -> units via unitsPerMeter)
-  const bs = biomeSettings || {};
-  const u = (typeof bs.unitsPerMeter === "number") ? bs.unitsPerMeter : 1.0;
+  const seaLevel = 220;
+  const beachWidth = 40;
 
-  const seaLevel = (typeof bs.seaLevelMeters === "number" ? bs.seaLevelMeters : 220) * u;
-  const beachWidth = (typeof bs.beachWidthMeters === "number" ? bs.beachWidthMeters : 40) * u;
-  const shallowWaterDepth = (typeof bs.shallowWaterDepthMeters === "number" ? bs.shallowWaterDepthMeters : 80) * u;
-
-  const grassMax = (typeof bs.grassMaxMeters === "number" ? bs.grassMaxMeters : 250) * u;
-  const rockMax = (typeof bs.rockMaxMeters === "number" ? bs.rockMaxMeters : 700) * u;
-  const snowStart = (typeof bs.snowStartMeters === "number" ? bs.snowStartMeters : 700) * u;
-  const snowFull = (typeof bs.snowFullMeters === "number" ? bs.snowFullMeters : 1600) * u;
-
-  const slopeRockStart = (typeof bs.slopeRockStart === "number" ? bs.slopeRockStart : 0.35);
-  const slopeRockFull  = (typeof bs.slopeRockFull === "number" ? bs.slopeRockFull  : 0.75);
-
-  const slopeEps = (typeof bs.slopeEpsMeters === "number" ? bs.slopeEpsMeters : 25) * u;
-  const debugMode = (typeof bs.debugMode === "string" ? bs.debugMode : "off");
-
-  // LOD-independent slope: sample SDF gradient at a fixed world-space step
-  const slope = computeSlopeFromSdf(x, y, z, radius, slopeEps, upx, upy, upz);
-
-  // Debug visualizations
-  if (debugMode === "height") {
-    const v = Math.max(-1, Math.min(1, (h - seaLevel) / Math.max(1e-6, (snowFull - seaLevel))));
-    const t = (v + 1) * 0.5;
-    return [t, 0.2 + 0.6 * (1 - t), 1 - t];
-  }
-  if (debugMode === "slope") {
-    const t = Math.max(0, Math.min(1, slope));
-    return [t, t, t];
+  // Below water
+  if (h < seaLevel - beachWidth) {
+    return [0.05, 0.18, 0.40]; // deep water tint
   }
 
-  // Water bands (deep -> shallow)
-  if (h < seaLevel - shallowWaterDepth) {
-    return [0.03, 0.12, 0.28];
-  }
-  if (h < seaLevel) {
-    const t = (h - (seaLevel - shallowWaterDepth)) / Math.max(1e-6, shallowWaterDepth);
-    return [0.03 + 0.05 * t, 0.12 + 0.10 * t, 0.28 + 0.14 * t];
-  }
-
-  // Beach (wet -> dry sand)
+  // Beach band
   if (h < seaLevel + beachWidth) {
-    const t = (h - seaLevel) / Math.max(1e-6, beachWidth);
-    const sandWet = [0.62, 0.56, 0.42];
-    const sandDry = [0.88, 0.83, 0.64];
-    const c = [
-      sandWet[0] + (sandDry[0] - sandWet[0]) * t,
-      sandWet[1] + (sandDry[1] - sandWet[1]) * t,
-      sandWet[2] + (sandDry[2] - sandWet[2]) * t
-    ];
-    if (debugMode === "isolateSand") return c;
-    return c;
-  }
-
-  const aboveSea = h - seaLevel;
-
-  // Base biome colors
-  const grass = [0.18, 0.55, 0.22];
-  const grassDry = [0.38, 0.62, 0.25];
-  const rock = [0.55, 0.55, 0.58];
-  const rockDark = [0.40, 0.38, 0.36];
-  const snow = [0.95, 0.97, 1.0];
-
-  // Height-driven base: grass -> dry grass -> rock -> snow
-  let base;
-  if (aboveSea < grassMax) {
-    const t = Math.max(0, Math.min(1, aboveSea / Math.max(1e-6, grassMax)));
-    base = [
-      grass[0] + (grassDry[0] - grass[0]) * t,
-      grass[1] + (grassDry[1] - grass[1]) * t,
-      grass[2] + (grassDry[2] - grass[2]) * t
-    ];
-  } else if (aboveSea < rockMax) {
-    const t = Math.max(0, Math.min(1, (aboveSea - grassMax) / Math.max(1e-6, (rockMax - grassMax))));
-    base = [
-      grassDry[0] + (rockDark[0] - grassDry[0]) * t,
-      grassDry[1] + (rockDark[1] - grassDry[1]) * t,
-      grassDry[2] + (rockDark[2] - grassDry[2]) * t
-    ];
-  } else {
-    const t = Math.max(0, Math.min(1, (aboveSea - snowStart) / Math.max(1e-6, (snowFull - snowStart))));
-    base = [
-      rock[0] + (snow[0] - rock[0]) * t,
-      rock[1] + (snow[1] - rock[1]) * t,
-      rock[2] + (snow[2] - rock[2]) * t
+    const t = (h - (seaLevel - beachWidth)) / (2 * beachWidth);
+    const shallow = [0.15, 0.45, 0.75];
+    const sand = [0.96, 0.88, 0.60];
+    return [
+      shallow[0] + (sand[0] - shallow[0]) * t,
+      shallow[1] + (sand[1] - shallow[1]) * t,
+      shallow[2] + (sand[2] - shallow[2]) * t
     ];
   }
 
-  // Slope-aware blending toward rock
-  const slopeT = Math.max(0, Math.min(1, (slope - slopeRockStart) / Math.max(1e-6, (slopeRockFull - slopeRockStart))));
-  const mixed = [
-    base[0] + (rock[0] - base[0]) * slopeT,
-    base[1] + (rock[1] - base[1]) * slopeT,
-    base[2] + (rock[2] - base[2]) * slopeT
+  const aboveSea = h - (seaLevel + beachWidth);
+
+  const n = hashNoise(
+    Math.floor(x * 0.02),
+    Math.floor(y * 0.02),
+    Math.floor(z * 0.02)
+  );
+  const grassJitter = 0.03 * n;
+
+  if (aboveSea < 250) {
+    const t = aboveSea / 250;
+    const grassLow  = [0.20, 0.75 + grassJitter, 0.32];
+    const grassHigh = [0.14, 0.58, 0.26];
+    return [
+      grassLow[0] + (grassHigh[0] - grassLow[0]) * t,
+      grassLow[1] + (grassHigh[1] - grassLow[1]) * t,
+      grassLow[2] + (grassHigh[2] - grassLow[2]) * t
+    ];
+  }
+
+  if (aboveSea < 700) {
+    const t = (aboveSea - 250) / (700 - 250);
+    const rockBrown = [0.45, 0.40, 0.35];
+    const rockGrey  = [0.65, 0.65, 0.68];
+    return [
+      rockBrown[0] + (rockGrey[0] - rockBrown[0]) * t,
+      rockBrown[1] + (rockGrey[1] - rockBrown[1]) * t,
+      rockBrown[2] + (rockGrey[2] - rockBrown[2]) * t
+    ];
+  }
+
+  const snowBase = [0.80, 0.82, 0.87];
+  const snowPure = [1.0, 1.0, 1.0];
+
+  const heightT = Math.min(1, (aboveSea - 700) / 900);
+  const latT = Math.min(1, Math.abs(ny));
+
+  const snowMix = [
+    snowBase[0] + (snowPure[0] - snowBase[0]) * heightT,
+    snowBase[1] + (snowPure[1] - snowBase[1]) * heightT,
+    snowBase[2] + (snowPure[2] - snowBase[2]) * heightT
   ];
 
-  // Slight darkening on steep slopes
-  const shade = 1.0 - 0.12 * slopeT;
-  const finalC = [mixed[0] * shade, mixed[1] * shade, mixed[2] * shade];
-
-  if (debugMode === "isolateSnow") {
-    if (aboveSea >= snowStart) return snow;
-    return [0.07, 0.07, 0.07];
-  }
-
-  return finalC;
+  const t = latT * 0.5;
+  return [
+    snowMix[0] + (snowPure[0] - snowMix[0]) * t,
+    snowMix[1] + (snowPure[1] - snowMix[1]) * t,
+    snowMix[2] + (snowPure[2] - snowMix[2]) * t
+  ];
 }
-
 
 // ---------------------- MARCHING CUBES (unshared triangles) ----------------------
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, origin, radius, wantColors, biomeSettings) {
+function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, origin, radius, wantColors) {
   const positions = [];
   const normals = [];
   const indices = [];
@@ -484,9 +440,9 @@ function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, orig
 
           // Colors
           if (wantColors) {
-            const c0 = getColorForWorldPos(p0x, p0y, p0z, radius, biomeSettings);
-            const c1 = getColorForWorldPos(p1x, p1y, p1z, radius, biomeSettings);
-            const c2 = getColorForWorldPos(p2x, p2y, p2z, radius, biomeSettings);
+            const c0 = getColorForWorldPos(p0x, p0y, p0z, radius);
+            const c1 = getColorForWorldPos(p1x, p1y, p1z, radius);
+            const c2 = getColorForWorldPos(p2x, p2y, p2z, radius);
 
             colors.push(c0[0], c0[1], c0[2], 1.0);
             colors.push(c1[0], c1[1], c1[2], 1.0);

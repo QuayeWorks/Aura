@@ -29,51 +29,15 @@ export class ChunkedPlanetTerrain {
 
         // Shared terrain material across all leaves
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
-        // Colors are per-vertex; keep base white so vertex colors read correctly.
-        this.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
-        this.material.ambientColor = new BABYLON.Color3(0.25, 0.25, 0.25);
-        this.material.specularColor = new BABYLON.Color3(0.08, 0.08, 0.08);
-        // Terrain includes steep walls/caves; avoid harsh dark backs.
-        this.material.backFaceCulling = false;
-        this.material.twoSidedLighting = true;
+        this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
+        this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+        this.material.backFaceCulling = true;
 
         this.meshPool = [];
         this.terrainPool = [];
         this.buildQueue = [];
         this.carveHistory = [];
         this.carveRevision = 0; // increments when carve history changes
-
-        // Biome + shading settings (in meters, converted via unitsPerMeter)
-        // Single source of truth: main thread passes this to the mesh worker every build.
-        this.biomeSettings = {
-            unitsPerMeter: options.unitsPerMeter ?? 1.0, // 1 world unit == 1 meter by default
-            seaLevelMeters: options.seaLevelMeters ?? 220,
-            beachWidthMeters: options.beachWidthMeters ?? 40,
-            shallowWaterDepthMeters: options.shallowWaterDepthMeters ?? 80,
-
-            // Height bands above sea level (meters)
-            sandMaxMeters: options.sandMaxMeters ?? 250,
-            grassMaxMeters: options.grassMaxMeters ?? 250,
-            rockMaxMeters: options.rockMaxMeters ?? 700,
-            snowStartMeters: options.snowStartMeters ?? 700,
-            snowFullMeters: options.snowFullMeters ?? 1600,
-
-            // Slope controls (0=flat, 1=vertical)
-            slopeRockStart: options.slopeRockStart ?? 0.35,
-            slopeRockFull: options.slopeRockFull ?? 0.75,
-
-            // Gradient sampling step for slope (meters)
-            slopeEpsMeters: options.slopeEpsMeters ?? 25,
-
-            // Debug: "off" | "biome" | "height" | "slope" | "isolateSnow" | "isolateSand"
-            debugMode: "off"
-        };
-        this.biomeRevision = 0;
-
-        // Water visual shell (optional, safe)
-        this._waterMesh = null;
-        this._ensureWaterMesh();
-
 
         // Build de-dupe / in-flight tracking
         this.queuedJobKeys = new Set();
@@ -438,28 +402,28 @@ export class ChunkedPlanetTerrain {
         node.lastBuiltLod = null;
     }
 
-    _jobKey(node, lodLevel, carveRevision = 0, biomeRevision = 0) {
+    _jobKey(node, lodLevel, carveRevision = 0) {
+    // Ensure node has a stable id (your PlanetQuadtreeNode already has .id in your setup)
     const id = (node && node.id != null) ? node.id : "noid";
-    return `${id}|lod:${lodLevel}|carve:${carveRevision}|biome:${biomeRevision}`;
+    return `${id}|lod:${lodLevel}|carve:${carveRevision}`;
 }
 
-_scheduleNodeRebuild(node, lodLevel, options = {}) {
+    _scheduleNodeRebuild(node, lodLevel, options = {}) {
     if (!node) return;
 
     const force = !!options.force;
     const revision = this.carveRevision;
-    const biomeRevision = this.biomeRevision;
 
     // Skip if already built for this revision & LOD (unless forced)
-    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revision && node.lastBuiltBiomeRevision === biomeRevision) return;
+    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revision) return;
 
-    const key = this._jobKey(node, lodLevel, revision, biomeRevision);
+    const key = this._jobKey(node, lodLevel, revision);
 
     // If queued or currently building, skip.
     if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
 
     this.queuedJobKeys.add(key);
-    this.buildQueue.push({ node, lodLevel, revision, biomeRevision, force, key });
+    this.buildQueue.push({ node, lodLevel, revision, force });
 }
 
     _updateQuadtree(focusPosition) {
@@ -628,7 +592,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
 
         const node = job.node;
         const revision = job.revision ?? this.carveRevision;
-        const key = job.key || this._jobKey(node, job.lodLevel, revision, job.biomeRevision ?? this.biomeRevision);
+        const key = this._jobKey(node, job.lodLevel, revision);
 
         // This job is no longer queued
         this.queuedJobKeys.delete(key);
@@ -637,7 +601,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         this._ensureTerrainForNode(node);
 
         // If already built for this revision & LOD (unless forced), skip
-        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision && node.lastBuiltBiomeRevision === this.biomeRevision) {
+        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision) {
             continue;
         }
 
@@ -648,24 +612,15 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         this.activeBuilds++;
 
         const finishOk = () => {
-            try {
-                node.lastBuiltLod = job.lodLevel;
-                node.lastBuiltRevision = revision;
-        
-                // IMPORTANT: keep this consistent with the job if you store biomeRevision on it
-                node.lastBuiltBiomeRevision = job.biomeRevision ?? this.biomeRevision;
-        
-                this._tagColliderForTerrain(node.terrain, job.lodLevel);
-                this._onChunkBuilt();
-            } catch (e) {
-                console.error("finishOk() error (prevented deadlock):", e);
-            } finally {
-                // ALWAYS release in-flight + concurrency tokens
-                this.inFlightJobKeys.delete(key);
-                this.activeBuilds = Math.max(0, this.activeBuilds - 1);
-            }
-        };
+            node.lastBuiltLod = job.lodLevel;
+            node.lastBuiltRevision = revision;
 
+            this._tagColliderForTerrain(node.terrain, job.lodLevel);
+            this._onChunkBuilt();
+
+            this.inFlightJobKeys.delete(key);
+            this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+        };
 
         const finishErr = (err) => {
             console.error("Chunk rebuild failed:", err);
@@ -683,8 +638,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
                 cellSize: lodDims.cellSize,
-                carves: this._collectCarvesForNode(node),
-                biomeSettings: this.biomeSettings
+                carves: this._collectCarvesForNode(node)
             });
         } catch (e) {
             finishErr(e);
@@ -888,85 +842,4 @@ _collectCarvesForNode(node) {
 
         return info;
     }
-    _ensureWaterMesh() {
-        // Creates/updates a simple water shell at radius + seaLevel.
-        // Safe: if PBR isn't available or anything fails, just skip water visuals.
-        try {
-            const u = (typeof this.biomeSettings?.unitsPerMeter === "number") ? this.biomeSettings.unitsPerMeter : 1.0;
-            const seaLevelUnits = (typeof this.biomeSettings?.seaLevelMeters === "number" ? this.biomeSettings.seaLevelMeters : 0) * u;
-            const targetRadius = this.radius + seaLevelUnits;
-            if (!isFinite(targetRadius) || targetRadius <= 0) return;
-
-            if (!this._waterMesh) {
-                this._waterMesh = BABYLON.MeshBuilder.CreateSphere(
-                    "waterShell",
-                    { diameter: targetRadius * 2, segments: 64 },
-                    this.scene
-                );
-                this._waterMesh.isPickable = false;
-                this._waterMesh.checkCollisions = false;
-                this._waterMesh.layerMask = 0x1;
-
-                const mat = new BABYLON.PBRMaterial("waterMat", this.scene);
-                mat.metallic = 0.0;
-                mat.roughness = 0.12;
-                mat.alpha = 0.55;
-
-                mat.albedoColor = new BABYLON.Color3(0.06, 0.18, 0.35);
-                mat.emissiveColor = new BABYLON.Color3(0.0, 0.02, 0.05);
-
-                mat.albedoFresnelParameters = new BABYLON.FresnelParameters();
-                mat.albedoFresnelParameters.bias = 0.2;
-                mat.albedoFresnelParameters.power = 4.0;
-                mat.albedoFresnelParameters.leftColor = new BABYLON.Color3(0.12, 0.35, 0.55);
-                mat.albedoFresnelParameters.rightColor = new BABYLON.Color3(0.04, 0.12, 0.25);
-
-                this._waterMesh.material = mat;
-            } else {
-                // Resize by scaling ratio
-                const currentRadius = this._waterMesh.getBoundingInfo().boundingSphere.radiusWorld;
-                const s = currentRadius > 1e-6 ? (targetRadius / currentRadius) : 1.0;
-                this._waterMesh.scaling.set(s, s, s);
-            }
-        } catch (e) {
-            // Water is polish-only; never block the game.
-            console.warn("Water shell disabled:", e);
-        }
-    }
-
-    setBiomeDebugMode(mode) {
-        const allowed = new Set(["off", "biome", "height", "slope", "isolateSnow", "isolateSand"]);
-        const next = allowed.has(mode) ? mode : "off";
-        if (this.biomeSettings.debugMode === next) return;
-        this.biomeSettings.debugMode = next;
-        this.biomeRevision++;
-        this._invalidateAllBuiltNodes();
-    }
-
-    setBiomeSettings(partial) {
-        if (!partial) return;
-        this.biomeSettings = { ...this.biomeSettings, ...partial };
-        this.biomeRevision++;
-        this._ensureWaterMesh();
-        this._invalidateAllBuiltNodes();
-    }
-
-    _invalidateAllBuiltNodes() {
-        // Mark all leaves as dirty so colors/slope can rebuild.
-        const stack = [this.rootNode];
-        while (stack.length) {
-            const n = stack.pop();
-            if (!n) continue;
-            n.lastBuiltLod = null;
-            n.lastBuiltRevision = null;
-            n.lastBuiltBiomeRevision = null;
-            if (n.children && n.children.length) {
-                for (const c of n.children) stack.push(c);
-            }
-        }
-        this.queuedJobKeys.clear();
-        this.inFlightJobKeys.clear();
-    }
-
-
 }
