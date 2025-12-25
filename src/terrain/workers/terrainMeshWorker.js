@@ -3,6 +3,7 @@
 // No BABYLON here.
 
 import { edgeTable, triTable } from "./mcTables.js";
+import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "../biomeSettings.js";
 
 // Corner index -> (dx, dy, dz)
 const CORNER_OFFSETS = [
@@ -30,10 +31,12 @@ self.onmessage = (e) => {
     isoLevel,
     origin,     // {x,y,z}
     carves,     // [{ position:{x,y,z}, radius }]
-    wantColors  // boolean
+    wantColors,  // boolean
+    biomeSettings
   } = msg;
 
   try {
+    const resolvedBiome = resolveBiomeSettings(biomeSettings || DEFAULT_BIOME_SETTINGS);
     // 1) Build procedural field
     const field = buildField(dimX, dimY, dimZ, cellSize, radius, origin);
 
@@ -47,7 +50,8 @@ self.onmessage = (e) => {
       field, dimX, dimY, dimZ,
       cellSize, isoLevel, origin,
       radius,
-      wantColors !== false
+      wantColors !== false,
+      resolvedBiome
     );
 
     self.postMessage(
@@ -237,7 +241,9 @@ function applySubtractiveSphereCarves(field, dimX, dimY, dimZ, cellSize, origin,
   }
 }
 
-// ---------------------- COLORS (ported from your _getColorForWorldPos) ----------------------
+// ---------------------- COLORS & BIOMES ----------------------
+
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
 // Small deterministic noise [-1,1] used for grass jitter
 function hashNoise(x, y, z) {
@@ -247,88 +253,138 @@ function hashNoise(x, y, z) {
   return 1.0 - (((n * (n * n * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
 }
 
-function getColorForWorldPos(x, y, z, radius) {
+function lerpColor(a, b, t) {
+  return [
+    lerp(a[0], b[0], t),
+    lerp(a[1], b[1], t),
+    lerp(a[2], b[2], t)
+  ];
+}
+
+function sampleGradient(x, y, z, radius, eps) {
+  const inv = 1 / (2 * eps);
+  return {
+    x: (sampleSdf(x + eps, y, z, radius) - sampleSdf(x - eps, y, z, radius)) * inv,
+    y: (sampleSdf(x, y + eps, z, radius) - sampleSdf(x, y - eps, z, radius)) * inv,
+    z: (sampleSdf(x, y, z + eps, radius) - sampleSdf(x, y, z - eps, radius)) * inv
+  };
+}
+
+function debugColorFor(mode, baseColor, band, heightAboveSea, slope, snowInfluence) {
+  if (mode === "height") {
+    const hT = clamp01((heightAboveSea + 2000) / 4000);
+    return lerpColor([0.0, 0.0, 0.3], [1.0, 1.0, 1.0], hT);
+  }
+
+  if (mode === "slope") {
+    return [slope, slope, slope];
+  }
+
+  if (mode === "isolateSand") {
+    return band === "sand" ? [1.0, 0.95, 0.55] : [0.05, 0.05, 0.05];
+  }
+
+  if (mode === "isolateSnow") {
+    return snowInfluence > 0.05 ? [1.0, 1.0, 1.0] : [0.05, 0.05, 0.05];
+  }
+
+  if (mode === "biome") {
+    switch (band) {
+      case "deepWater": return [0.02, 0.12, 0.25];
+      case "water": return [0.15, 0.45, 0.75];
+      case "sand": return [0.95, 0.85, 0.55];
+      case "grass": return [0.20, 0.80, 0.35];
+      case "rock": return [0.55, 0.55, 0.58];
+      case "snow": return [1.0, 1.0, 1.0];
+      default: return baseColor;
+    }
+  }
+
+  return baseColor;
+}
+
+function getColorForWorldPos(x, y, z, radius, biome) {
   const dist = Math.sqrt(x * x + y * y + z * z);
-  const h = dist - radius;
+  const heightAboveSea = (dist - radius) - biome.seaLevelUnits;
 
-  const ny = dist > 1e-6 ? (y / dist) : 0;
+  const up = dist > 1e-6 ? [x / dist, y / dist, z / dist] : [0, 1, 0];
+  const grad = sampleGradient(x, y, z, radius, biome.slopeEpsUnits);
+  const gradLen = Math.sqrt(grad.x * grad.x + grad.y * grad.y + grad.z * grad.z);
+  const denom = gradLen > 1e-6 ? gradLen : 1;
+  const dot = (grad.x * up[0] + grad.y * up[1] + grad.z * up[2]) / denom;
+  const slope = 1 - Math.abs(dot);
 
-  const seaLevel = 220;
-  const beachWidth = 40;
-
-  // Below water
-  if (h < seaLevel - beachWidth) {
-    return [0.05, 0.18, 0.40]; // deep water tint
-  }
-
-  // Beach band
-  if (h < seaLevel + beachWidth) {
-    const t = (h - (seaLevel - beachWidth)) / (2 * beachWidth);
-    const shallow = [0.15, 0.45, 0.75];
-    const sand = [0.96, 0.88, 0.60];
-    return [
-      shallow[0] + (sand[0] - shallow[0]) * t,
-      shallow[1] + (sand[1] - shallow[1]) * t,
-      shallow[2] + (sand[2] - shallow[2]) * t
-    ];
-  }
-
-  const aboveSea = h - (seaLevel + beachWidth);
-
-  const n = hashNoise(
-    Math.floor(x * 0.02),
-    Math.floor(y * 0.02),
-    Math.floor(z * 0.02)
-  );
-  const grassJitter = 0.03 * n;
-
-  if (aboveSea < 250) {
-    const t = aboveSea / 250;
-    const grassLow  = [0.20, 0.75 + grassJitter, 0.32];
-    const grassHigh = [0.14, 0.58, 0.26];
-    return [
-      grassLow[0] + (grassHigh[0] - grassLow[0]) * t,
-      grassLow[1] + (grassHigh[1] - grassLow[1]) * t,
-      grassLow[2] + (grassHigh[2] - grassLow[2]) * t
-    ];
-  }
-
-  if (aboveSea < 700) {
-    const t = (aboveSea - 250) / (700 - 250);
-    const rockBrown = [0.45, 0.40, 0.35];
-    const rockGrey  = [0.65, 0.65, 0.68];
-    return [
-      rockBrown[0] + (rockGrey[0] - rockBrown[0]) * t,
-      rockBrown[1] + (rockGrey[1] - rockBrown[1]) * t,
-      rockBrown[2] + (rockGrey[2] - rockBrown[2]) * t
-    ];
-  }
-
+  const deepWater = [0.02, 0.12, 0.25];
+  const shallowWater = [0.15, 0.45, 0.75];
+  const wetSand = [0.86, 0.78, 0.52];
+  const drySand = [0.96, 0.88, 0.60];
+  const grassLow = [0.20, 0.75, 0.32];
+  const grassHigh = [0.14, 0.58, 0.26];
+  const rockBrown = [0.45, 0.40, 0.35];
+  const rockGrey = [0.65, 0.65, 0.68];
   const snowBase = [0.80, 0.82, 0.87];
   const snowPure = [1.0, 1.0, 1.0];
 
-  const heightT = Math.min(1, (aboveSea - 700) / 900);
-  const latT = Math.min(1, Math.abs(ny));
+  let band = "rock";
+  let baseColor = rockGrey;
 
-  const snowMix = [
-    snowBase[0] + (snowPure[0] - snowBase[0]) * heightT,
-    snowBase[1] + (snowPure[1] - snowBase[1]) * heightT,
-    snowBase[2] + (snowPure[2] - snowBase[2]) * heightT
-  ];
+  if (heightAboveSea < -biome.shallowWaterDepthUnits) {
+    band = "deepWater";
+    baseColor = deepWater;
+  } else if (heightAboveSea < 0) {
+    band = "water";
+    const t = clamp01((heightAboveSea + biome.shallowWaterDepthUnits) / biome.shallowWaterDepthUnits);
+    baseColor = lerpColor(deepWater, shallowWater, t);
+  } else if (heightAboveSea < biome.beachWidthUnits) {
+    band = "sand";
+    const t = clamp01(heightAboveSea / biome.beachWidthUnits);
+    baseColor = lerpColor(wetSand, drySand, t);
+  } else {
+    const aboveBeach = heightAboveSea - biome.beachWidthUnits;
 
-  const t = latT * 0.5;
-  return [
-    snowMix[0] + (snowPure[0] - snowMix[0]) * t,
-    snowMix[1] + (snowPure[1] - snowMix[1]) * t,
-    snowMix[2] + (snowPure[2] - snowMix[2]) * t
-  ];
+    const jitter = hashNoise(
+      Math.floor(x * 0.02),
+      Math.floor(y * 0.02),
+      Math.floor(z * 0.02)
+    ) * 0.03;
+
+    const grassT = clamp01(aboveBeach / Math.max(1, biome.grassMaxUnits));
+    const grassColor = lerpColor(
+      [grassLow[0], grassLow[1] + jitter, grassLow[2]],
+      grassHigh,
+      grassT
+    );
+
+    const rockT = clamp01((aboveBeach - biome.rockStartUnits) / Math.max(1, biome.rockFullUnits - biome.rockStartUnits));
+    const rockColor = lerpColor(rockBrown, rockGrey, rockT);
+
+    let blend = rockT;
+    band = blend > 0.35 ? "rock" : "grass";
+    baseColor = lerpColor(grassColor, rockColor, blend);
+
+    const slopeRock = clamp01((slope - biome.slopeRockStart) / Math.max(0.0001, (biome.slopeRockFull - biome.slopeRockStart)));
+    baseColor = lerpColor(baseColor, rockColor, slopeRock);
+
+    const snowHeightT = clamp01((aboveBeach - biome.snowStartUnits) / Math.max(1, biome.snowFullUnits - biome.snowStartUnits));
+    const latFactor = clamp01(Math.abs(up[1]));
+    const snowInfluence = Math.max(snowHeightT, latFactor * 0.5);
+    const snowColor = lerpColor(snowBase, snowPure, snowHeightT || 0);
+    if (snowInfluence > 0) {
+      band = snowInfluence > 0.1 ? "snow" : band;
+      baseColor = lerpColor(baseColor, snowColor, snowInfluence);
+    }
+
+    return debugColorFor(biome.debugMode, baseColor, band, heightAboveSea, slope, snowInfluence);
+  }
+
+  return debugColorFor(biome.debugMode, baseColor, band, heightAboveSea, slope, 0);
 }
 
 // ---------------------- MARCHING CUBES (unshared triangles) ----------------------
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, origin, radius, wantColors) {
+function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, origin, radius, wantColors, biomeSettings) {
   const positions = [];
   const normals = [];
   const indices = [];
@@ -440,9 +496,9 @@ function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, orig
 
           // Colors
           if (wantColors) {
-            const c0 = getColorForWorldPos(p0x, p0y, p0z, radius);
-            const c1 = getColorForWorldPos(p1x, p1y, p1z, radius);
-            const c2 = getColorForWorldPos(p2x, p2y, p2z, radius);
+            const c0 = getColorForWorldPos(p0x, p0y, p0z, radius, biomeSettings);
+            const c1 = getColorForWorldPos(p1x, p1y, p1z, radius, biomeSettings);
+            const c2 = getColorForWorldPos(p2x, p2y, p2z, radius, biomeSettings);
 
             colors.push(c0[0], c0[1], c0[2], 1.0);
             colors.push(c1[0], c1[1], c1[2], 1.0);

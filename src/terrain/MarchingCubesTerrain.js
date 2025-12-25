@@ -1,6 +1,8 @@
 /* global BABYLON */
 // src/terrain/MarchingCubesTerrain.js
 
+import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js";
+
 // --- Optional Web Worker for SDF field generation (CPU offload) ---
 let FIELD_WORKER = null;
 let FIELD_JOB_ID = 0;
@@ -156,6 +158,7 @@ export class MarchingCubesTerrain {
 
         // Approximate radius of the planet (in world units)
         this.radius = options.radius ?? 18.0;
+        this.biomeSettings = resolveBiomeSettings(options.biomeSettings || DEFAULT_BIOME_SETTINGS);
         // Center the volume around the origin
         // but allow an explicit world-space origin via options.origin.
         this.origin = options.origin || new BABYLON.Vector3(
@@ -473,112 +476,88 @@ export class MarchingCubesTerrain {
      * - underground brown → dark brown → glowing core
      * - mountains: rock → snow
      */
-    // NEW HEIGHT–BIOME–DEPTH COLORING WITH SEA LEVEL & BEACHES
-    // HEIGHT–BASED COLORING WITH CONFORMING WATER & SNOW
     _getColorForWorldPos(worldPos) {
-        const R = this.radius;
+        const biome = resolveBiomeSettings(this.biomeSettings || DEFAULT_BIOME_SETTINGS);
         const dist = worldPos.length();
-        const h = dist - R; // height above base radius (can be negative)
+        const heightAboveSea = (dist - this.radius) - biome.seaLevelUnits;
 
-		// Sea level, relative to R
-		const seaLevel = 220;
-		
-		// These were too thin to reliably show at coarse LOD.
-		// Make an actual coastline band.
-		const shallowWaterDepth = 80;  // below sea
-		const sandBand = 220;          // above sea
-
-        // Unit direction for latitude effects (snow at poles)
-        let nx = 0, ny = 1, nz = 0;
+        let up = new BABYLON.Vector3(0, 1, 0);
         if (dist > 1e-6) {
-            nx = worldPos.x / dist;
-            ny = worldPos.y / dist;
-            nz = worldPos.z / dist;
+            up = worldPos.scale(1 / dist);
         }
 
-        // -------- UNDERGROUND: soil / rock / magma --------
-        if (h < 0) {
-            const depth = -h;
+        // LOD-independent slope via SDF gradient (central difference)
+        const eps = biome.slopeEpsUnits;
+        const gradX = this._sampleSdf(worldPos.add(new BABYLON.Vector3(eps, 0, 0))) -
+            this._sampleSdf(worldPos.add(new BABYLON.Vector3(-eps, 0, 0)));
+        const gradY = this._sampleSdf(worldPos.add(new BABYLON.Vector3(0, eps, 0))) -
+            this._sampleSdf(worldPos.add(new BABYLON.Vector3(0, -eps, 0)));
+        const gradZ = this._sampleSdf(worldPos.add(new BABYLON.Vector3(0, 0, eps))) -
+            this._sampleSdf(worldPos.add(new BABYLON.Vector3(0, 0, -eps)));
+        const invDen = 1 / (2 * eps);
+        const grad = new BABYLON.Vector3(gradX * invDen, gradY * invDen, gradZ * invDen);
+        const gradLen = grad.length();
+        const gradDir = gradLen > 1e-6 ? grad.scale(1 / gradLen) : new BABYLON.Vector3(0, 1, 0);
+        const slope = 1 - Math.abs(BABYLON.Vector3.Dot(gradDir, up));
 
-            if (depth < 30) {
-                return new BABYLON.Color3(0.45, 0.30, 0.15);
-            }
-
-            if (depth < 250) {
-                const t = (depth - 30) / (250 - 30);
-                const a = new BABYLON.Color3(0.35, 0.22, 0.10);
-                const b = new BABYLON.Color3(0.18, 0.10, 0.05);
-                return BABYLON.Color3.Lerp(a, b, t);
-            }
-
-            const maxDepth = 1500;
-            const clamped = Math.min(depth, maxDepth);
-            const t = (clamped - 250) / (maxDepth - 250);
-            const rock = new BABYLON.Color3(0.18, 0.10, 0.05);
-            const lava = new BABYLON.Color3(1.0, 0.4, 0.05);
-            return BABYLON.Color3.Lerp(rock, lava, t);
-        }
-
-		// -------- DEEP WATER / SEAFLOOR COLOR (terrain under water plane) --------
-		if (h < seaLevel - shallowWaterDepth) {
-		    return new BABYLON.Color3(0.02, 0.12, 0.25);
-		}
-
-		// -------- SHALLOW WATER TINT (terrain near sea level but underwater) --------
-		if (h < seaLevel) {
-		    const t = (h - (seaLevel - shallowWaterDepth)) / shallowWaterDepth; // 0..1
-		    const deep = new BABYLON.Color3(0.02, 0.12, 0.25);
-		    const shallow = new BABYLON.Color3(0.15, 0.45, 0.75);
-		    return BABYLON.Color3.Lerp(deep, shallow, t);
-		}
-
-				// -------- SAND (above sea level) --------
-		if (h < seaLevel + sandBand) {
-		    const t = (h - seaLevel) / sandBand; // 0..1
-		    const wetSand = new BABYLON.Color3(0.86, 0.78, 0.52);
-		    const drySand = new BABYLON.Color3(0.96, 0.88, 0.60);
-		    return BABYLON.Color3.Lerp(wetSand, drySand, t);
-		}
-
-		// From this point on we’re above the sand band.
-		const aboveSea = h - (seaLevel + sandBand);
-
-        // Small fake noise for grass variation
-        const n = this._hashNoise(
-            Math.floor(worldPos.x * 0.02),
-            Math.floor(worldPos.y * 0.02),
-            Math.floor(worldPos.z * 0.02)
-        ); // [-1, 1]
-        const grassJitter = 0.03 * n;
-
-        // -------- LOWLANDS: 0–250m above beaches (grasslands) --------
-        if (aboveSea < 250) {
-            const t = aboveSea / 250; // 0..1
-            const grassLow  = new BABYLON.Color3(0.20, 0.75 + grassJitter, 0.32);
-            const grassHigh = new BABYLON.Color3(0.14, 0.58, 0.26);
-            return BABYLON.Color3.Lerp(grassLow, grassHigh, t);
-        }
-
-        // -------- MID ALTITUDE: 250–700m above beaches (rocky hills) --------
-        if (aboveSea < 700) {
-            const t = (aboveSea - 250) / (700 - 250); // 0..1
-            const rockBrown = new BABYLON.Color3(0.45, 0.40, 0.35);
-            const rockGrey  = new BABYLON.Color3(0.65, 0.65, 0.68);
-            return BABYLON.Color3.Lerp(rockBrown, rockGrey, t);
-        }
-
-        // -------- HIGH ALTITUDE: >700m above beaches (snow / ice) --------
+        const deepWater = new BABYLON.Color3(0.02, 0.12, 0.25);
+        const shallowWater = new BABYLON.Color3(0.15, 0.45, 0.75);
+        const wetSand = new BABYLON.Color3(0.86, 0.78, 0.52);
+        const drySand = new BABYLON.Color3(0.96, 0.88, 0.60);
+        const grassLow = new BABYLON.Color3(0.20, 0.75, 0.32);
+        const grassHigh = new BABYLON.Color3(0.14, 0.58, 0.26);
+        const rockBrown = new BABYLON.Color3(0.45, 0.40, 0.35);
+        const rockGrey = new BABYLON.Color3(0.65, 0.65, 0.68);
         const snowBase = new BABYLON.Color3(0.80, 0.82, 0.87);
         const snowPure = new BABYLON.Color3(1.0, 1.0, 1.0);
 
-        // Height factor: start snow ~700m above beaches, full by ~1600m
-        const heightT = Math.min(1, (aboveSea - 700) / 900);
+        if (heightAboveSea < -biome.shallowWaterDepthUnits) {
+            return deepWater;
+        }
 
-        // Latitude factor: more snow toward poles
-        const latT = Math.min(1, Math.abs(ny));
+        if (heightAboveSea < 0) {
+            const t = (heightAboveSea + biome.shallowWaterDepthUnits) / biome.shallowWaterDepthUnits;
+            return BABYLON.Color3.Lerp(deepWater, shallowWater, Math.max(0, Math.min(1, t)));
+        }
 
-        const snowMix = BABYLON.Color3.Lerp(snowBase, snowPure, heightT);
-        return BABYLON.Color3.Lerp(snowMix, snowPure, latT * 0.5);
+        if (heightAboveSea < biome.beachWidthUnits) {
+            const t = heightAboveSea / biome.beachWidthUnits;
+            return BABYLON.Color3.Lerp(wetSand, drySand, Math.max(0, Math.min(1, t)));
+        }
+
+        const aboveBeach = heightAboveSea - biome.beachWidthUnits;
+
+        const jitter = this._hashNoise(
+            Math.floor(worldPos.x * 0.02),
+            Math.floor(worldPos.y * 0.02),
+            Math.floor(worldPos.z * 0.02)
+        ) * 0.03;
+
+        const grassT = Math.max(0, Math.min(1, aboveBeach / Math.max(1, biome.grassMaxUnits)));
+        const grassColor = BABYLON.Color3.Lerp(
+            new BABYLON.Color3(grassLow.r, grassLow.g + jitter, grassLow.b),
+            grassHigh,
+            grassT
+        );
+
+        const rockT = Math.max(0, Math.min(1, (aboveBeach - biome.rockStartUnits) / Math.max(1, biome.rockFullUnits - biome.rockStartUnits)));
+        const rockColor = BABYLON.Color3.Lerp(rockBrown, rockGrey, rockT);
+
+        const slopeRock = BABYLON.Scalar.Clamp(
+            (slope - biome.slopeRockStart) / Math.max(0.0001, (biome.slopeRockFull - biome.slopeRockStart)),
+            0,
+            1
+        );
+
+        let base = BABYLON.Color3.Lerp(grassColor, rockColor, Math.max(grassT, rockT));
+        base = BABYLON.Color3.Lerp(base, rockColor, slopeRock);
+
+        const snowHeightT = Math.max(0, Math.min(1, (aboveBeach - biome.snowStartUnits) / Math.max(1, biome.snowFullUnits - biome.snowStartUnits)));
+        const latFactor = Math.min(1, Math.abs(up.y));
+        const snowInfluence = Math.max(snowHeightT, latFactor * 0.5);
+        const snowColor = BABYLON.Color3.Lerp(snowBase, snowPure, snowHeightT || 0);
+
+        return BABYLON.Color3.Lerp(base, snowColor, snowInfluence);
     }
 
 _applyMeshBuffers(positions, normals, indices, colors) {
@@ -602,8 +581,9 @@ _applyMeshBuffers(positions, normals, indices, colors) {
         if (!this.material) {
             this.material = new BABYLON.StandardMaterial("terrainMat", this.scene);
             this.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
-            this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+            this.material.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
             this.material.backFaceCulling = false;
+            this.material.twoSidedLighting = true;
         }
 
         this.mesh.material = this.material;
@@ -777,6 +757,9 @@ _applyMeshBuffers(positions, normals, indices, colors) {
         // IMPORTANT: enable vertex color usage
         if (this.mesh.material) {
             this.mesh.material.useVertexColors = true;
+            this.mesh.material.twoSidedLighting = true;
+            this.mesh.material.backFaceCulling = false;
+            this.mesh.material.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
         }
 
 		// Mark terrain chunks as pickable ground for player raycasts
@@ -795,16 +778,17 @@ _applyMeshBuffers(positions, normals, indices, colors) {
     // Rebuild with possibly new resolution / cellSize / origin (used for LOD + streaming)
     // If this.useWorker is true, this may return a Promise that resolves
     // when the worker has finished building the field + mesh.
-rebuildWithSettings(settings) {
-    // Update core parameters
-    if (settings.dimX && settings.dimY && settings.dimZ) {
-        this.dimX = settings.dimX;
-        this.dimY = settings.dimY;
-        this.dimZ = settings.dimZ;
-    }
-    if (typeof settings.cellSize === "number") this.cellSize = settings.cellSize;
-    if (typeof settings.isoLevel === "number") this.isoLevel = settings.isoLevel;
-    if (typeof settings.radius === "number") this.radius = settings.radius;
+    rebuildWithSettings(settings) {
+        // Update core parameters
+        if (settings.dimX && settings.dimY && settings.dimZ) {
+            this.dimX = settings.dimX;
+            this.dimY = settings.dimY;
+            this.dimZ = settings.dimZ;
+        }
+        if (typeof settings.cellSize === "number") this.cellSize = settings.cellSize;
+        if (typeof settings.isoLevel === "number") this.isoLevel = settings.isoLevel;
+        if (typeof settings.radius === "number") this.radius = settings.radius;
+        if (settings.biomeSettings) this.biomeSettings = resolveBiomeSettings(settings.biomeSettings);
 
     if (settings.origin) {
         this.origin = settings.origin.clone
@@ -830,7 +814,8 @@ rebuildWithSettings(settings) {
             isoLevel: this.isoLevel,
             origin: { x: this.origin.x, y: this.origin.y, z: this.origin.z },
             carves: this.carves,
-            wantColors: true
+            wantColors: true,
+            biomeSettings: this.biomeSettings
         }).then((msg) => {
             if (msg.version !== this._buildVersion) return;
             this._applyMeshBuffers(msg.positions, msg.normals, msg.indices, msg.colors);
