@@ -144,7 +144,7 @@
     height: 46px;
     background: linear-gradient(180deg, #ff9f43, #ff2d55);
     transform-origin: bottom center;
-    transform: translateX(-50%);
+    transform: translate(-50%, -100%);
     border-radius: 2px;
     box-shadow: 0 0 8px rgba(255, 92, 92, 0.6);
 }

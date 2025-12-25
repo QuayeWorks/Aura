@@ -109,7 +109,7 @@ export class CompassHUD {
         );
 
         const headingDeg = heading * (180 / Math.PI);
-        this.headingNeedle.style.transform = `translateX(-50%) rotate(${headingDeg}deg)`;
+        this.headingNeedle.style.transform = `translate(-50%, -100%) rotate(${headingDeg}deg)`;
 
         const latRad = Math.asin(dotNorthUp);
         const latDeg = latRad * (180 / Math.PI);

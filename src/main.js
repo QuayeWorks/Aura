@@ -744,11 +744,16 @@ engine.runRenderLoop(() => {
             }
 
             if (compassHud && player.mesh) {
+                const playerForward = player.mesh.getDirection
+                    ? player.mesh.getDirection(BABYLON.Axis.Z)
+                    : null;
+                const cameraForward = mainCamera && mainCamera.getDirection
+                    ? mainCamera.getDirection(BABYLON.Axis.Z)
+                    : null;
+
                 const compassData = compassHud.update({
                     playerPosition: player.mesh.position,
-                    playerForward: player.mesh.getDirection
-                        ? player.mesh.getDirection(BABYLON.Axis.Z)
-                        : null
+                    playerForward: cameraForward || playerForward
                 });
                 if (terrain && compassData) {
                     terrain.latitudeSnowBias = compassData.snowBias;
