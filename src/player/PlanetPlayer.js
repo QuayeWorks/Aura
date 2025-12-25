@@ -60,8 +60,17 @@ this.groundFriction = options.groundFriction ?? 8;
         this.mesh.checkCollisions = false;
         this.mesh.isPickable = false;
 
-        // Start just above surface on +Z
-        this._spawnOnSurface();
+        // Input can be disabled while in menus so gameplay controls don't bleed through.
+        this.inputEnabled = options.inputEnabled ?? true;
+
+        // Deterministic spawn direction (defaults to +Z). We then raycast to the real surface.
+        this.spawnDirection = (options.spawnDirection
+            ? options.spawnDirection.clone()
+            : new BABYLON.Vector3(0, 0, 1)
+        ).normalize();
+
+        // Start just above the actual terrain surface along spawnDirection.
+        this._spawnOnSurface(this.spawnDirection);
 
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
@@ -99,6 +108,34 @@ this.groundFriction = options.groundFriction ?? 8;
         this._registerInput();
     }
 
+    /**
+     * Enable/disable player gameplay inputs (WASD/space/etc).
+     * The menu can leave the player object alive but disable controls.
+     */
+    setInputEnabled(isEnabled) {
+        this.inputEnabled = !!isEnabled;
+        if (!this.inputEnabled) {
+            // Clear any latched inputs when disabling.
+            this.inputForward = false;
+            this.inputBack = false;
+            this.inputLeft = false;
+            this.inputRight = false;
+            this.inputRun = false;
+            this.inputJumpRequested = false;
+        }
+    }
+
+    /**
+     * Snap the player back to the nearest surface along their current radial direction.
+     * Useful after loading/resuming in case the terrain changed under them.
+     */
+    reprojectToSurface() {
+        const dir = this.mesh.position.clone();
+        if (dir.lengthSquared() < 1e-6) return;
+        dir.normalize();
+        this._spawnOnSurface(dir);
+    }
+
     // --------------------------------------------------------------------
     // Public API
     // --------------------------------------------------------------------
@@ -120,6 +157,34 @@ this.groundFriction = options.groundFriction ?? 8;
         if (this.camera.radius < minRadius) {
             this.camera.radius = minRadius;
         }
+    }
+
+    /**
+     * Enable/disable gameplay input without destroying the player.
+     * When disabling, we clear current movement flags.
+     */
+    setInputEnabled(isEnabled) {
+        this.inputEnabled = !!isEnabled;
+
+        if (!this.inputEnabled) {
+            this.inputForward = false;
+            this.inputBack = false;
+            this.inputLeft = false;
+            this.inputRight = false;
+            this.inputRun = false;
+            this.inputJumpRequested = false;
+        }
+    }
+
+    /**
+     * Snap the player back onto the terrain surface along their current radial direction.
+     * Useful after loading, teleporting, or returning from menus.
+     */
+    reprojectToSurface() {
+        const dir = this.mesh.position.clone();
+        if (dir.lengthSquared() < 1e-6) dir.copyFromFloats(0, 0, 1);
+        dir.normalize();
+        this._spawnOnSurface(dir);
     }
 
     /**
@@ -368,20 +433,53 @@ this.groundFriction = options.groundFriction ?? 8;
     // Internal helpers
     // --------------------------------------------------------------------
 
-    _spawnOnSurface() {
-        // Start over +Z
-        const startDir = new BABYLON.Vector3(0, 0, 1).normalize();
+    _spawnOnSurface(startDir) {
+        const dir = (startDir ? startDir.clone() : new BABYLON.Vector3(0, 0, 1));
+        if (dir.lengthSquared() < 1e-6) dir.copyFromFloats(0, 0, 1);
+        dir.normalize();
 
-        // Just a small clearance above the surface, not hundreds of units
+        // Clearance above the surface.
         const surfaceClearance = this.capsuleRadius * 1.5 + this.height * 0.25;
 
-        const spawnRadius = this.planetRadius + surfaceClearance;
+        // Start from well above the expected surface and raycast inward.
+        const startRadius = this.planetRadius + (this.planetRadius * 0.08);
+        const rayOrigin = dir.scale(startRadius);
+        const ray = new BABYLON.Ray(rayOrigin, dir.scale(-1), this.planetRadius * 0.2);
 
-        this.mesh.position = startDir.scale(spawnRadius);
+        const pick = this.scene.pickWithRay(
+            ray,
+            (mesh) =>
+                mesh &&
+                mesh.metadata &&
+                (
+                    mesh.metadata.isTerrainCollider === true ||
+                    mesh.metadata.isTerrain === true
+                )
+        );
+
+        if (pick && pick.hit && pick.pickedPoint) {
+            // Place player just above the surface hit.
+            const bottomToCenter = this.height * 0.5;
+            const up = pick.pickedPoint.clone().normalize();
+            this.mesh.position.copyFrom(
+                pick.pickedPoint.add(up.scale(bottomToCenter + surfaceClearance))
+            );
+        } else {
+            // Fallback: sphere radius spawn (still deterministic)
+            const spawnRadius = this.planetRadius + surfaceClearance;
+            this.mesh.position = dir.scale(spawnRadius);
+        }
+
+        // Reset motion so we don't inherit junk velocity on respawn.
+        this.velocity?.set?.(0, 0, 0);
+        this.isGrounded = false;
+        this.framesSinceGrounded = 0;
+        this._groundMissFrames = 0;
     }
 
     _registerInput() {
         window.addEventListener("keydown", (ev) => {
+            if (!this.inputEnabled) return;
             switch (ev.code) {
                 case "KeyW":
                 case "ArrowUp":
@@ -410,6 +508,7 @@ this.groundFriction = options.groundFriction ?? 8;
         });
 
         window.addEventListener("keyup", (ev) => {
+            if (!this.inputEnabled) return;
             switch (ev.code) {
                 case "KeyW":
                 case "ArrowUp":

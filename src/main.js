@@ -63,6 +63,10 @@ let lastFrameTime = performance.now();
 const CAM_PAD = 0.8;      // stay this far away from terrain
 const CAM_SMOOTH = 0.25;  // 0..1 (higher = snappier)
 
+// Third-person camera distance (scaled to planet)
+const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.01;
+const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.08;
+
 function clampArcRotateRadiusAgainstTerrain(scene, camera, targetPos) {
     if (!scene || !camera || !targetPos) return;
 
@@ -116,8 +120,8 @@ function createScene() {
     mainCamera.lowerBetaLimit = 0.15;
     mainCamera.upperBetaLimit = Math.PI / 2.1;
     mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
-    mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.001;
-    mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.002;
+    mainCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
+    mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
     mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
 
     // Lights for menu + in-game
@@ -329,6 +333,15 @@ function showMainMenu() {
     if (uiState && uiState.showMainMenu) {
         uiState.showMainMenu();
     }
+
+    // Menu owns input: freeze gameplay systems cleanly
+    if (player && player.setInputEnabled) player.setInputEnabled(false);
+    if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(false);
+
+    // Keep the menu camera stable even if a player exists.
+    if (mainCamera) {
+        mainCamera.lockedTarget = new BABYLON.Vector3(0, 0, 0);
+    }
 }
 
 
@@ -336,6 +349,14 @@ function showSettings() {
     if (minimap) minimap.setEnabled(false);
     if (uiState && uiState.showSettings) {
         uiState.showSettings();
+    }
+
+    // Settings still counts as menu: no gameplay input/simulation
+    if (player && player.setInputEnabled) player.setInputEnabled(false);
+    if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(false);
+
+    if (mainCamera) {
+        mainCamera.lockedTarget = new BABYLON.Vector3(0, 0, 0);
     }
 }
 
@@ -376,7 +397,8 @@ function startGame() {
                 runSpeed: 55,
                 height: 2,
                 radius: 0.35,
-                jumpGraceSeconds: 5
+                jumpGraceSeconds: 5,
+                inputEnabled: true
             });
 
             if (mainCamera && player && player.mesh) {
@@ -388,10 +410,10 @@ function startGame() {
                 mainCamera.lowerBetaLimit = 0.15;
                 mainCamera.upperBetaLimit = Math.PI / 2.1;
                 mainCamera.checkCollisions = false;
-                mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.001;
-                mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.002;
+                mainCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
+                mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
 
-                mainCamera.radius = PLANET_RADIUS_UNITS * 0.002;
+                mainCamera.radius = Math.min(Math.max(mainCamera.radius, CAM_MIN_RADIUS), CAM_MAX_RADIUS);
             }
 
             // Switch to playing visuals
@@ -404,6 +426,10 @@ function startGame() {
             if (hudPanel) hudPanel.isVisible = true;
 
             gameState = GameState.PLAYING;
+            if (player && player.setInputEnabled) player.setInputEnabled(true);
+            if (player && player.reprojectToSurface) player.reprojectToSurface();
+            if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
+            if (mainCamera && player && player.mesh) mainCamera.lockedTarget = player.mesh;
             //minimap.setEnabled(true);
             //minimap.setOverlayVisible(true);
 
@@ -425,11 +451,14 @@ function startGame() {
             mainCamera.lowerBetaLimit = 0.15;
             mainCamera.upperBetaLimit = Math.PI / 2.1;
             mainCamera.checkCollisions = false;
-            mainCamera.lowerRadiusLimit = PLANET_RADIUS_UNITS * 0.001;
-            mainCamera.upperRadiusLimit = PLANET_RADIUS_UNITS * 0.003;
+            mainCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
+            mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
         }
 
         gameState = GameState.PLAYING;
+        if (player && player.setInputEnabled) player.setInputEnabled(true);
+        if (player && player.reprojectToSurface) player.reprojectToSurface();
+        if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
         // Minimap is intentionally disabled. Keep these guarded for future RTT minimap return.
         if (minimap) {
             minimap.setEnabled(true);
@@ -459,7 +488,7 @@ engine.runRenderLoop(() => {
         focusPos = scene.activeCamera.position;
     }
 
-    if (terrain) {
+    if (terrain && (gameState === GameState.LOADING || gameState === GameState.PLAYING)) {
         terrain.updateStreaming(focusPos);
     }
 
@@ -484,9 +513,7 @@ engine.runRenderLoop(() => {
             }
 
             if (minimap) {
-            if (minimap) {
                 minimap.updateFromPlayerMesh(player.mesh);
-            }
             }
 
             // === END CAMERA FIX ===

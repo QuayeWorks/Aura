@@ -19,6 +19,9 @@ export class DayNightSystem {
         this.scene = scene;
         this.engine = scene.getEngine();
 
+        // Allow pausing the day/night cycle when not in gameplay.
+        this.enabled = options.enabled ?? true;
+
         this.planetRadius = options.planetRadius ?? 50;
         this.dayLengthSeconds = options.dayLengthSeconds ?? (24 * 60);
         this.timeOfDay = options.startTimeOfDay ?? 0.5; // start around sunrise
@@ -53,6 +56,23 @@ export class DayNightSystem {
         this._beforeRenderObserver = this.scene.onBeforeRenderObservable.add(
             () => this._update()
         );
+    }
+
+    /** Enable/disable time progression and visibility for menu/gameplay gating. */
+    setEnabled(isEnabled) {
+        this.enabled = !!isEnabled;
+
+        // When disabled, keep scene readable but avoid moving the sun/moon.
+        const sun = this.sunLight;
+        const moon = this.moonLight;
+        const sky = this.skyLight;
+
+        if (sun) sun.setEnabled(this.enabled);
+        if (moon) moon.setEnabled(this.enabled);
+        if (sky) sky.setEnabled(this.enabled);
+
+        if (this.sunBillboard) this.sunBillboard.setEnabled(this.enabled);
+        if (this.moonBillboard) this.moonBillboard.setEnabled(this.enabled);
     }
 
     _createLights() {
@@ -124,6 +144,8 @@ export class DayNightSystem {
     }
 
     _update() {
+        if (!this.enabled) return;
+
         const dt = this.engine.getDeltaTime() / 1000; // seconds
         if (dt <= 0) return;
 
@@ -232,6 +254,24 @@ export class DayNightSystem {
             moonPos: this.moonPos ? this.moonPos.clone() : null,
             planetRadius: this.planetRadius
         };
+    }
+
+    /**
+     * Enable/disable time progression and lighting.
+     * Used by the main menu so the world simulation doesn't keep running.
+     */
+    setEnabled(isEnabled) {
+        this.enabled = !!isEnabled;
+
+        // Hide sky objects + lights when disabled so the menu has a stable look.
+        const lightOn = this.enabled;
+
+        if (this.sunLight) this.sunLight.setEnabled(lightOn);
+        if (this.moonLight) this.moonLight.setEnabled(lightOn);
+        if (this.skyLight) this.skyLight.setEnabled(lightOn);
+
+        if (this.sunBillboard) this.sunBillboard.setEnabled(lightOn);
+        if (this.moonBillboard) this.moonBillboard.setEnabled(lightOn);
     }
 
 
