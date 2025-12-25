@@ -29,6 +29,7 @@ export class ChunkedPlanetTerrain {
 
         // Shared terrain material across all leaves
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
+        // Colors are per-vertex; keep base white so vertex colors read correctly.
         this.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
         this.material.ambientColor = new BABYLON.Color3(0.25, 0.25, 0.25);
         this.material.specularColor = new BABYLON.Color3(0.08, 0.08, 0.08);
@@ -41,10 +42,11 @@ export class ChunkedPlanetTerrain {
         this.buildQueue = [];
         this.carveHistory = [];
         this.carveRevision = 0; // increments when carve history changes
-        // Biome + shading settings (in *meters*, converted via unitsPerMeter)
-        // Keep all thresholds in one place so workers + LOD agree.
+
+        // Biome + shading settings (in meters, converted via unitsPerMeter)
+        // Single source of truth: main thread passes this to the mesh worker every build.
         this.biomeSettings = {
-            unitsPerMeter: options.unitsPerMeter ?? 1.0, // 1 unit == 1 meter by default
+            unitsPerMeter: options.unitsPerMeter ?? 1.0, // 1 world unit == 1 meter by default
             seaLevelMeters: options.seaLevelMeters ?? 220,
             beachWidthMeters: options.beachWidthMeters ?? 40,
             shallowWaterDepthMeters: options.shallowWaterDepthMeters ?? 80,
@@ -66,9 +68,11 @@ export class ChunkedPlanetTerrain {
             // Debug: "off" | "biome" | "height" | "slope" | "isolateSnow" | "isolateSand"
             debugMode: "off"
         };
-
-        // Invalidate/rebuild colors when biome settings change
         this.biomeRevision = 0;
+
+        // Water visual shell (optional, safe)
+        this._waterMesh = null;
+        this._ensureWaterMesh();
 
 
         // Build de-dupe / in-flight tracking
@@ -95,12 +99,7 @@ export class ChunkedPlanetTerrain {
 
         this.lastCameraPosition = null;
         
-        this.initialCoarseLod = 1; //
-
-        // --- Water shell (visual polish) ---
-        this._waterMesh = null;
-        this._ensureWaterMesh();
-// Progressive LOD: always show LOD 1 first
+        this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
 
         this.lastLodStats = {
             totalVisible: 0,
@@ -440,12 +439,11 @@ export class ChunkedPlanetTerrain {
     }
 
     _jobKey(node, lodLevel, carveRevision = 0, biomeRevision = 0) {
-    // Ensure node has a stable id (your PlanetQuadtreeNode already has .id in your setup)
     const id = (node && node.id != null) ? node.id : "noid";
     return `${id}|lod:${lodLevel}|carve:${carveRevision}|biome:${biomeRevision}`;
 }
 
-    _scheduleNodeRebuild(node, lodLevel, options = {}) {
+_scheduleNodeRebuild(node, lodLevel, options = {}) {
     if (!node) return;
 
     const force = !!options.force;
@@ -630,8 +628,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
 
         const node = job.node;
         const revision = job.revision ?? this.carveRevision;
-        const biomeRevision = (typeof job.biomeRevision === 'number') ? job.biomeRevision : this.biomeRevision;
-        const key = job.key || this._jobKey(node, job.lodLevel, revision, biomeRevision);
+        const key = job.key || this._jobKey(node, job.lodLevel, revision, job.biomeRevision ?? this.biomeRevision);
 
         // This job is no longer queued
         this.queuedJobKeys.delete(key);
@@ -640,7 +637,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         this._ensureTerrainForNode(node);
 
         // If already built for this revision & LOD (unless forced), skip
-        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision && node.lastBuiltBiomeRevision === biomeRevision) {
+        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision && node.lastBuiltBiomeRevision === this.biomeRevision) {
             continue;
         }
 
@@ -653,7 +650,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         const finishOk = () => {
             node.lastBuiltLod = job.lodLevel;
             node.lastBuiltRevision = revision;
-            node.lastBuiltBiomeRevision = biomeRevision;
+            node.lastBuiltBiomeRevision = this.biomeRevision;
 
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
             this._onChunkBuilt();
@@ -884,12 +881,11 @@ _collectCarvesForNode(node) {
         return info;
     }
     _ensureWaterMesh() {
-        // Optional visual-only water shell. Safe if BABYLON is unavailable.
+        // Creates/updates a simple water shell at radius + seaLevel.
+        // Safe: if PBR isn't available or anything fails, just skip water visuals.
         try {
-            const bs = this.biomeSettings || {};
-            const u = (typeof bs.unitsPerMeter === "number") ? bs.unitsPerMeter : 1.0;
-            const seaLevelUnits = (typeof bs.seaLevelMeters === "number" ? bs.seaLevelMeters : 0) * u;
-
+            const u = (typeof this.biomeSettings?.unitsPerMeter === "number") ? this.biomeSettings.unitsPerMeter : 1.0;
+            const seaLevelUnits = (typeof this.biomeSettings?.seaLevelMeters === "number" ? this.biomeSettings.seaLevelMeters : 0) * u;
             const targetRadius = this.radius + seaLevelUnits;
             if (!isFinite(targetRadius) || targetRadius <= 0) return;
 
@@ -907,7 +903,6 @@ _collectCarvesForNode(node) {
                 mat.metallic = 0.0;
                 mat.roughness = 0.12;
                 mat.alpha = 0.55;
-                mat.indexOfRefraction = 1.333;
 
                 mat.albedoColor = new BABYLON.Color3(0.06, 0.18, 0.35);
                 mat.emissiveColor = new BABYLON.Color3(0.0, 0.02, 0.05);
@@ -920,15 +915,50 @@ _collectCarvesForNode(node) {
 
                 this._waterMesh.material = mat;
             } else {
-                // Resize by scaling
+                // Resize by scaling ratio
                 const currentRadius = this._waterMesh.getBoundingInfo().boundingSphere.radiusWorld;
                 const s = currentRadius > 1e-6 ? (targetRadius / currentRadius) : 1.0;
                 this._waterMesh.scaling.set(s, s, s);
             }
         } catch (e) {
-            // Never let water creation break gameplay
-            console.warn("Water shell init failed:", e);
+            // Water is polish-only; never block the game.
+            console.warn("Water shell disabled:", e);
         }
     }
+
+    setBiomeDebugMode(mode) {
+        const allowed = new Set(["off", "biome", "height", "slope", "isolateSnow", "isolateSand"]);
+        const next = allowed.has(mode) ? mode : "off";
+        if (this.biomeSettings.debugMode === next) return;
+        this.biomeSettings.debugMode = next;
+        this.biomeRevision++;
+        this._invalidateAllBuiltNodes();
+    }
+
+    setBiomeSettings(partial) {
+        if (!partial) return;
+        this.biomeSettings = { ...this.biomeSettings, ...partial };
+        this.biomeRevision++;
+        this._ensureWaterMesh();
+        this._invalidateAllBuiltNodes();
+    }
+
+    _invalidateAllBuiltNodes() {
+        // Mark all leaves as dirty so colors/slope can rebuild.
+        const stack = [this.rootNode];
+        while (stack.length) {
+            const n = stack.pop();
+            if (!n) continue;
+            n.lastBuiltLod = null;
+            n.lastBuiltRevision = null;
+            n.lastBuiltBiomeRevision = null;
+            if (n.children && n.children.length) {
+                for (const c of n.children) stack.push(c);
+            }
+        }
+        this.queuedJobKeys.clear();
+        this.inFlightJobKeys.clear();
+    }
+
 
 }

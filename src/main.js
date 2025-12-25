@@ -34,6 +34,9 @@ let gameState = GameState.MENU;
 // World references
 let scene = null;
 let terrain = null;
+let biomeDebugModes = ["off", "biome", "height", "slope", "isolateSand", "isolateSnow"]; 
+let biomeDebugIndex = 0;
+
 let player = null;
 let dayNightSystem = null;
 let minimap = null;
@@ -220,15 +223,6 @@ function createScene() {
         if (e.repeat) return;
         if (e.code === "Enter" && gameState === GameState.MENU) startGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
-        if (e.code === "F6" && gameState === GameState.PLAYING && terrain) {
-            // Cycle biome debug modes (off -> biome -> height -> slope -> isolateSnow -> isolateSand -> off)
-            const modes = ["off", "biome", "height", "slope", "isolateSnow", "isolateSand"];
-            const cur = terrain.biomeSettings?.debugMode ?? "off";
-            const next = modes[(modes.indexOf(cur) + 1) % modes.length];
-            terrain.setBiomeDebugMode(next);
-            console.log("Biome debug mode:", next);
-        }
-
     });
     
 
@@ -393,7 +387,16 @@ function startGame() {
             chunkCountZ: 16,
             baseChunkResolution: 128,
             isoLevel: 0,
-            radius: PLANET_RADIUS_UNITS
+            radius: PLANET_RADIUS_UNITS,
+            unitsPerMeter: 1.0,
+            seaLevelMeters: 220,
+            beachWidthMeters: 40,
+            shallowWaterDepthMeters: 80,
+            grassMaxMeters: 250,
+            rockMaxMeters: 700,
+            snowStartMeters: 700,
+            snowFullMeters: 1600,
+            slopeEpsMeters: 25
         });
 
         terrain.onInitialBuildDone = () => {
@@ -618,6 +621,18 @@ engine.runRenderLoop(() => {
 
 
     scene.render();
+});
+
+
+// Phase 2: biome debug toggles (press B to cycle)
+window.addEventListener("keydown", (ev) => {
+    if (!terrain) return;
+    if (ev.code === "KeyB") {
+        biomeDebugIndex = (biomeDebugIndex + 1) % biomeDebugModes.length;
+        const mode = biomeDebugModes[biomeDebugIndex];
+        terrain.setBiomeDebugMode(mode);
+        console.log("Biome debug mode:", mode);
+    }
 });
 
 window.addEventListener("resize", () => {

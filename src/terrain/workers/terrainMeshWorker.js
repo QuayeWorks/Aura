@@ -48,7 +48,8 @@ self.onmessage = (e) => {
       field, dimX, dimY, dimZ,
       cellSize, isoLevel, origin,
       radius,
-      wantColors !== false
+      wantColors !== false,
+      biomeSettings || null
     );
 
     self.postMessage(
@@ -252,14 +253,11 @@ function getColorForWorldPos(x, y, z, radius, biomeSettings) {
   const dist = Math.sqrt(x * x + y * y + z * z);
   const h = dist - radius;
 
-
   const upx = dist > 1e-6 ? (x / dist) : 0;
   const upy = dist > 1e-6 ? (y / dist) : 1;
   const upz = dist > 1e-6 ? (z / dist) : 0;
 
-  const ny = upy;
-
-  // --- Biome settings ---
+  // Settings (meters -> units via unitsPerMeter)
   const bs = biomeSettings || {};
   const u = (typeof bs.unitsPerMeter === "number") ? bs.unitsPerMeter : 1.0;
 
@@ -267,7 +265,6 @@ function getColorForWorldPos(x, y, z, radius, biomeSettings) {
   const beachWidth = (typeof bs.beachWidthMeters === "number" ? bs.beachWidthMeters : 40) * u;
   const shallowWaterDepth = (typeof bs.shallowWaterDepthMeters === "number" ? bs.shallowWaterDepthMeters : 80) * u;
 
-  const sandMax = (typeof bs.sandMaxMeters === "number" ? bs.sandMaxMeters : 250) * u;
   const grassMax = (typeof bs.grassMaxMeters === "number" ? bs.grassMaxMeters : 250) * u;
   const rockMax = (typeof bs.rockMaxMeters === "number" ? bs.rockMaxMeters : 700) * u;
   const snowStart = (typeof bs.snowStartMeters === "number" ? bs.snowStartMeters : 700) * u;
@@ -279,123 +276,103 @@ function getColorForWorldPos(x, y, z, radius, biomeSettings) {
   const slopeEps = (typeof bs.slopeEpsMeters === "number" ? bs.slopeEpsMeters : 25) * u;
   const debugMode = (typeof bs.debugMode === "string" ? bs.debugMode : "off");
 
-  // --- LOD-independent slope: sample SDF gradient at a fixed world-space step ---
+  // LOD-independent slope: sample SDF gradient at a fixed world-space step
   const slope = computeSlopeFromSdf(x, y, z, radius, slopeEps, upx, upy, upz);
 
-// --- Debug visualizations (optional) ---
-if (debugMode === "height") {
-  // Height above sea level heatmap
-  const v = Math.max(-1, Math.min(1, (h - seaLevel) / (snowFull - seaLevel)));
-  const t = (v + 1) * 0.5;
-  return [t, 0.2 + 0.6 * (1 - t), 1 - t];
-}
-if (debugMode === "slope") {
-  const t = Math.max(0, Math.min(1, slope));
-  return [t, t, t];
-}
+  // Debug visualizations
+  if (debugMode === "height") {
+    const v = Math.max(-1, Math.min(1, (h - seaLevel) / Math.max(1e-6, (snowFull - seaLevel))));
+    const t = (v + 1) * 0.5;
+    return [t, 0.2 + 0.6 * (1 - t), 1 - t];
+  }
+  if (debugMode === "slope") {
+    const t = Math.max(0, Math.min(1, slope));
+    return [t, t, t];
+  }
 
-// --- Water / beach ---
-// Deep water
-if (h < seaLevel - shallowWaterDepth) {
-  return [0.03, 0.12, 0.28];
-}
-// Shallow water band (brighter)
-if (h < seaLevel - beachWidth) {
-  const t = (h - (seaLevel - shallowWaterDepth)) / (shallowWaterDepth - beachWidth);
-  return [
-    0.03 + (0.06 - 0.03) * t,
-    0.12 + (0.20 - 0.12) * t,
-    0.28 + (0.40 - 0.28) * t
+  // Water bands (deep -> shallow)
+  if (h < seaLevel - shallowWaterDepth) {
+    return [0.03, 0.12, 0.28];
+  }
+  if (h < seaLevel) {
+    const t = (h - (seaLevel - shallowWaterDepth)) / Math.max(1e-6, shallowWaterDepth);
+    return [0.03 + 0.05 * t, 0.12 + 0.10 * t, 0.28 + 0.14 * t];
+  }
+
+  // Beach (wet -> dry sand)
+  if (h < seaLevel + beachWidth) {
+    const t = (h - seaLevel) / Math.max(1e-6, beachWidth);
+    const sandWet = [0.62, 0.56, 0.42];
+    const sandDry = [0.88, 0.83, 0.64];
+    const c = [
+      sandWet[0] + (sandDry[0] - sandWet[0]) * t,
+      sandWet[1] + (sandDry[1] - sandWet[1]) * t,
+      sandWet[2] + (sandDry[2] - sandWet[2]) * t
+    ];
+    if (debugMode === "isolateSand") return c;
+    return c;
+  }
+
+  const aboveSea = h - seaLevel;
+
+  // Base biome colors
+  const grass = [0.18, 0.55, 0.22];
+  const grassDry = [0.38, 0.62, 0.25];
+  const rock = [0.55, 0.55, 0.58];
+  const rockDark = [0.40, 0.38, 0.36];
+  const snow = [0.95, 0.97, 1.0];
+
+  // Height-driven base: grass -> dry grass -> rock -> snow
+  let base;
+  if (aboveSea < grassMax) {
+    const t = Math.max(0, Math.min(1, aboveSea / Math.max(1e-6, grassMax)));
+    base = [
+      grass[0] + (grassDry[0] - grass[0]) * t,
+      grass[1] + (grassDry[1] - grass[1]) * t,
+      grass[2] + (grassDry[2] - grass[2]) * t
+    ];
+  } else if (aboveSea < rockMax) {
+    const t = Math.max(0, Math.min(1, (aboveSea - grassMax) / Math.max(1e-6, (rockMax - grassMax))));
+    base = [
+      grassDry[0] + (rockDark[0] - grassDry[0]) * t,
+      grassDry[1] + (rockDark[1] - grassDry[1]) * t,
+      grassDry[2] + (rockDark[2] - grassDry[2]) * t
+    ];
+  } else {
+    const t = Math.max(0, Math.min(1, (aboveSea - snowStart) / Math.max(1e-6, (snowFull - snowStart))));
+    base = [
+      rock[0] + (snow[0] - rock[0]) * t,
+      rock[1] + (snow[1] - rock[1]) * t,
+      rock[2] + (snow[2] - rock[2]) * t
+    ];
+  }
+
+  // Slope-aware blending toward rock
+  const slopeT = Math.max(0, Math.min(1, (slope - slopeRockStart) / Math.max(1e-6, (slopeRockFull - slopeRockStart))));
+  const mixed = [
+    base[0] + (rock[0] - base[0]) * slopeT,
+    base[1] + (rock[1] - base[1]) * slopeT,
+    base[2] + (rock[2] - base[2]) * slopeT
   ];
-}
-// Beach/sand band
-if (h < seaLevel + beachWidth) {
-  const t = (h - (seaLevel - beachWidth)) / (2 * beachWidth);
-  const sandWet = [0.62, 0.56, 0.42];
-  const sandDry = [0.88, 0.83, 0.64];
-  const c = [
-    sandWet[0] + (sandDry[0] - sandWet[0]) * t,
-    sandWet[1] + (sandDry[1] - sandWet[1]) * t,
-    sandWet[2] + (sandDry[2] - sandWet[2]) * t
-  ];
-  if (debugMode === "isolateSand") return c;
-  if (debugMode === "biome") return c;
-  return c;
+
+  // Slight darkening on steep slopes
+  const shade = 1.0 - 0.12 * slopeT;
+  const finalC = [mixed[0] * shade, mixed[1] * shade, mixed[2] * shade];
+
+  if (debugMode === "isolateSnow") {
+    if (aboveSea >= snowStart) return snow;
+    return [0.07, 0.07, 0.07];
+  }
+
+  return finalC;
 }
 
-const aboveSea = h - seaLevel;
 
-// --- Base biome colors ---
-const grass = [0.18, 0.55, 0.22];
-const grassDry = [0.38, 0.62, 0.25];
-const rock = [0.55, 0.55, 0.58];
-const rockDark = [0.40, 0.38, 0.36];
-const snow = [0.95, 0.97, 1.0];
-
-// Height-driven base: grass -> dry grass -> rock -> snow
-let base;
-if (aboveSea < grassMax) {
-  const t = Math.max(0, Math.min(1, aboveSea / grassMax));
-  base = [
-    grass[0] + (grassDry[0] - grass[0]) * t,
-    grass[1] + (grassDry[1] - grass[1]) * t,
-    grass[2] + (grassDry[2] - grass[2]) * t
-  ];
-} else if (aboveSea < rockMax) {
-  const t = Math.max(0, Math.min(1, (aboveSea - grassMax) / Math.max(1e-6, (rockMax - grassMax))));
-  base = [
-    grassDry[0] + (rockDark[0] - grassDry[0]) * t,
-    grassDry[1] + (rockDark[1] - grassDry[1]) * t,
-    grassDry[2] + (rockDark[2] - grassDry[2]) * t
-  ];
-} else {
-  const t = Math.max(0, Math.min(1, (aboveSea - snowStart) / Math.max(1e-6, (snowFull - snowStart))));
-  base = [
-    rock[0] + (snow[0] - rock[0]) * t,
-    rock[1] + (snow[1] - rock[1]) * t,
-    rock[2] + (snow[2] - rock[2]) * t
-  ];
-}
-
-// Snow latitude bias (more snow toward poles) - subtle
-const latT = Math.min(1, Math.abs(ny));
-const snowLatMix = 0.35 * latT;
-
-// If above snowStart, blend further toward snow at high lat
-if (aboveSea > snowStart) {
-  base = [
-    base[0] + (snow[0] - base[0]) * snowLatMix,
-    base[1] + (snow[1] - base[1]) * snowLatMix,
-    base[2] + (snow[2] - base[2]) * snowLatMix
-  ];
-}
-
-// --- Slope-aware blending (LOD-independent via SDF gradient) ---
-// Steeper => more rock, less grass/sand
-const slopeT = Math.max(0, Math.min(1, (slope - slopeRockStart) / Math.max(1e-6, (slopeRockFull - slopeRockStart))));
-const rockMix = [
-  base[0] + (rock[0] - base[0]) * slopeT,
-  base[1] + (rock[1] - base[1]) * slopeT,
-  base[2] + (rock[2] - base[2]) * slopeT
-];
-
-// Slight darkening on steep slopes (readability)
-const shade = 1.0 - 0.12 * slopeT;
-const finalC = [rockMix[0] * shade, rockMix[1] * shade, rockMix[2] * shade];
-
-if (debugMode === "isolateSnow") {
-  if (aboveSea >= snowStart) return snow;
-  return [0.07, 0.07, 0.07];
-}
-if (debugMode === "biome") return finalC;
-
-return finalC;
-}
 // ---------------------- MARCHING CUBES (unshared triangles) ----------------------
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, origin, radius, wantColors) {
+function marchingCubesUnshared(field, dimX, dimY, dimZ, cellSize, isoLevel, origin, radius, wantColors, biomeSettings) {
   const positions = [];
   const normals = [];
   const indices = [];
