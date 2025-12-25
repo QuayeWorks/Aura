@@ -18,7 +18,7 @@ function pickRandom(arr, rng) {
 }
 
 export class POIManager {
-    constructor({ scene, terrain, player, seed = 1, planetRadius = 1 }) {
+    constructor({ scene, terrain, player, seed = 1, planetRadius = 1, onSpawn = null, onDespawn = null }) {
         this.scene = scene;
         this.terrain = terrain;
         this.player = player;
@@ -34,6 +34,9 @@ export class POIManager {
 
         this.plannedByChunk = new Map();
         this.spawnedPOIs = new Map();
+
+        this.onSpawn = onSpawn;
+        this.onDespawn = onDespawn;
 
         window.addEventListener("keydown", (ev) => {
             if (ev.code === "F7") {
@@ -111,11 +114,17 @@ export class POIManager {
     _pickTypeForBiome(biome, rng) {
         const table = {
             beach: ["wreck", "camp"],
-            grass: ["shrine", "ruins"],
+            grass: ["shrine", "ruins", "settlement"],
             rock: ["cave", "stone-ring"],
             snow: ["altar", "monolith"],
         };
-        return pickRandom(table[biome], rng);
+
+        // Bias settlements to be rare and only in grass bands.
+        const candidates = table[biome] || [];
+        if (biome === "grass" && rng() > 0.55) {
+            return "settlement";
+        }
+        return pickRandom(candidates, rng);
     }
 
     _buildMesh(desc) {
@@ -175,8 +184,11 @@ export class POIManager {
         for (const plan of plans) {
             if (this.spawnedPOIs.has(plan.id)) continue;
             const mesh = this._buildMesh(plan);
-            this.spawnedPOIs.set(plan.id, { mesh, chunkId: node.id });
+            this.spawnedPOIs.set(plan.id, { mesh, chunkId: node.id, plan });
             if (!this.showDebug) mesh.setEnabled(false);
+            if (typeof this.onSpawn === "function") {
+                this.onSpawn(plan, mesh);
+            }
         }
     }
 
@@ -195,6 +207,9 @@ export class POIManager {
                 ? BABYLON.Vector3.Distance(entry.mesh.position, playerPos) <= this.despawnDistance
                 : true;
             if (!chunkVisible || !distOk) {
+                if (typeof this.onDespawn === "function") {
+                    this.onDespawn(id, entry.plan);
+                }
                 entry.mesh?.dispose();
                 this.spawnedPOIs.delete(id);
             }

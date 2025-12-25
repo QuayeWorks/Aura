@@ -73,6 +73,13 @@
     font-size: 12px;
 }
 
+.hud-economy,
+.hud-quest,
+.hud-mp {
+    font-weight: 600;
+    color: #c7fffb;
+}
+
 .ability-tile {
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 8px;
@@ -175,6 +182,77 @@
 
 .audio-toggle:hover {
     border-color: rgba(0, 255, 200, 0.4);
+}
+
+.hud-interaction {
+    position: absolute;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(0, 255, 200, 0.3);
+    border-radius: 10px;
+    color: #e8f9ff;
+    font-weight: 600;
+    pointer-events: none;
+    text-shadow: 0 0 6px rgba(0,0,0,0.5);
+}
+
+.npc-dialog {
+    left: auto;
+    right: 14px;
+    bottom: 160px;
+    width: 360px;
+    max-height: 50vh;
+    overflow-y: auto;
+    pointer-events: auto;
+}
+
+.npc-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.npc-lines div {
+    margin-bottom: 4px;
+    opacity: 0.9;
+}
+
+.npc-vendor {
+    margin-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 6px;
+}
+
+.npc-vendor-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.npc-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 6px 8px;
+    border-radius: 8px;
+}
+
+.npc-item button {
+    margin-left: 8px;
+    background: rgba(0, 255, 200, 0.18);
+    color: #e8f9ff;
+    border: 1px solid rgba(0, 255, 200, 0.35);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.npc-item button:hover {
+    background: rgba(0, 255, 200, 0.3);
 }
 
 #ability-tree-panel {

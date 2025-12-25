@@ -69,6 +69,25 @@ export function createDomHUD() {
     debugPanel.id = "hud-debug-panel";
     debugPanel.classList.add("hud-hidden");
 
+    const tokensRow = document.createElement("div");
+    tokensRow.className = "hud-row hud-economy";
+    tokensRow.textContent = "Tokens: 0";
+    hudPanel.appendChild(tokensRow);
+
+    const questRow = document.createElement("div");
+    questRow.className = "hud-row hud-quest";
+    questRow.textContent = "Quests: -";
+    hudPanel.appendChild(questRow);
+
+    const multiplayerRow = document.createElement("div");
+    multiplayerRow.className = "hud-row hud-mp";
+    multiplayerRow.textContent = "Players: 1";
+    hudPanel.appendChild(multiplayerRow);
+
+    const interactionPrompt = document.createElement("div");
+    interactionPrompt.className = "hud-interaction hud-hidden";
+    interactionPrompt.textContent = "";
+
     const audioToggle = document.createElement("div");
     audioToggle.className = "audio-toggle";
     audioToggle.textContent = "Audio: On (M)";
@@ -77,6 +96,7 @@ export function createDomHUD() {
     root.appendChild(hudPanel);
     root.appendChild(debugPanel);
     root.appendChild(audioToggle);
+    root.appendChild(interactionPrompt);
 
     let gameplayVisible = true;
     let debugVisible = false;
@@ -135,7 +155,11 @@ export function createDomHUD() {
             skillPoints = 0,
             abilityState = {},
             nenRegen = 0,
-            stats = {}
+            stats = {},
+            tokens = 0,
+            questLine = "",
+            interactionPromptText = "",
+            multiplayerCount = 1
         } = values || {};
 
         const healthPct = Math.max(0, Math.min(1, health / maxHealth));
@@ -195,6 +219,16 @@ export function createDomHUD() {
             `Focus: ${stats.focus ?? "-"}\n` +
             `Nen regen: ${nenRegen.toFixed(1)} /s\n` +
             heatLine;
+
+        tokensRow.textContent = `Tokens: ${tokens}`;
+        questRow.textContent = questLine ? `Quest: ${questLine}` : "Quests: -";
+        multiplayerRow.textContent = `Players: ${multiplayerCount}`;
+        if (interactionPromptText) {
+            interactionPrompt.textContent = interactionPromptText;
+            interactionPrompt.classList.remove("hud-hidden");
+        } else {
+            interactionPrompt.classList.add("hud-hidden");
+        }
     }
 
     function setAudioMuted(isMuted) {
@@ -212,6 +246,19 @@ export function createDomHUD() {
         setGameplayVisible,
         setDebugVisible,
         setAudioMuted,
-        setAudioToggleHandler
+        setAudioToggleHandler,
+        setInteractionPrompt: (text) => {
+            interactionPrompt.textContent = text || "";
+            interactionPrompt.classList.toggle("hud-hidden", !text);
+        },
+        setQuestLine: (text) => {
+            questRow.textContent = text ? `Quest: ${text}` : "Quests: -";
+        },
+        setTokens: (value) => {
+            tokensRow.textContent = `Tokens: ${value ?? 0}`;
+        },
+        setMultiplayerCount: (count) => {
+            multiplayerRow.textContent = `Players: ${count ?? 1}`;
+        }
     };
 }
