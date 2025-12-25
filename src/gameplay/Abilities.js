@@ -6,12 +6,18 @@ export class Abilities {
         this.playerStats = playerStats;
         this.enabled = true;
 
-        this.sprintNenPerSecond = options.sprintNenPerSecond ?? 8;
-        this.sprintSpeedMultiplier = options.sprintSpeedMultiplier ?? 1.25;
+        this.baseSprintNenPerSecond = options.sprintNenPerSecond ?? 8;
+        this.baseSprintSpeedMultiplier = options.sprintSpeedMultiplier ?? 1.25;
+        this.sprintNenPerSecond = this.baseSprintNenPerSecond;
+        this.sprintSpeedMultiplier = this.baseSprintSpeedMultiplier;
 
         this.abilityJump = {
             key: "KeyQ",
             label: "Enhance Jump",
+            baseDuration: options.jumpDuration ?? 4,
+            baseCooldown: options.jumpCooldown ?? 7,
+            baseNenCost: options.jumpNenCost ?? 18,
+            baseJumpMultiplier: options.jumpMultiplier ?? 1.4,
             duration: options.jumpDuration ?? 4,
             cooldown: options.jumpCooldown ?? 7,
             nenCost: options.jumpNenCost ?? 18,
@@ -24,6 +30,11 @@ export class Abilities {
         this.abilityCarve = {
             key: "KeyE",
             label: "Enhance Carve",
+            baseDuration: options.carveDuration ?? 5,
+            baseCooldown: options.carveCooldown ?? 8,
+            baseNenCost: options.carveNenCost ?? 22,
+            baseCarveRadiusMultiplier: options.carveRadiusMultiplier ?? 1.35,
+            baseCarveCostMultiplier: options.carveCostMultiplier ?? 0.7,
             duration: options.carveDuration ?? 5,
             cooldown: options.carveCooldown ?? 8,
             nenCost: options.carveNenCost ?? 22,
@@ -153,5 +164,23 @@ export class Abilities {
                 cooldown: this.abilityCarve.cooldown
             }
         };
+    }
+
+    applyExternalModifiers(mods = {}) {
+        const abilityMods = mods.ability ?? {};
+
+        this.sprintSpeedMultiplier = this.baseSprintSpeedMultiplier * (abilityMods.sprintSpeedMultiplier ?? 1);
+        this.sprintNenPerSecond = this.baseSprintNenPerSecond * (abilityMods.sprintNenCostMultiplier ?? 1);
+
+        this.abilityJump.duration = this.abilityJump.baseDuration * (abilityMods.jumpDurationMultiplier ?? 1);
+        this.abilityJump.cooldown = this.abilityJump.baseCooldown * (abilityMods.jumpCooldownMultiplier ?? 1);
+        this.abilityJump.nenCost = this.abilityJump.baseNenCost * (abilityMods.jumpNenCostMultiplier ?? 1);
+        this.abilityJump.jumpMultiplier = this.abilityJump.baseJumpMultiplier * (abilityMods.jumpMultiplier ?? 1);
+
+        this.abilityCarve.duration = this.abilityCarve.baseDuration * (abilityMods.carveDurationMultiplier ?? 1);
+        this.abilityCarve.cooldown = this.abilityCarve.baseCooldown * (abilityMods.carveCooldownMultiplier ?? 1);
+        this.abilityCarve.nenCost = this.abilityCarve.baseNenCost * (abilityMods.carveNenCostMultiplier ?? 1);
+        this.abilityCarve.carveRadiusMultiplier = this.abilityCarve.baseCarveRadiusMultiplier * (abilityMods.carveRadiusMultiplier ?? 1);
+        this.abilityCarve.carveCostMultiplier = this.abilityCarve.baseCarveCostMultiplier * (abilityMods.carveCostMultiplier ?? 1);
     }
 }

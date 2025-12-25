@@ -6,6 +6,7 @@ import { Abilities } from "./Abilities.js";
 import { CarveController } from "./CarveController.js";
 import { POIManager } from "../world/POIManager.js";
 import { EnemyManager } from "../enemies/EnemyManager.js";
+import { AbilityTreeSystem } from "./AbilityTree.js";
 
 export class GameRuntime {
     constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem } = {}) {
@@ -45,6 +46,11 @@ export class GameRuntime {
             carveCostMultiplier: 0.65
         });
 
+        this.abilityTree = new AbilityTreeSystem({
+            playerStats: this.playerStats,
+            abilities: this.abilities
+        });
+
         this.enabled = true;
         this.timeSinceHudUpdate = 0;
 
@@ -79,12 +85,16 @@ export class GameRuntime {
     getSnapshot() {
         const stats = this.playerStats?.toSnapshot?.();
         const abilityState = this.getAbilityState();
-        return { stats, abilities: abilityState };
+        const abilityTree = this.abilityTree?.toSnapshot?.();
+        return { stats, abilities: abilityState, abilityTree };
     }
 
     applySnapshot(snapshot = {}) {
         if (snapshot.stats && this.playerStats?.applySnapshot) {
             this.playerStats.applySnapshot(snapshot.stats);
+        }
+        if (snapshot.abilityTree && this.abilityTree?.applySnapshot) {
+            this.abilityTree.applySnapshot(snapshot.abilityTree);
         }
     }
 
@@ -105,6 +115,7 @@ export class GameRuntime {
 
         this.playerStats.update(dtSeconds);
         this.abilities.update(dtSeconds);
+        this.abilityTree?.tick?.();
         this.carveController?.update(dtSeconds);
         this.poiManager?.update(dtSeconds);
         this.enemyManager?.update(dtSeconds);
@@ -145,6 +156,7 @@ export class GameRuntime {
             level: derived.level,
             currentXP: derived.currentXP,
             xpToNext: derived.xpToNext,
+            skillPoints: this.playerStats.skillPoints,
             abilityState,
             nenRegen: derived.nenRegenPerSec,
             stats: derived.stats,

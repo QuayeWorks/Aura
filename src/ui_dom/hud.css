@@ -176,3 +176,98 @@
 .audio-toggle:hover {
     border-color: rgba(0, 255, 200, 0.4);
 }
+
+#ability-tree-panel {
+    position: fixed;
+    right: 16px;
+    bottom: 24px;
+    width: 360px;
+    max-height: 60vh;
+    overflow-y: auto;
+    background: rgba(8, 10, 20, 0.82);
+    border: 1px solid rgba(0, 255, 200, 0.25);
+    border-radius: 12px;
+    padding: 12px;
+    color: #dff6ff;
+    font-family: "Segoe UI", Arial, sans-serif;
+    z-index: 12;
+    pointer-events: auto;
+}
+
+.ability-tree-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.ability-tree-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.ability-tree-controls select {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e8f5ff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+
+.ability-tree-points {
+    font-size: 12px;
+    color: #9eeaff;
+}
+
+.ability-tree-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ability-tree-node {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.ability-tree-node-header {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.ability-tree-node-desc {
+    font-size: 12px;
+    color: #cfd9ff;
+    margin-bottom: 4px;
+}
+
+.ability-tree-node-prereq {
+    font-size: 11px;
+    color: #9ac8ff;
+    margin-bottom: 6px;
+}
+
+.ability-tree-node-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ability-tree-node-actions button {
+    background: rgba(0, 255, 183, 0.14);
+    color: #dff6ff;
+    border: 1px solid rgba(0, 255, 183, 0.5);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.ability-tree-node-actions button:disabled {
+    opacity: 0.6;
+    cursor: default;
+    border-color: rgba(255, 255, 255, 0.2);
+}
