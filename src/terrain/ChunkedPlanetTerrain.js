@@ -648,16 +648,24 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         this.activeBuilds++;
 
         const finishOk = () => {
-            node.lastBuiltLod = job.lodLevel;
-            node.lastBuiltRevision = revision;
-            node.lastBuiltBiomeRevision = this.biomeRevision;
-
-            this._tagColliderForTerrain(node.terrain, job.lodLevel);
-            this._onChunkBuilt();
-
-            this.inFlightJobKeys.delete(key);
-            this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+            try {
+                node.lastBuiltLod = job.lodLevel;
+                node.lastBuiltRevision = revision;
+        
+                // IMPORTANT: keep this consistent with the job if you store biomeRevision on it
+                node.lastBuiltBiomeRevision = job.biomeRevision ?? this.biomeRevision;
+        
+                this._tagColliderForTerrain(node.terrain, job.lodLevel);
+                this._onChunkBuilt();
+            } catch (e) {
+                console.error("finishOk() error (prevented deadlock):", e);
+            } finally {
+                // ALWAYS release in-flight + concurrency tokens
+                this.inFlightJobKeys.delete(key);
+                this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+            }
         };
+
 
         const finishErr = (err) => {
             console.error("Chunk rebuild failed:", err);
