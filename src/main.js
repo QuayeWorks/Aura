@@ -64,8 +64,8 @@ const CAM_PAD = 0.8;      // stay this far away from terrain
 const CAM_SMOOTH = 0.25;  // 0..1 (higher = snappier)
 
 // Third-person camera distance (scaled to planet)
-const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.01;
-const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.08;
+const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
+const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.01;
 
 function clampArcRotateRadiusAgainstTerrain(scene, camera, targetPos) {
     if (!scene || !camera || !targetPos) return;
@@ -109,7 +109,7 @@ function createScene() {
         "mainCamera",
         Math.PI * 1.3,
         Math.PI / 3,
-        PLANET_RADIUS_UNITS * 0.08,
+        PLANET_RADIUS_UNITS * 0.01,
         new BABYLON.Vector3(0, 0, 0),
         scene
     );
