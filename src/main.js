@@ -257,6 +257,10 @@ function createScene() {
             const mode = terrain.cycleBiomeDebugMode();
             console.log("Biome debug mode:", mode);
         }
+        if (e.code === "F11" && gameRuntime) {
+            e.preventDefault();
+            gameRuntime.toggleLocalSim();
+        }
     });
     
 
@@ -571,7 +575,8 @@ function startGame() {
                 baseMovement,
                 baseCarve: { radius: 70, nenCost: 14 },
                 scene,
-                dayNightSystem
+                dayNightSystem,
+                saveSystem
             });
 
             if (abilityTreePanel && gameRuntime?.abilityTree) {
@@ -645,7 +650,8 @@ function startGame() {
                 baseMovement,
                 baseCarve: { radius: 70, nenCost: 14 },
                 scene,
-                dayNightSystem
+                dayNightSystem,
+                saveSystem
             });
 
             if (abilityTreePanel && gameRuntime?.abilityTree) {

@@ -7,14 +7,18 @@ import { CarveController } from "./CarveController.js";
 import { POIManager } from "../world/POIManager.js";
 import { EnemyManager } from "../enemies/EnemyManager.js";
 import { AbilityTreeSystem } from "./AbilityTree.js";
+import { Inventory } from "./Inventory.js";
+import { SettlementSystem } from "../world/SettlementSystem.js";
+import { LocalMultiplayerSim, NetEventBus, NetSyncController } from "../multiplayer/NetModel.js";
 
 export class GameRuntime {
-    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem } = {}) {
+    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem, saveSystem } = {}) {
         this.player = player;
         this.terrain = terrain;
         this.hud = hud;
         this.scene = scene;
         this.dayNightSystem = dayNightSystem;
+        this.saveSystem = saveSystem;
 
         this.playerStats = new PlayerStats({
             baseMovement: {
@@ -51,6 +55,8 @@ export class GameRuntime {
             abilities: this.abilities
         });
 
+        this.inventory = new Inventory({ startingTokens: 80 });
+
         this.enabled = true;
         this.timeSinceHudUpdate = 0;
 
@@ -80,13 +86,37 @@ export class GameRuntime {
             dayNightSystem,
             seed: terrain?.seed ?? 7
         });
+
+        this.settlementSystem = new SettlementSystem({
+            scene,
+            terrain,
+            player,
+            poiManager: this.poiManager,
+            inventory: this.inventory,
+            hud: this.hud,
+        });
+
+        this.localPlayerId = "player-local";
+        this.localCarveSeq = 0;
+        this.netBus = new NetEventBus();
+        this.netSync = new NetSyncController({ terrain: this.terrain, saveSystem, localPlayerId: this.localPlayerId });
+        this.netSync.attachTo(this.netBus);
+        this.localSim = new LocalMultiplayerSim({
+            scene,
+            terrain,
+            player,
+            planetRadius: terrain?.radius ?? 1,
+            eventBus: this.netBus
+        });
+        this.localSimEnabled = false;
     }
 
     getSnapshot() {
         const stats = this.playerStats?.toSnapshot?.();
         const abilityState = this.getAbilityState();
         const abilityTree = this.abilityTree?.toSnapshot?.();
-        return { stats, abilities: abilityState, abilityTree };
+        const inventory = this.inventory?.toSnapshot?.();
+        return { stats, abilities: abilityState, abilityTree, inventory };
     }
 
     applySnapshot(snapshot = {}) {
@@ -96,6 +126,9 @@ export class GameRuntime {
         if (snapshot.abilityTree && this.abilityTree?.applySnapshot) {
             this.abilityTree.applySnapshot(snapshot.abilityTree);
         }
+        if (snapshot.inventory && this.inventory?.applySnapshot) {
+            this.inventory.applySnapshot(snapshot.inventory);
+        }
     }
 
     setEnabled(enabled) {
@@ -104,9 +137,23 @@ export class GameRuntime {
         if (this.carveController) this.carveController.enabled = this.enabled;
         if (this.poiManager) this.poiManager.enabled = this.enabled;
         if (this.enemyManager) this.enemyManager.enabled = this.enabled;
+        if (!this.enabled) {
+            this.localSim?.setEnabled(false);
+        } else if (this.localSimEnabled) {
+            this.localSim?.setEnabled(true);
+        }
         if (!this.enabled && this.hud) {
             this.hud.setGameplayVisible(false);
         }
+    }
+
+    setLocalSimEnabled(isEnabled) {
+        this.localSimEnabled = !!isEnabled;
+        this.localSim?.setEnabled(this.localSimEnabled);
+    }
+
+    toggleLocalSim() {
+        this.setLocalSimEnabled(!this.localSimEnabled);
     }
 
     update(dtSeconds) {
@@ -119,6 +166,9 @@ export class GameRuntime {
         this.carveController?.update(dtSeconds);
         this.poiManager?.update(dtSeconds);
         this.enemyManager?.update(dtSeconds);
+        this.settlementSystem?.update(dtSeconds);
+        this.localSim?.update(dtSeconds);
+        this.netSync?.update(dtSeconds);
 
         this._applyStatsToPlayer();
         this.timeSinceHudUpdate += dtSeconds;
@@ -148,6 +198,9 @@ export class GameRuntime {
     _updateHud() {
         const abilityState = this.abilities.getAbilityState();
         const derived = this.playerStats.getDerived();
+        const settlementHud = this.settlementSystem?.getHUDState?.() || {};
+        const remoteCount = this.netSync?.getRemotePlayerCount?.() || 0;
+        const ghostCount = this.localSim?.ghosts?.length || 0;
         this.hud.update({
             health: derived.health,
             maxHealth: derived.maxHealth,
@@ -160,7 +213,11 @@ export class GameRuntime {
             abilityState,
             nenRegen: derived.nenRegenPerSec,
             stats: derived.stats,
-            carveHeat: this.carveController?.getHeat?.()
+            carveHeat: this.carveController?.getHeat?.(),
+            tokens: this.inventory?.tokens ?? 0,
+            questLine: settlementHud.questLine,
+            interactionPromptText: settlementHud.prompt,
+            multiplayerCount: 1 + remoteCount + ghostCount
         });
     }
 
@@ -174,6 +231,15 @@ export class GameRuntime {
         const result = this.carveController?.tryCarve(worldPoint);
         if (!result?.success && result?.reason === "lockout") {
             this.hud?.flashNenBar?.();
+        }
+        if (result?.success && this.netBus) {
+            this.netBus.emit("carve", {
+                playerId: this.localPlayerId || "player-local",
+                seq: this.localCarveSeq = (this.localCarveSeq || 0) + 1,
+                position: { x: worldPoint.x, y: worldPoint.y, z: worldPoint.z },
+                radius: result.radius,
+                timestamp: performance.now(),
+            });
         }
         return !!result?.success;
     }
