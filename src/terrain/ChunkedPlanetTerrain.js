@@ -461,7 +461,7 @@ export class ChunkedPlanetTerrain {
     if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
 
     this.queuedJobKeys.add(key);
-    this.buildQueue.push({ node, lodLevel, revision, force });
+    this.buildQueue.push({ node, lodLevel, revision, biomeRevision, force, key });
 }
 
     _updateQuadtree(focusPosition) {
@@ -630,7 +630,8 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
 
         const node = job.node;
         const revision = job.revision ?? this.carveRevision;
-        const key = this._jobKey(node, job.lodLevel, revision);
+        const biomeRevision = (typeof job.biomeRevision === 'number') ? job.biomeRevision : this.biomeRevision;
+        const key = job.key || this._jobKey(node, job.lodLevel, revision, biomeRevision);
 
         // This job is no longer queued
         this.queuedJobKeys.delete(key);
@@ -639,7 +640,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         this._ensureTerrainForNode(node);
 
         // If already built for this revision & LOD (unless forced), skip
-        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision) {
+        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision && node.lastBuiltBiomeRevision === biomeRevision) {
             continue;
         }
 
@@ -652,7 +653,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         const finishOk = () => {
             node.lastBuiltLod = job.lodLevel;
             node.lastBuiltRevision = revision;
-        node.lastBuiltBiomeRevision = biomeRevision;
+            node.lastBuiltBiomeRevision = biomeRevision;
 
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
             this._onChunkBuilt();
