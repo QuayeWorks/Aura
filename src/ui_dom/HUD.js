@@ -10,11 +10,9 @@ function createBar(labelText, className) {
     wrapper.appendChild(fill);
 
     const text = document.createElement("div");
-    text.className = "hud-row";
-    text.style.marginTop = "-18px";
-    text.style.padding = "0 6px";
-    text.style.mixBlendMode = "screen";
+    text.className = "hud-bar-label";
     text.textContent = labelText;
+    wrapper.appendChild(text);
 
     return { wrapper, fill, text };
 }
@@ -42,8 +40,7 @@ export function createDomHUD() {
     hudPanel.appendChild(nenBar.wrapper);
 
     const metaRow = document.createElement("div");
-    metaRow.className = "hud-row";
-    metaRow.style.marginBottom = "6px";
+    metaRow.className = "hud-row hud-meta-row";
     const levelText = document.createElement("div");
     const xpText = document.createElement("div");
     const skillText = document.createElement("div");
@@ -69,20 +66,25 @@ export function createDomHUD() {
     debugPanel.id = "hud-debug-panel";
     debugPanel.classList.add("hud-hidden");
 
+    const infoColumn = document.createElement("div");
+    infoColumn.className = "hud-info-column";
+
     const tokensRow = document.createElement("div");
     tokensRow.className = "hud-row hud-economy";
     tokensRow.textContent = "Tokens: 0";
-    hudPanel.appendChild(tokensRow);
+    infoColumn.appendChild(tokensRow);
 
     const questRow = document.createElement("div");
     questRow.className = "hud-row hud-quest";
     questRow.textContent = "Quests: -";
-    hudPanel.appendChild(questRow);
+    infoColumn.appendChild(questRow);
 
     const multiplayerRow = document.createElement("div");
     multiplayerRow.className = "hud-row hud-mp";
     multiplayerRow.textContent = "Players: 1";
-    hudPanel.appendChild(multiplayerRow);
+    infoColumn.appendChild(multiplayerRow);
+
+    hudPanel.appendChild(infoColumn);
 
     const interactionPrompt = document.createElement("div");
     interactionPrompt.className = "hud-interaction hud-hidden";
@@ -168,8 +170,6 @@ export function createDomHUD() {
         nenBar.fill.style.width = `${(nenPct * 100).toFixed(1)}%`;
         healthBar.text.textContent = `Health ${health.toFixed(0)} / ${maxHealth.toFixed(0)}`;
         nenBar.text.textContent = `Nen ${nen.toFixed(0)} / ${maxNen.toFixed(0)}`;
-        if (!healthBar.text.parentElement) hudPanel.appendChild(healthBar.text);
-        if (!nenBar.text.parentElement) hudPanel.appendChild(nenBar.text);
 
         levelText.textContent = `Lv ${level}`;
         xpText.textContent = `XP ${currentXP.toFixed(0)} / ${xpToNext.toFixed(0)}`;
@@ -179,15 +179,15 @@ export function createDomHUD() {
         const jump = abilityState.jump || {};
         const carve = abilityState.carve || {};
 
-        sprintTile.textContent = sprint.active ? "Sprint (Active)" : "Shift – Sprint";
         sprintTile.classList.toggle("active", !!sprint.active);
+        sprintTile.textContent = sprint.active ? "Sprint (Active)" : "Shift – Sprint";
         const sprintCd = document.createElement("div");
         sprintCd.className = "cooldown-text";
         sprintCd.textContent = sprint.requested && !sprint.active ? "No Nen" : "Nen drain";
         sprintTile.appendChild(sprintCd);
 
-        jumpTile.textContent = jump.active ? "Q – Jump Buff" : "Q – Enhance Jump";
         jumpTile.classList.toggle("active", !!jump.active);
+        jumpTile.textContent = jump.active ? "Q – Jump Buff" : "Q – Enhance Jump";
         const jumpCd = document.createElement("div");
         jumpCd.className = "cooldown-text";
         jumpCd.textContent = jump.active
@@ -197,8 +197,8 @@ export function createDomHUD() {
                 : "Ready";
         jumpTile.appendChild(jumpCd);
 
-        carveTile.textContent = carve.active ? "E – Carve Buff" : "E – Enhance Carve";
         carveTile.classList.toggle("active", !!carve.active);
+        carveTile.textContent = carve.active ? "E – Carve Buff" : "E – Enhance Carve";
         const carveCd = document.createElement("div");
         carveCd.className = "cooldown-text";
         carveCd.textContent = carve.active
