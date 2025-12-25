@@ -220,6 +220,15 @@ function createScene() {
         if (e.repeat) return;
         if (e.code === "Enter" && gameState === GameState.MENU) startGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
+        if (e.code === "F6" && gameState === GameState.PLAYING && terrain) {
+            // Cycle biome debug modes (off -> biome -> height -> slope -> isolateSnow -> isolateSand -> off)
+            const modes = ["off", "biome", "height", "slope", "isolateSnow", "isolateSand"];
+            const cur = terrain.biomeSettings?.debugMode ?? "off";
+            const next = modes[(modes.indexOf(cur) + 1) % modes.length];
+            terrain.setBiomeDebugMode(next);
+            console.log("Biome debug mode:", next);
+        }
+
     });
     
 

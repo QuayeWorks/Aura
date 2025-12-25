@@ -815,6 +815,9 @@ rebuildWithSettings(settings) {
     // Carves passed from ChunkedPlanetTerrain as plain objects: [{position:{x,y,z}, radius}]
     this.carves = settings.carves || [];
 
+    // Biome/shading settings forwarded from ChunkedPlanetTerrain
+    this.biomeSettings = settings.biomeSettings || this.biomeSettings || null;
+
     // Version gate: if multiple rebuilds are requested quickly, only apply the latest
     this._buildVersion = (this._buildVersion || 0) + 1;
     const myVersion = this._buildVersion;
@@ -830,6 +833,7 @@ rebuildWithSettings(settings) {
             isoLevel: this.isoLevel,
             origin: { x: this.origin.x, y: this.origin.y, z: this.origin.z },
             carves: this.carves,
+            biomeSettings: this.biomeSettings,
             wantColors: true
         }).then((msg) => {
             if (msg.version !== this._buildVersion) return;

@@ -29,15 +29,47 @@ export class ChunkedPlanetTerrain {
 
         // Shared terrain material across all leaves
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
-        this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
-        this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        this.material.backFaceCulling = true;
+        this.material.diffuseColor = new BABYLON.Color3(1, 1, 1);
+        this.material.ambientColor = new BABYLON.Color3(0.25, 0.25, 0.25);
+        this.material.specularColor = new BABYLON.Color3(0.08, 0.08, 0.08);
+        // Terrain includes steep walls/caves; avoid harsh dark backs.
+        this.material.backFaceCulling = false;
+        this.material.twoSidedLighting = true;
 
         this.meshPool = [];
         this.terrainPool = [];
         this.buildQueue = [];
         this.carveHistory = [];
         this.carveRevision = 0; // increments when carve history changes
+        // Biome + shading settings (in *meters*, converted via unitsPerMeter)
+        // Keep all thresholds in one place so workers + LOD agree.
+        this.biomeSettings = {
+            unitsPerMeter: options.unitsPerMeter ?? 1.0, // 1 unit == 1 meter by default
+            seaLevelMeters: options.seaLevelMeters ?? 220,
+            beachWidthMeters: options.beachWidthMeters ?? 40,
+            shallowWaterDepthMeters: options.shallowWaterDepthMeters ?? 80,
+
+            // Height bands above sea level (meters)
+            sandMaxMeters: options.sandMaxMeters ?? 250,
+            grassMaxMeters: options.grassMaxMeters ?? 250,
+            rockMaxMeters: options.rockMaxMeters ?? 700,
+            snowStartMeters: options.snowStartMeters ?? 700,
+            snowFullMeters: options.snowFullMeters ?? 1600,
+
+            // Slope controls (0=flat, 1=vertical)
+            slopeRockStart: options.slopeRockStart ?? 0.35,
+            slopeRockFull: options.slopeRockFull ?? 0.75,
+
+            // Gradient sampling step for slope (meters)
+            slopeEpsMeters: options.slopeEpsMeters ?? 25,
+
+            // Debug: "off" | "biome" | "height" | "slope" | "isolateSnow" | "isolateSand"
+            debugMode: "off"
+        };
+
+        // Invalidate/rebuild colors when biome settings change
+        this.biomeRevision = 0;
+
 
         // Build de-dupe / in-flight tracking
         this.queuedJobKeys = new Set();
@@ -63,7 +95,12 @@ export class ChunkedPlanetTerrain {
 
         this.lastCameraPosition = null;
         
-        this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
+        this.initialCoarseLod = 1; //
+
+        // --- Water shell (visual polish) ---
+        this._waterMesh = null;
+        this._ensureWaterMesh();
+// Progressive LOD: always show LOD 1 first
 
         this.lastLodStats = {
             totalVisible: 0,
@@ -402,10 +439,10 @@ export class ChunkedPlanetTerrain {
         node.lastBuiltLod = null;
     }
 
-    _jobKey(node, lodLevel, carveRevision = 0) {
+    _jobKey(node, lodLevel, carveRevision = 0, biomeRevision = 0) {
     // Ensure node has a stable id (your PlanetQuadtreeNode already has .id in your setup)
     const id = (node && node.id != null) ? node.id : "noid";
-    return `${id}|lod:${lodLevel}|carve:${carveRevision}`;
+    return `${id}|lod:${lodLevel}|carve:${carveRevision}|biome:${biomeRevision}`;
 }
 
     _scheduleNodeRebuild(node, lodLevel, options = {}) {
@@ -413,11 +450,12 @@ export class ChunkedPlanetTerrain {
 
     const force = !!options.force;
     const revision = this.carveRevision;
+    const biomeRevision = this.biomeRevision;
 
     // Skip if already built for this revision & LOD (unless forced)
-    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revision) return;
+    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revision && node.lastBuiltBiomeRevision === biomeRevision) return;
 
-    const key = this._jobKey(node, lodLevel, revision);
+    const key = this._jobKey(node, lodLevel, revision, biomeRevision);
 
     // If queued or currently building, skip.
     if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
@@ -614,6 +652,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         const finishOk = () => {
             node.lastBuiltLod = job.lodLevel;
             node.lastBuiltRevision = revision;
+        node.lastBuiltBiomeRevision = biomeRevision;
 
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
             this._onChunkBuilt();
@@ -638,7 +677,8 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
                 cellSize: lodDims.cellSize,
-                carves: this._collectCarvesForNode(node)
+                carves: this._collectCarvesForNode(node),
+                biomeSettings: this.biomeSettings
             });
         } catch (e) {
             finishErr(e);
