@@ -154,7 +154,10 @@ export class POIManager {
         const right = BABYLON.Vector3.Cross(forward, up).normalize();
 
         mesh.position.copyFrom(desc.position);
-        mesh.rotationQuaternion = BABYLON.Quaternion.FromRotationMatrix(BABYLON.Matrix.FromXYZAxes(right, up, forward));
+
+        const rotationMatrix = BABYLON.Matrix.Identity();
+        BABYLON.Matrix.FromXYZAxesToRef(right, up, forward, rotationMatrix);
+        mesh.rotationQuaternion = BABYLON.Quaternion.FromRotationMatrix(rotationMatrix);
         return mesh;
     }
 
