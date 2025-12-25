@@ -14,6 +14,8 @@ import {
     createLoadingOverlay
 } from "./menus/MainMenuUI.js";
 import { createUIStateHelpers } from "./menus/GameUIState.js";
+import { GameRuntime } from "./gameplay/GameRuntime.js";
+import { createDomHUD } from "./ui_dom/HUD.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -37,6 +39,7 @@ let terrain = null;
 let player = null;
 let dayNightSystem = null;
 let minimap = null;
+let gameRuntime = null;
 
 
 // Camera + environment
@@ -55,6 +58,7 @@ let playerInfoText = null;
 let lodInfoText = null;
 let sunMoonInfoText = null;
 let uiState = null;
+let domHud = null;
 
 // Timing
 let lastFrameTime = performance.now();
@@ -212,6 +216,13 @@ function createScene() {
         setFirefliesVisible
     });
 
+    // DOM HUD overlay (not Babylon GUI)
+    if (!domHud) {
+        domHud = createDomHUD();
+        domHud.setGameplayVisible(false);
+        domHud.setDebugVisible(false);
+    }
+
     // Start in menu
     showMainMenu();
 
@@ -242,7 +253,11 @@ function createScene() {
                     pointerInfo.event.clientY
                 );
                 if (pick && pick.hit) {
-                    terrain.carveSphere(pick.pickedPoint, 70.0);
+                    if (gameRuntime) {
+                        gameRuntime.handleCarve(pick.pickedPoint);
+                    } else {
+                        terrain.carveSphere(pick.pickedPoint, 70.0);
+                    }
                 }
             }
         }
@@ -341,6 +356,11 @@ function showMainMenu() {
     // Menu owns input: freeze gameplay systems cleanly
     if (player && player.setInputEnabled) player.setInputEnabled(false);
     if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(false);
+    if (gameRuntime) gameRuntime.setEnabled(false);
+    if (domHud) {
+        domHud.setGameplayVisible(false);
+        domHud.setDebugVisible(false);
+    }
 
     // Keep the menu camera stable even if a player exists.
     if (mainCamera) {
@@ -358,6 +378,11 @@ function showSettings() {
     // Settings still counts as menu: no gameplay input/simulation
     if (player && player.setInputEnabled) player.setInputEnabled(false);
     if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(false);
+    if (gameRuntime) gameRuntime.setEnabled(false);
+    if (domHud) {
+        domHud.setGameplayVisible(false);
+        domHud.setDebugVisible(false);
+    }
 
     if (mainCamera) {
         mainCamera.lockedTarget = new BABYLON.Vector3(0, 0, 0);
@@ -420,9 +445,30 @@ function startGame() {
                 mainCamera.radius = Math.min(Math.max(mainCamera.radius, CAM_MIN_RADIUS), CAM_MAX_RADIUS);
             }
 
+            const baseMovement = {
+                walkSpeed: player.walkSpeed,
+                runSpeed: player.runSpeed,
+                jumpImpulse: player.jumpSpeed,
+                gravity: player.gravity,
+                accel: player.accel,
+                groundFriction: player.groundFriction,
+                airFriction: player.airFriction
+            };
+
+            gameRuntime = new GameRuntime({
+                player,
+                terrain,
+                hud: domHud,
+                baseMovement,
+                baseCarve: { radius: 70, nenCost: 14 }
+            });
+
             // Switch to playing visuals
             applyGameVisuals();
             setFirefliesVisible(false);
+
+            if (domHud) domHud.setGameplayVisible(true);
+            if (gameRuntime) gameRuntime.setEnabled(true);
 
             // loading overlay is no longer used
             if (playerInfoText) playerInfoText.isVisible = true;
@@ -443,6 +489,29 @@ function startGame() {
         // Planet already exists – just resume quickly
         applyGameVisuals();
         setFirefliesVisible(false);
+
+        if (!gameRuntime && player) {
+            const baseMovement = {
+                walkSpeed: player.walkSpeed,
+                runSpeed: player.runSpeed,
+                jumpImpulse: player.jumpSpeed,
+                gravity: player.gravity,
+                accel: player.accel,
+                groundFriction: player.groundFriction,
+                airFriction: player.airFriction
+            };
+
+            gameRuntime = new GameRuntime({
+                player,
+                terrain,
+                hud: domHud,
+                baseMovement,
+                baseCarve: { radius: 70, nenCost: 14 }
+            });
+        }
+
+        if (domHud) domHud.setGameplayVisible(true);
+        if (gameRuntime) gameRuntime.setEnabled(true);
 
         // no loading overlay
         if (playerInfoText) playerInfoText.isVisible = !!player;
@@ -500,6 +569,7 @@ engine.runRenderLoop(() => {
     // Update player & HUD
     if (player && gameState === GameState.PLAYING) {
         if (dtSeconds > 0) {
+            if (gameRuntime) gameRuntime.update(dtSeconds);
             player.update(dtSeconds);
             // === CAMERA TERRAIN CLIP PREVENTION (ADD THIS BLOCK) ===
             if (mainCamera && player.mesh) {
