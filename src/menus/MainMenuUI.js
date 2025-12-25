@@ -77,7 +77,7 @@ function createModernButton(label, accentColor, onClick) {
  * @returns {BABYLON.GUI.Rectangle} mainMenuPanel
  */
 export function createMainMenu(ui, callbacks = {}) {
-    const { onPlay, onSettings } = callbacks;
+    const { onPlay, onSettings, onContinue } = callbacks;
 
     const mainMenuPanel = new BABYLON.GUI.Rectangle("mainMenu");
     mainMenuPanel.width = "440px";
@@ -149,8 +149,22 @@ export function createMainMenu(ui, callbacks = {}) {
     spacer1.background = "transparent";
     stack.addControl(spacer1);
 
+    // Continue button – only shown when a save exists
+    const continueBtn = createModernButton("Continue", "#00ffa9", () => {
+        if (onContinue) onContinue();
+    });
+    continueBtn.isVisible = false;
+    continueBtn.isEnabled = false;
+    stack.addControl(continueBtn);
+
+    const spacerMid = new BABYLON.GUI.Rectangle();
+    spacerMid.height = "8px";
+    spacerMid.thickness = 0;
+    spacerMid.background = "transparent";
+    stack.addControl(spacerMid);
+
     // Play button – main CTA, green like Gon’s vibe
-    const playBtn = createModernButton("Play", "#00ffa9", () => {
+    const playBtn = createModernButton("New Game", "#00ffa9", () => {
         if (onPlay) onPlay();
     });
     stack.addControl(playBtn);
@@ -183,6 +197,12 @@ export function createMainMenu(ui, callbacks = {}) {
         BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
     footer.alpha = 0.8;
     stack.addControl(footer);
+
+    mainMenuPanel.setContinueVisible = (isVisible) => {
+        continueBtn.isVisible = !!isVisible;
+        continueBtn.isEnabled = !!isVisible;
+    };
+    mainMenuPanel.continueButton = continueBtn;
 
     ui.addControl(mainMenuPanel);
     return mainMenuPanel;

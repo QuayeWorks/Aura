@@ -76,6 +76,18 @@ export class GameRuntime {
         });
     }
 
+    getSnapshot() {
+        const stats = this.playerStats?.toSnapshot?.();
+        const abilityState = this.getAbilityState();
+        return { stats, abilities: abilityState };
+    }
+
+    applySnapshot(snapshot = {}) {
+        if (snapshot.stats && this.playerStats?.applySnapshot) {
+            this.playerStats.applySnapshot(snapshot.stats);
+        }
+    }
+
     setEnabled(enabled) {
         this.enabled = !!enabled;
         this.abilities?.setEnabled(this.enabled);
@@ -138,6 +150,10 @@ export class GameRuntime {
             stats: derived.stats,
             carveHeat: this.carveController?.getHeat?.()
         });
+    }
+
+    getAbilityState() {
+        return this.abilities?.getAbilityState?.();
     }
 
     handleCarve(worldPoint) {

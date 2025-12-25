@@ -16,6 +16,9 @@ import {
 import { createUIStateHelpers } from "./menus/GameUIState.js";
 import { GameRuntime } from "./gameplay/GameRuntime.js";
 import { createDomHUD } from "./ui_dom/HUD.js";
+import { SaveSystem } from "./save/SaveSystem.js";
+import { CompassHUD } from "./ui_dom/CompassHUD.js";
+import { AudioSystem } from "./audio/AudioSystem.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -40,6 +43,10 @@ let player = null;
 let dayNightSystem = null;
 let minimap = null;
 let gameRuntime = null;
+let compassHud = null;
+let audioSystem = null;
+const saveSystem = new SaveSystem();
+let pendingLoadSnapshot = null;
 
 
 // Camera + environment
@@ -59,9 +66,17 @@ let lodInfoText = null;
 let sunMoonInfoText = null;
 let uiState = null;
 let domHud = null;
+let compassHud = null;
+let audioSystem = null;
+const saveSystem = new SaveSystem();
+let pendingLoadSnapshot = null;
 
 // Timing
 let lastFrameTime = performance.now();
+let autosaveTimer = 0;
+const AUTOSAVE_INTERVAL = 30;
+let autosaveTimer = 0;
+const AUTOSAVE_INTERVAL = 30;
 
 // --- Camera anti-clipping (ArcRotate spring arm) ---
 const CAM_PAD = 0.8;      // stay this far away from terrain
@@ -167,9 +182,11 @@ function createScene() {
 
     // Main menu
     mainMenuPanel = createMainMenu(ui, {
-        onPlay: () => startGame(),
-        onSettings: () => showSettings()
+        onPlay: () => startNewGame(),
+        onSettings: () => showSettings(),
+        onContinue: () => continueFromSave()
     });
+    refreshContinueButton();
 
     // Settings menu
     settingsPanel = createSettingsMenu(ui, {
@@ -222,6 +239,10 @@ function createScene() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (!compassHud) {
+        compassHud = new CompassHUD();
+        compassHud.setVisible(false);
+    }
 
     // Start in menu
     showMainMenu();
@@ -229,7 +250,7 @@ function createScene() {
     // (Optional) keyboard shortcuts for quick testing
     window.addEventListener("keydown", (e) => {
         if (e.repeat) return;
-        if (e.code === "Enter" && gameState === GameState.MENU) startGame();
+        if (e.code === "Enter" && gameState === GameState.MENU) startNewGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
         if (e.code === "KeyB" && terrain && terrain.cycleBiomeDebugMode) {
             const mode = terrain.cycleBiomeDebugMode();
@@ -341,10 +362,92 @@ function setFirefliesVisible(isVisible) {
     firefliesRoot.setEnabled(isVisible);
 }
 
+function refreshContinueButton() {
+    if (mainMenuPanel && mainMenuPanel.setContinueVisible) {
+        mainMenuPanel.setContinueVisible(saveSystem.hasSave());
+    }
+}
+
+function buildSaveSnapshot() {
+    if (!player || !player.mesh || !terrain || !gameRuntime) return null;
+    const pos = player.mesh.position;
+    const forward = player.mesh.getDirection ? player.mesh.getDirection(BABYLON.Axis.Z) : null;
+    const regionSize = terrain.chunkWorldSizeX || (terrain.radius ? terrain.radius * 0.1 : 5000);
+    const carves = saveSystem.filterCarves(terrain.getCarveHistory?.() || [], { regionSize });
+    const runtimeSnapshot = gameRuntime.getSnapshot?.();
+
+    return {
+        player: {
+            position: { x: pos.x, y: pos.y, z: pos.z },
+            forward: forward ? { x: forward.x, y: forward.y, z: forward.z } : null
+        },
+        camera: mainCamera ? { alpha: mainCamera.alpha, beta: mainCamera.beta, radius: mainCamera.radius } : null,
+        stats: runtimeSnapshot?.stats,
+        carves
+    };
+}
+
+function performSave() {
+    const snapshot = buildSaveSnapshot();
+    if (snapshot) {
+        saveSystem.save(snapshot);
+        refreshContinueButton();
+    }
+}
+
+function applyPendingSnapshot() {
+    if (!pendingLoadSnapshot) return;
+    const snap = pendingLoadSnapshot;
+    if (snap.carves && terrain?.setCarveHistory) {
+        terrain.setCarveHistory(snap.carves);
+    }
+    if (gameRuntime && snap.stats) {
+        gameRuntime.applySnapshot(snap);
+    }
+    if (player?.mesh && snap.player?.position) {
+        player.mesh.position.x = snap.player.position.x;
+        player.mesh.position.y = snap.player.position.y;
+        player.mesh.position.z = snap.player.position.z;
+        if (player.velocity?.set) {
+            player.velocity.set(0, 0, 0);
+        } else if (BABYLON?.Vector3) {
+            player.velocity = new BABYLON.Vector3(0, 0, 0);
+        }
+        if (player.reprojectToSurface) player.reprojectToSurface();
+    }
+    if (mainCamera && snap.camera) {
+        if (snap.camera.alpha != null) mainCamera.alpha = snap.camera.alpha;
+        if (snap.camera.beta != null) mainCamera.beta = snap.camera.beta;
+        if (snap.camera.radius != null) mainCamera.radius = snap.camera.radius;
+    }
+    pendingLoadSnapshot = null;
+}
+
+function startNewGame() {
+    pendingLoadSnapshot = null;
+    saveSystem.clear();
+    refreshContinueButton();
+    startGame();
+}
+
+function continueFromSave() {
+    const loaded = saveSystem.load();
+    if (loaded) {
+        pendingLoadSnapshot = loaded;
+        startGame();
+    } else {
+        startGame();
+    }
+}
+
 // --------------------
 // State transitions
 // --------------------
 function showMainMenu() {
+    if (gameState === GameState.PLAYING) {
+        performSave();
+    }
+    refreshContinueButton();
     if (minimap) {
         minimap.setEnabled(false);
         minimap.setOverlayVisible(false);
@@ -361,6 +464,7 @@ function showMainMenu() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (compassHud) compassHud.setVisible(false);
 
     // Keep the menu camera stable even if a player exists.
     if (mainCamera) {
@@ -383,6 +487,7 @@ function showSettings() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (compassHud) compassHud.setVisible(false);
 
     if (mainCamera) {
         mainCamera.lockedTarget = new BABYLON.Vector3(0, 0, 0);
@@ -465,12 +570,33 @@ function startGame() {
                 dayNightSystem
             });
 
+            if (!audioSystem) {
+                audioSystem = new AudioSystem({ player, terrain, gameRuntime });
+            } else {
+                audioSystem.player = player;
+                audioSystem.terrain = terrain;
+                audioSystem.gameRuntime = gameRuntime;
+            }
+            if (audioSystem) {
+                audioSystem.ensureStarted();
+            }
+            if (domHud) {
+                domHud.setAudioToggleHandler(() => {
+                    if (audioSystem) audioSystem.toggleMute();
+                    domHud.setAudioMuted(audioSystem?.muted);
+                });
+                domHud.setAudioMuted(audioSystem?.muted);
+            }
+
+            applyPendingSnapshot();
+
             // Switch to playing visuals
             applyGameVisuals();
             setFirefliesVisible(false);
 
             if (domHud) domHud.setGameplayVisible(true);
             if (gameRuntime) gameRuntime.setEnabled(true);
+            if (compassHud) compassHud.setVisible(true);
 
             // loading overlay is no longer used
             if (playerInfoText) playerInfoText.isVisible = true;
@@ -482,6 +608,7 @@ function startGame() {
             if (player && player.reprojectToSurface) player.reprojectToSurface();
             if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
             if (mainCamera && player && player.mesh) mainCamera.lockedTarget = player.mesh;
+            autosaveTimer = 0;
             //minimap.setEnabled(true);
             //minimap.setOverlayVisible(true);
 
@@ -514,8 +641,29 @@ function startGame() {
             });
         }
 
+        if (!audioSystem) {
+            audioSystem = new AudioSystem({ player, terrain, gameRuntime });
+        } else {
+            audioSystem.player = player;
+            audioSystem.terrain = terrain;
+            audioSystem.gameRuntime = gameRuntime;
+        }
+        if (audioSystem) {
+            audioSystem.ensureStarted();
+        }
+        if (domHud) {
+            domHud.setAudioToggleHandler(() => {
+                if (audioSystem) audioSystem.toggleMute();
+                domHud.setAudioMuted(audioSystem?.muted);
+            });
+            domHud.setAudioMuted(audioSystem?.muted);
+        }
+
+        applyPendingSnapshot();
+
         if (domHud) domHud.setGameplayVisible(true);
         if (gameRuntime) gameRuntime.setEnabled(true);
+        if (compassHud) compassHud.setVisible(true);
 
         // no loading overlay
         if (playerInfoText) playerInfoText.isVisible = !!player;
@@ -541,6 +689,7 @@ function startGame() {
             minimap.setEnabled(true);
             minimap.setOverlayVisible(true);
         }
+        autosaveTimer = 0;
 
     }
 }
@@ -572,6 +721,11 @@ engine.runRenderLoop(() => {
 
     // Update player & HUD
     if (player && gameState === GameState.PLAYING) {
+        autosaveTimer += dtSeconds;
+        if (autosaveTimer >= AUTOSAVE_INTERVAL) {
+            performSave();
+            autosaveTimer = 0;
+        }
         if (dtSeconds > 0) {
             if (gameRuntime) gameRuntime.update(dtSeconds);
             player.update(dtSeconds);
@@ -592,6 +746,22 @@ engine.runRenderLoop(() => {
 
             if (minimap) {
                 minimap.updateFromPlayerMesh(player.mesh);
+            }
+
+            if (compassHud && player.mesh) {
+                const compassData = compassHud.update({
+                    playerPosition: player.mesh.position,
+                    playerForward: player.mesh.getDirection
+                        ? player.mesh.getDirection(BABYLON.Axis.Z)
+                        : null
+                });
+                if (terrain && compassData) {
+                    terrain.latitudeSnowBias = compassData.snowBias;
+                }
+            }
+
+            if (audioSystem) {
+                audioSystem.update(dtSeconds);
             }
 
             // === END CAMERA FIX ===

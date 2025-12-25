@@ -793,6 +793,19 @@ _collectCarvesForNode(node) {
         }
     }
 
+    setCarveHistory(carves = []) {
+        this.carveHistory = Array.isArray(carves) ? carves.map((c) => ({
+            position: { x: c.position.x, y: c.position.y, z: c.position.z },
+            radius: c.radius
+        })) : [];
+        this.carveRevision++;
+        this._forceRebuildActiveChunks();
+    }
+
+    getCarveHistory() {
+        return this.carveHistory || [];
+    }
+
     setBiomeSettings(partialSettings) {
         this.biomeSettings = resolveBiomeSettings({
             ...this.biomeSettings,

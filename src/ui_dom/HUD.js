@@ -67,12 +67,20 @@ export function createDomHUD() {
     debugPanel.id = "hud-debug-panel";
     debugPanel.classList.add("hud-hidden");
 
+    const audioToggle = document.createElement("div");
+    audioToggle.className = "audio-toggle";
+    audioToggle.textContent = "Audio: On (M)";
+    audioToggle.style.pointerEvents = "auto";
+
     root.appendChild(hudPanel);
     root.appendChild(debugPanel);
+    root.appendChild(audioToggle);
 
     let gameplayVisible = true;
     let debugVisible = false;
     let flashCooldown = null;
+    let audioToggleHandler = null;
+    let audioMuted = false;
 
     function setGameplayVisible(isVisible) {
         gameplayVisible = !!isVisible;
@@ -91,6 +99,13 @@ export function createDomHUD() {
         if (ev.code === "F2") {
             setDebugVisible(!debugVisible);
         }
+        if (ev.code === "KeyM") {
+            if (audioToggleHandler) audioToggleHandler();
+        }
+    });
+
+    audioToggle.addEventListener("click", () => {
+        if (audioToggleHandler) audioToggleHandler();
     });
 
     function flashNenBar() {
@@ -178,10 +193,21 @@ export function createDomHUD() {
             heatLine;
     }
 
+    function setAudioMuted(isMuted) {
+        audioMuted = !!isMuted;
+        audioToggle.textContent = audioMuted ? "Audio: Muted (M)" : "Audio: On (M)";
+    }
+
+    function setAudioToggleHandler(cb) {
+        audioToggleHandler = cb;
+    }
+
     return {
         update,
         flashNenBar,
         setGameplayVisible,
-        setDebugVisible
+        setDebugVisible,
+        setAudioMuted,
+        setAudioToggleHandler
     };
 }
