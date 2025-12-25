@@ -16,6 +16,7 @@ import {
 import { createUIStateHelpers } from "./menus/GameUIState.js";
 import { GameRuntime } from "./gameplay/GameRuntime.js";
 import { createDomHUD } from "./ui_dom/HUD.js";
+import { DevPanel } from "./ui_dom/DevPanel.js";
 import { SaveSystem } from "./save/SaveSystem.js";
 import { CompassHUD } from "./ui_dom/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
@@ -45,6 +46,7 @@ let dayNightSystem = null;
 let minimap = null;
 let gameRuntime = null;
 let compassHud = null;
+let devPanel = null;
 let audioSystem = null;
 const saveSystem = new SaveSystem();
 let pendingLoadSnapshot = null;
@@ -235,6 +237,11 @@ function createScene() {
         domHud = createDomHUD();
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
+    }
+    if (!devPanel) {
+        devPanel = new DevPanel();
+        devPanel.setVisible(false);
+        devPanel.setToggleGuard(() => gameState === GameState.PLAYING);
     }
     if (!abilityTreePanel) {
         abilityTreePanel = createAbilityTreePanel({ abilityTree: null });
@@ -470,6 +477,7 @@ function showMainMenu() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (devPanel) devPanel.setVisible(false);
     if (abilityTreePanel) abilityTreePanel.setVisible(false);
     if (compassHud) compassHud.setVisible(false);
 
@@ -494,6 +502,7 @@ function showSettings() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (devPanel) devPanel.setVisible(false);
     if (abilityTreePanel) abilityTreePanel.setVisible(false);
     if (compassHud) compassHud.setVisible(false);
 
@@ -612,8 +621,8 @@ function startGame() {
             if (compassHud) compassHud.setVisible(true);
 
             // loading overlay is no longer used
-            if (playerInfoText) playerInfoText.isVisible = true;
-            if (lodInfoText) lodInfoText.isVisible = true;
+            if (playerInfoText) playerInfoText.isVisible = false;
+            if (lodInfoText) lodInfoText.isVisible = false;
             if (hudPanel) hudPanel.isVisible = true;
 
             gameState = GameState.PLAYING;
@@ -684,8 +693,8 @@ function startGame() {
         if (compassHud) compassHud.setVisible(true);
 
         // no loading overlay
-        if (playerInfoText) playerInfoText.isVisible = !!player;
-        if (lodInfoText) lodInfoText.isVisible = !!player;
+        if (playerInfoText) playerInfoText.isVisible = false;
+        if (lodInfoText) lodInfoText.isVisible = false;
         if (hudPanel) hudPanel.isVisible = true;
 
         // Re-assert camera constraints on resume
@@ -790,37 +799,41 @@ engine.runRenderLoop(() => {
             // === END CAMERA FIX ===
         }
 
-        if (playerInfoText && player.mesh) {
+        const devData = devPanel ? {} : null;
+
+        if (player.mesh && devData) {
             const pos = player.mesh.position;
-            const r = pos.length();
-            playerInfoText.text =
-                `Player  x:${pos.x.toFixed(1)}  y:${pos.y.toFixed(1)}  z:${pos.z.toFixed(1)}  r:${r.toFixed(1)}`;
-            playerInfoText.isVisible = true;
+            devData.player = { x: pos.x, y: pos.y, z: pos.z, r: pos.length() };
         }
 
-        if (terrain && lodInfoText && focusPos && terrain.getDebugInfo) {
+        if (terrain && focusPos && terrain.getDebugInfo) {
             const dbg = terrain.getDebugInfo(focusPos);
             const stats = dbg.lodStats || {};
             const per = stats.perLod || [];
             const maxLod = stats.maxLodInUse ?? 0;
-            
+
             const chunkSizeX = (dbg.chunkWorldSizeX ?? 0).toFixed(1);
 
             let nearStr = "";
             if (dbg.nearestChunk) {
                 const n = dbg.nearestChunk;
                 nearStr =
-                    `  nearLOD:${n.lodLevel} res:${n.dimX} dist:${n.distance.toFixed(1)}`;
+                    `nearLOD:${n.lodLevel} res:${n.dimX} dist:${n.distance.toFixed(1)}`;
             }
 
-            lodInfoText.text =
-                `Chunks ${dbg.chunkCountX}x${dbg.chunkCountZ}  baseRes:${dbg.baseChunkResolution}  cap:${dbg.lodCap}  maxUsed:${maxLod}  chunkSizeX:${chunkSizeX}\n` +
-                `[0:${per[0] || 0}  1:${per[1] || 0}  2:${per[2] || 0}  3:${per[3] || 0}  4:${per[4] || 0}  5:${per[5] || 0}]${nearStr}`;
-            lodInfoText.isVisible = true;
+            if (devData) {
+                devData.chunk = {
+                    count: `${dbg.chunkCountX}x${dbg.chunkCountZ}`,
+                    baseRes: dbg.baseChunkResolution,
+                    sizeX: chunkSizeX,
+                    perLod: per.map((v, idx) => `${idx}:${v || 0}`),
+                    nearStr
+                };
+            }
         }
 
         // Sun/Moon + time-of-day HUD
-        if (dayNightSystem && sunMoonInfoText && dayNightSystem.getDebugInfo) {
+        if (dayNightSystem && dayNightSystem.getDebugInfo) {
             const dbg = dayNightSystem.getDebugInfo();
             if (
                 dbg &&
@@ -861,15 +874,22 @@ engine.runRenderLoop(() => {
                     }
                 }
 
-                sunMoonInfoText.text =
-                    `Time ${pad(hour)}:${pad(minute)}  ` +
-                    `sunAlt(local):${sunAltLocal.toFixed(1)}°  ` +
-                    `moonAlt(local):${moonAltLocal.toFixed(1)}°\n` +
-                    `sunPos(${sPos.x.toFixed(0)}, ${sPos.y.toFixed(0)}, ${sPos.z.toFixed(0)})  ` +
-                    `moonPos(${mPos.x.toFixed(0)}, ${mPos.y.toFixed(0)}, ${mPos.z.toFixed(0)})`;
-                sunMoonInfoText.isVisible = true;
+                const timeStr = `${pad(hour)}:${pad(minute)}`;
+                if (devData) {
+                    devData.time = timeStr;
+                    devData.sun = {
+                        alt: `${sunAltLocal.toFixed(1)}°`,
+                        pos: `${sPos.x.toFixed(0)}, ${sPos.y.toFixed(0)}, ${sPos.z.toFixed(0)}`
+                    };
+                    devData.moon = {
+                        alt: `${moonAltLocal.toFixed(1)}°`,
+                        pos: `${mPos.x.toFixed(0)}, ${mPos.y.toFixed(0)}, ${mPos.z.toFixed(0)}`
+                    };
+                }
             }
         }
+
+        if (devPanel && devData) devPanel.update(devData);
 
 
     } else {

@@ -8,6 +8,9 @@ export class CompassHUD {
         this.container = document.createElement("div");
         this.container.className = "compass-container";
 
+        this.dial = document.createElement("div");
+        this.dial.className = "compass-dial";
+
         this.headingNeedle = document.createElement("div");
         this.headingNeedle.className = "compass-needle";
 
@@ -25,8 +28,9 @@ export class CompassHUD {
         this.latText.className = "compass-lat";
         this.latText.textContent = "Lat 0°";
 
-        this.container.appendChild(ring);
-        this.container.appendChild(this.headingNeedle);
+        this.dial.appendChild(ring);
+        this.dial.appendChild(this.headingNeedle);
+        this.container.appendChild(this.dial);
         this.container.appendChild(this.latText);
         this.root.appendChild(this.container);
 
