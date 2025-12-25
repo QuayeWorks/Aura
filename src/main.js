@@ -19,6 +19,7 @@ import { createDomHUD } from "./ui_dom/HUD.js";
 import { SaveSystem } from "./save/SaveSystem.js";
 import { CompassHUD } from "./ui_dom/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
+import { createAbilityTreePanel } from "./ui_dom/AbilityTreePanel.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -66,6 +67,7 @@ let lodInfoText = null;
 let sunMoonInfoText = null;
 let uiState = null;
 let domHud = null;
+let abilityTreePanel = null;
 
 
 // Timing
@@ -234,6 +236,10 @@ function createScene() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (!abilityTreePanel) {
+        abilityTreePanel = createAbilityTreePanel({ abilityTree: null });
+        abilityTreePanel.setVisible(false);
+    }
     if (!compassHud) {
         compassHud = new CompassHUD();
         compassHud.setVisible(false);
@@ -378,6 +384,7 @@ function buildSaveSnapshot() {
         },
         camera: mainCamera ? { alpha: mainCamera.alpha, beta: mainCamera.beta, radius: mainCamera.radius } : null,
         stats: runtimeSnapshot?.stats,
+        abilityTree: runtimeSnapshot?.abilityTree,
         carves
     };
 }
@@ -459,6 +466,7 @@ function showMainMenu() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (abilityTreePanel) abilityTreePanel.setVisible(false);
     if (compassHud) compassHud.setVisible(false);
 
     // Keep the menu camera stable even if a player exists.
@@ -482,6 +490,7 @@ function showSettings() {
         domHud.setGameplayVisible(false);
         domHud.setDebugVisible(false);
     }
+    if (abilityTreePanel) abilityTreePanel.setVisible(false);
     if (compassHud) compassHud.setVisible(false);
 
     if (mainCamera) {
@@ -565,6 +574,10 @@ function startGame() {
                 dayNightSystem
             });
 
+            if (abilityTreePanel && gameRuntime?.abilityTree) {
+                abilityTreePanel.setAbilityTree(gameRuntime.abilityTree);
+            }
+
             if (!audioSystem) {
                 audioSystem = new AudioSystem({ player, terrain, gameRuntime });
             } else {
@@ -634,6 +647,10 @@ function startGame() {
                 scene,
                 dayNightSystem
             });
+
+            if (abilityTreePanel && gameRuntime?.abilityTree) {
+                abilityTreePanel.setAbilityTree(gameRuntime.abilityTree);
+            }
         }
 
         if (!audioSystem) {

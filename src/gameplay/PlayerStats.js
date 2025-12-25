@@ -14,6 +14,20 @@ export class PlayerStats {
             focus: config.focus ?? 10
         };
 
+        this.skillPoints = config.skillPoints ?? 0;
+
+        this.externalModifiers = {
+            walkSpeedMultiplier: 1,
+            runSpeedMultiplier: 1,
+            jumpImpulseMultiplier: 1,
+            gravityMultiplier: 1,
+            nenRegenMultiplier: 1,
+            nenRegenFlat: 0,
+            carveRadiusMultiplier: 1,
+            carveCostMultiplier: 1,
+            cooldownScaleMultiplier: 1
+        };
+
         this.xpToNext = this.computeXpToNext();
 
         this.baseMovement = {
@@ -47,6 +61,7 @@ export class PlayerStats {
             xpBase: this.xpBase,
             xpGrowth: this.xpGrowth,
             stats: { ...this.stats },
+            skillPoints: this.skillPoints,
             maxHealth: this.maxHealth,
             maxNen: this.maxNen,
             health: this.health,
@@ -65,6 +80,7 @@ export class PlayerStats {
         this.xpBase = snapshot.xpBase ?? this.xpBase;
         this.xpGrowth = snapshot.xpGrowth ?? this.xpGrowth;
         this.stats = { ...this.stats, ...(snapshot.stats || {}) };
+        this.skillPoints = snapshot.skillPoints ?? this.skillPoints;
         this.maxHealth = snapshot.maxHealth ?? this.maxHealth;
         this.maxNen = snapshot.maxNen ?? this.maxNen;
         this.health = snapshot.health ?? this.maxHealth;
@@ -102,6 +118,8 @@ export class PlayerStats {
         this.stats.agility += 1;
         this.stats.focus += 1;
 
+        this.skillPoints = (this.skillPoints ?? 0) + 1;
+
         this.maxHealth += 5;
         this.maxNen += 5;
         this.health = this.maxHealth;
@@ -130,7 +148,9 @@ export class PlayerStats {
 
     getNenRegenPerSec() {
         const focusFactor = 1 + this.stats.focus * 0.03;
-        return this.baseNenRegenPerSec * focusFactor;
+        const regenFromStats = this.baseNenRegenPerSec * focusFactor;
+        return regenFromStats * (this.externalModifiers.nenRegenMultiplier ?? 1)
+            + (this.externalModifiers.nenRegenFlat ?? 0);
     }
 
     getDerived() {
@@ -138,32 +158,45 @@ export class PlayerStats {
         const powerFactor = 1 + this.stats.power * 0.025;
         const focusFactor = 1 + this.stats.focus * 0.02;
 
-        const gravityScale = Math.max(0.6, 1 - this.stats.agility * 0.01);
+        const gravityScale = Math.max(0.6, 1 - this.stats.agility * 0.01) * (this.externalModifiers.gravityMultiplier ?? 1);
         const airControlMultiplier = 1 + this.stats.agility * 0.02;
-        const carveRadiusMultiplier = 1 + this.stats.power * 0.015;
-        const carveCostMultiplier = Math.max(0.5, 1 - this.stats.power * 0.01);
+        const carveRadiusMultiplier = (1 + this.stats.power * 0.015) * (this.externalModifiers.carveRadiusMultiplier ?? 1);
+        const carveCostMultiplier = Math.max(0.5, 1 - this.stats.power * 0.01) * (this.externalModifiers.carveCostMultiplier ?? 1);
+
+        const cooldownScale = Math.max(
+            0.45,
+            Math.max(0.6, 1 - focusFactor * 0.05) * (this.externalModifiers.cooldownScaleMultiplier ?? 1)
+        );
 
         return {
             level: this.level,
             currentXP: this.currentXP,
             xpToNext: this.xpToNext,
             stats: { ...this.stats },
+            skillPoints: this.skillPoints,
             health: this.health,
             nen: this.nen,
             maxHealth: this.maxHealth,
             maxNen: this.maxNen,
             nenRegenPerSec: this.getNenRegenPerSec(),
-            walkSpeed: this.baseMovement.walkSpeed * agilityFactor,
-            runSpeed: this.baseMovement.runSpeed * agilityFactor,
-            jumpImpulse: this.baseMovement.jumpImpulse * powerFactor,
+            walkSpeed: this.baseMovement.walkSpeed * agilityFactor * (this.externalModifiers.walkSpeedMultiplier ?? 1),
+            runSpeed: this.baseMovement.runSpeed * agilityFactor * (this.externalModifiers.runSpeedMultiplier ?? 1),
+            jumpImpulse: this.baseMovement.jumpImpulse * powerFactor * (this.externalModifiers.jumpImpulseMultiplier ?? 1),
             gravity: this.baseMovement.gravity * gravityScale,
             accel: this.baseMovement.accel * agilityFactor,
             groundFriction: this.baseMovement.groundFriction,
             airFriction: this.baseMovement.airFriction * airControlMultiplier,
             carveRadiusMultiplier,
             carveCostMultiplier,
-            cooldownScale: Math.max(0.6, 1 - focusFactor * 0.05),
+            cooldownScale,
             nenRegenMultiplier: focusFactor
+        };
+    }
+
+    setExternalModifiers(mods = {}) {
+        this.externalModifiers = {
+            ...this.externalModifiers,
+            ...mods
         };
     }
 }

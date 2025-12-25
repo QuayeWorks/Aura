@@ -46,8 +46,10 @@ export function createDomHUD() {
     metaRow.style.marginBottom = "6px";
     const levelText = document.createElement("div");
     const xpText = document.createElement("div");
+    const skillText = document.createElement("div");
     metaRow.appendChild(levelText);
     metaRow.appendChild(xpText);
+    metaRow.appendChild(skillText);
     hudPanel.appendChild(metaRow);
 
     const abilityGrid = document.createElement("div");
@@ -130,6 +132,7 @@ export function createDomHUD() {
             level = 1,
             currentXP = 0,
             xpToNext = 1,
+            skillPoints = 0,
             abilityState = {},
             nenRegen = 0,
             stats = {}
@@ -146,6 +149,7 @@ export function createDomHUD() {
 
         levelText.textContent = `Lv ${level}`;
         xpText.textContent = `XP ${currentXP.toFixed(0)} / ${xpToNext.toFixed(0)}`;
+        skillText.textContent = `SP ${skillPoints}`;
 
         const sprint = abilityState.sprint || {};
         const jump = abilityState.jump || {};
