@@ -152,44 +152,42 @@ function createScene() {
 
 
     // --- UI ---
-    // NOTE: You intentionally removed/disabled Babylon GUI for now.
-    // Keep ui = null and make all UI setup conditional so gameplay can run without UI.
-    ui = null;
-    
-    // Babylon GUI is optional. If you re-enable it later, just set `ui` to an ADT and this block will run.
-    if (ui) {
-        // Main menu
-        mainMenuPanel = createMainMenu(ui, {
-            onPlay: () => startGame(),
-            onSettings: () => showSettings()
-        });
+    // You *do* still want the main menu / HUD, just not the minimap.
+    // So we create a single main ADT and skip any minimap UI/camera wiring.
+    ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    ui.layer.layerMask = 0x1;
 
-        // Settings menu
-        settingsPanel = createSettingsMenu(ui, {
-            onBack: () => showMainMenu(),
-            onLodChange: (value) => {
-                if (terrain && terrain.setLodLevel) {
-                    terrain.setLodLevel(value);
-                }
+    // Main menu
+    mainMenuPanel = createMainMenu(ui, {
+        onPlay: () => startGame(),
+        onSettings: () => showSettings()
+    });
+
+    // Settings menu
+    settingsPanel = createSettingsMenu(ui, {
+        onBack: () => showMainMenu(),
+        onLodChange: (value) => {
+            if (terrain && terrain.setLodLevel) {
+                terrain.setLodLevel(value);
             }
-        });
-
-        // HUD
-        {
-            const hud = createHud(ui);
-            hudPanel = hud.hudPanel;
-            playerInfoText = hud.playerInfoText;
-            lodInfoText = hud.lodInfoText;
-            sunMoonInfoText = hud.sunMoonInfoText;
         }
+    });
 
-        // Loading overlay
-        {
-            const loading = createLoadingOverlay(ui);
-            loadingOverlay = loading.loadingOverlay;
-            loadingBarFill = loading.loadingBarFill;
-            loadingPercentText = loading.loadingPercentText;
-        }
+    // HUD
+    {
+        const hud = createHud(ui);
+        hudPanel = hud.hudPanel;
+        playerInfoText = hud.playerInfoText;
+        lodInfoText = hud.lodInfoText;
+        sunMoonInfoText = hud.sunMoonInfoText;
+    }
+
+    // Loading overlay
+    {
+        const loading = createLoadingOverlay(ui);
+        loadingOverlay = loading.loadingOverlay;
+        loadingBarFill = loading.loadingBarFill;
+        loadingPercentText = loading.loadingPercentText;
     }
 
     
@@ -213,20 +211,12 @@ function createScene() {
     // Start in menu
     showMainMenu();
 
-    // If Babylon GUI is disabled, you still need a way to transition states.
-    // - Enter starts the game from the menu.
-    // - Escape returns to the menu from gameplay.
-    if (!ui) {
-        window.addEventListener("keydown", (e) => {
-            if (e.repeat) return;
-            if (e.code === "Enter" && gameState === GameState.MENU) {
-                startGame();
-            }
-            if (e.code === "Escape" && gameState === GameState.PLAYING) {
-                showMainMenu();
-            }
-        });
-    }
+    // (Optional) keyboard shortcuts for quick testing
+    window.addEventListener("keydown", (e) => {
+        if (e.repeat) return;
+        if (e.code === "Enter" && gameState === GameState.MENU) startGame();
+        if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
+    });
     
 
 
