@@ -220,6 +220,10 @@ function createScene() {
         if (e.repeat) return;
         if (e.code === "Enter" && gameState === GameState.MENU) startGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
+        if (e.code === "KeyB" && terrain && terrain.cycleBiomeDebugMode) {
+            const mode = terrain.cycleBiomeDebugMode();
+            console.log("Biome debug mode:", mode);
+        }
     });
     
 
@@ -387,7 +391,7 @@ function startGame() {
             radius: PLANET_RADIUS_UNITS
         });
 
-        terrain.onInitialBuildDone = () => {
+        terrain.setOnInitialBuildDone(() => {
             console.log("Initial planet build complete.");
 
             // Create player on planet surface
@@ -434,7 +438,7 @@ function startGame() {
             //minimap.setOverlayVisible(true);
 
 
-        };
+        });
     } else {
         // Planet already exists – just resume quickly
         applyGameVisuals();

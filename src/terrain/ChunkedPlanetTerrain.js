@@ -1,6 +1,7 @@
 /* global BABYLON */
 import { MarchingCubesTerrain } from "./MarchingCubesTerrain.js";
 import { PlanetQuadtreeNode } from "./PlanetQuadtreeNode.js";
+import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js";
 
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
@@ -17,6 +18,8 @@ export class ChunkedPlanetTerrain {
         this.cellSize = options.cellSize ?? 1.0;
         this.isoLevel = options.isoLevel ?? 0.0;
         this.radius = options.radius ?? 18.0;
+        this.biomeSettings = resolveBiomeSettings(options.biomeSettings || DEFAULT_BIOME_SETTINGS);
+        this.biomeRevision = 0;
 
         const neededY = Math.ceil((this.radius * 2) / this.cellSize) + 4;
         this.baseDimY = options.dimY ?? neededY;
@@ -30,8 +33,9 @@ export class ChunkedPlanetTerrain {
         // Shared terrain material across all leaves
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
         this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
-        this.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-        this.material.backFaceCulling = true;
+        this.material.specularColor = new BABYLON.Color3(0.02, 0.02, 0.02);
+        this.material.backFaceCulling = false;
+        this.material.twoSidedLighting = true;
 
         this.meshPool = [];
         this.terrainPool = [];
@@ -382,6 +386,7 @@ export class ChunkedPlanetTerrain {
             pooledTerrain.useWorker = true;
             pooledTerrain.material = this.material;
             pooledTerrain.mesh = pooledMesh ?? pooledTerrain.mesh;
+            pooledTerrain.biomeSettings = this.biomeSettings;
             node.terrain = pooledTerrain;
         } else {
             node.terrain = new MarchingCubesTerrain(this.scene, {
@@ -394,6 +399,7 @@ export class ChunkedPlanetTerrain {
                 origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
                 mesh: pooledMesh ?? null,
                 material: this.material,
+                biomeSettings: this.biomeSettings,
                 deferBuild: true,
                 useWorker: true
             });
@@ -402,28 +408,27 @@ export class ChunkedPlanetTerrain {
         node.lastBuiltLod = null;
     }
 
-    _jobKey(node, lodLevel, carveRevision = 0) {
-    // Ensure node has a stable id (your PlanetQuadtreeNode already has .id in your setup)
+    _jobKey(node, lodLevel, revisionKey = "0:0") {
     const id = (node && node.id != null) ? node.id : "noid";
-    return `${id}|lod:${lodLevel}|carve:${carveRevision}`;
+    return `${id}|lod:${lodLevel}|rev:${revisionKey}`;
 }
 
     _scheduleNodeRebuild(node, lodLevel, options = {}) {
     if (!node) return;
 
     const force = !!options.force;
-    const revision = this.carveRevision;
+    const revisionKey = `${this.carveRevision}:${this.biomeRevision}`;
 
     // Skip if already built for this revision & LOD (unless forced)
-    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revision) return;
+    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revisionKey) return;
 
-    const key = this._jobKey(node, lodLevel, revision);
+    const key = this._jobKey(node, lodLevel, revisionKey);
 
     // If queued or currently building, skip.
     if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
 
     this.queuedJobKeys.add(key);
-    this.buildQueue.push({ node, lodLevel, revision, force });
+    this.buildQueue.push({ node, lodLevel, revisionKey, force });
 }
 
     _updateQuadtree(focusPosition) {
@@ -591,8 +596,8 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         if (!job || !job.node) continue;
 
         const node = job.node;
-        const revision = job.revision ?? this.carveRevision;
-        const key = this._jobKey(node, job.lodLevel, revision);
+        const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
+        const key = this._jobKey(node, job.lodLevel, revisionKey);
 
         // This job is no longer queued
         this.queuedJobKeys.delete(key);
@@ -601,7 +606,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         this._ensureTerrainForNode(node);
 
         // If already built for this revision & LOD (unless forced), skip
-        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revision) {
+        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revisionKey) {
             continue;
         }
 
@@ -613,7 +618,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
 
         const finishOk = () => {
             node.lastBuiltLod = job.lodLevel;
-            node.lastBuiltRevision = revision;
+            node.lastBuiltRevision = revisionKey;
 
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
             this._onChunkBuilt();
@@ -638,7 +643,8 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
                 dimY: lodDims.dimY,
                 dimZ: lodDims.dimZ,
                 cellSize: lodDims.cellSize,
-                carves: this._collectCarvesForNode(node)
+                carves: this._collectCarvesForNode(node),
+                biomeSettings: this.biomeSettings
             });
         } catch (e) {
             finishErr(e);
@@ -716,6 +722,13 @@ _collectCarvesForNode(node) {
     // Public API used by main.js
     // -------------------------------------------------
 
+    setOnInitialBuildDone(cb) {
+        this.onInitialBuildDone = cb;
+        if (this.initialBuildDone && typeof cb === "function") {
+            cb();
+        }
+    }
+
     setLodLevel(level) {
         const clamped = Math.max(0, Math.min(5, Math.round(level)));
         if (clamped === this.lodLevel) return;
@@ -774,6 +787,39 @@ _collectCarvesForNode(node) {
         for (const leaf of intersectingLeaves) {
             const lod = (typeof leaf.lastBuiltLod === "number") ? leaf.lastBuiltLod : leaf.level;
             this._scheduleNodeRebuild(leaf, lod, { force: true });
+        }
+    }
+
+    setBiomeSettings(partialSettings) {
+        this.biomeSettings = resolveBiomeSettings({
+            ...this.biomeSettings,
+            ...(partialSettings || {})
+        });
+
+        this.biomeRevision++;
+        this._forceRebuildActiveChunks();
+    }
+
+    cycleBiomeDebugMode() {
+        const modes = ["off", "biome", "height", "slope", "isolateSand", "isolateSnow"];
+        const current = this.biomeSettings?.debugMode || "off";
+        const idx = modes.indexOf(current);
+        const next = modes[(idx + 1) % modes.length];
+        this.setBiomeSettings({ debugMode: next });
+        return next;
+    }
+
+    _forceRebuildActiveChunks() {
+        for (const leaf of this.activeLeaves) {
+            this._ensureTerrainForNode(leaf);
+            this._scheduleNodeRebuild(leaf, leaf.level, { force: true });
+        }
+
+        if (!this.initialBuildDone && this.buildQueue.length > 0) {
+            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+            if (pendingJobs > this.initialBuildTotal) {
+                this.initialBuildTotal = pendingJobs;
+            }
         }
     }
 
