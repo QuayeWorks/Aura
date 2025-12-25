@@ -40,6 +40,42 @@ export class PlayerStats {
         this.baseNenRegenPerSec = config.baseNenRegenPerSec ?? 12;
     }
 
+    toSnapshot() {
+        return {
+            level: this.level,
+            currentXP: this.currentXP,
+            xpBase: this.xpBase,
+            xpGrowth: this.xpGrowth,
+            stats: { ...this.stats },
+            maxHealth: this.maxHealth,
+            maxNen: this.maxNen,
+            health: this.health,
+            nen: this.nen,
+            baseMovement: { ...this.baseMovement },
+            baseCarve: { ...this.baseCarve },
+            healthRegenPerSec: this.healthRegenPerSec,
+            baseNenRegenPerSec: this.baseNenRegenPerSec
+        };
+    }
+
+    applySnapshot(snapshot = {}) {
+        if (!snapshot) return;
+        this.level = snapshot.level ?? this.level;
+        this.currentXP = snapshot.currentXP ?? this.currentXP;
+        this.xpBase = snapshot.xpBase ?? this.xpBase;
+        this.xpGrowth = snapshot.xpGrowth ?? this.xpGrowth;
+        this.stats = { ...this.stats, ...(snapshot.stats || {}) };
+        this.maxHealth = snapshot.maxHealth ?? this.maxHealth;
+        this.maxNen = snapshot.maxNen ?? this.maxNen;
+        this.health = snapshot.health ?? this.maxHealth;
+        this.nen = snapshot.nen ?? this.maxNen;
+        this.baseMovement = { ...this.baseMovement, ...(snapshot.baseMovement || {}) };
+        this.baseCarve = { ...this.baseCarve, ...(snapshot.baseCarve || {}) };
+        this.healthRegenPerSec = snapshot.healthRegenPerSec ?? this.healthRegenPerSec;
+        this.baseNenRegenPerSec = snapshot.baseNenRegenPerSec ?? this.baseNenRegenPerSec;
+        this.xpToNext = this.computeXpToNext();
+    }
+
     computeXpToNext(levelOverride) {
         const level = levelOverride ?? this.level;
         return Math.floor(this.xpBase * Math.pow(level, this.xpGrowth));
