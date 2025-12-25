@@ -66,15 +66,10 @@ let lodInfoText = null;
 let sunMoonInfoText = null;
 let uiState = null;
 let domHud = null;
-let compassHud = null;
-let audioSystem = null;
-const saveSystem = new SaveSystem();
-let pendingLoadSnapshot = null;
+
 
 // Timing
 let lastFrameTime = performance.now();
-let autosaveTimer = 0;
-const AUTOSAVE_INTERVAL = 30;
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
 
