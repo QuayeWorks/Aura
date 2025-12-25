@@ -65,7 +65,7 @@ const CAM_SMOOTH = 0.25;  // 0..1 (higher = snappier)
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
-const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.01;
+const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.005;
 
 function clampArcRotateRadiusAgainstTerrain(scene, camera, targetPos) {
     if (!scene || !camera || !targetPos) return;
@@ -398,10 +398,10 @@ function startGame() {
             player = new PlanetPlayer(scene, terrain, {
                 planetRadius: PLANET_RADIUS_UNITS + 500,
                 walkSpeed: 2,
-                runSpeed: 55,
+                runSpeed: 205,
                 height: 2,
                 radius: 0.35,
-                jumpGraceSeconds: 5,
+                jumpGraceSeconds: 15,
                 inputEnabled: true
             });
 
