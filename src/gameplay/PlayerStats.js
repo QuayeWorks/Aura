@@ -80,7 +80,14 @@ export class PlayerStats {
         this.xpBase = snapshot.xpBase ?? this.xpBase;
         this.xpGrowth = snapshot.xpGrowth ?? this.xpGrowth;
         this.stats = { ...this.stats, ...(snapshot.stats || {}) };
-        this.skillPoints = snapshot.skillPoints ?? this.skillPoints;
+
+        if (Object.prototype.hasOwnProperty.call(snapshot, "skillPoints")) {
+            this.skillPoints = snapshot.skillPoints ?? this.skillPoints;
+        } else {
+            const levelForFallback = snapshot.level ?? this.level ?? 1;
+            const derivedSkillPoints = Math.max(0, levelForFallback - 1);
+            this.skillPoints = Math.max(this.skillPoints ?? 0, derivedSkillPoints);
+        }
         this.maxHealth = snapshot.maxHealth ?? this.maxHealth;
         this.maxNen = snapshot.maxNen ?? this.maxNen;
         this.health = snapshot.health ?? this.maxHealth;
