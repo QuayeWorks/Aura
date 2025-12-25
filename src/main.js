@@ -460,7 +460,9 @@ function startGame() {
                 terrain,
                 hud: domHud,
                 baseMovement,
-                baseCarve: { radius: 70, nenCost: 14 }
+                baseCarve: { radius: 70, nenCost: 14 },
+                scene,
+                dayNightSystem
             });
 
             // Switch to playing visuals
@@ -506,7 +508,9 @@ function startGame() {
                 terrain,
                 hud: domHud,
                 baseMovement,
-                baseCarve: { radius: 70, nenCost: 14 }
+                baseCarve: { radius: 70, nenCost: 14 },
+                scene,
+                dayNightSystem
             });
         }
 

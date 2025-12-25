@@ -7,6 +7,7 @@ export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
         this.maxBuildDistance = 34000;
+        this.seed = options.seed ?? 1337;
 
         // Legacy grid options kept for compatibility with callers / HUD
         this.chunkCountX = options.chunkCountX ?? 3;
@@ -269,8 +270,10 @@ export class ChunkedPlanetTerrain {
         });
     }
 
-        _initializeQuadtree() {
+    _initializeQuadtree() {
         this._disposeQuadtree();
+
+        PlanetQuadtreeNode._nextId = 1;
 
         this.chunkOverlap = this.cellSize;
 
@@ -887,5 +890,15 @@ _collectCarvesForNode(node) {
         }
 
         return info;
+    }
+
+    getVisibleNodes() {
+        return (this.activeLeaves || []).map((node) => ({
+            id: node.id,
+            level: node.level,
+            bounds: node.bounds,
+            center: node.getCenterWorldPosition(),
+            visibleLod: node.lastBuiltLod ?? node.level
+        }));
     }
 }
