@@ -389,6 +389,7 @@ function buildSaveSnapshot() {
         camera: mainCamera ? { alpha: mainCamera.alpha, beta: mainCamera.beta, radius: mainCamera.radius } : null,
         stats: runtimeSnapshot?.stats,
         abilityTree: runtimeSnapshot?.abilityTree,
+        inventory: runtimeSnapshot?.inventory,
         carves
     };
 }
