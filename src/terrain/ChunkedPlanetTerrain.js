@@ -882,4 +882,52 @@ _collectCarvesForNode(node) {
 
         return info;
     }
+    _ensureWaterMesh() {
+        // Optional visual-only water shell. Safe if BABYLON is unavailable.
+        try {
+            const bs = this.biomeSettings || {};
+            const u = (typeof bs.unitsPerMeter === "number") ? bs.unitsPerMeter : 1.0;
+            const seaLevelUnits = (typeof bs.seaLevelMeters === "number" ? bs.seaLevelMeters : 0) * u;
+
+            const targetRadius = this.radius + seaLevelUnits;
+            if (!isFinite(targetRadius) || targetRadius <= 0) return;
+
+            if (!this._waterMesh) {
+                this._waterMesh = BABYLON.MeshBuilder.CreateSphere(
+                    "waterShell",
+                    { diameter: targetRadius * 2, segments: 64 },
+                    this.scene
+                );
+                this._waterMesh.isPickable = false;
+                this._waterMesh.checkCollisions = false;
+                this._waterMesh.layerMask = 0x1;
+
+                const mat = new BABYLON.PBRMaterial("waterMat", this.scene);
+                mat.metallic = 0.0;
+                mat.roughness = 0.12;
+                mat.alpha = 0.55;
+                mat.indexOfRefraction = 1.333;
+
+                mat.albedoColor = new BABYLON.Color3(0.06, 0.18, 0.35);
+                mat.emissiveColor = new BABYLON.Color3(0.0, 0.02, 0.05);
+
+                mat.albedoFresnelParameters = new BABYLON.FresnelParameters();
+                mat.albedoFresnelParameters.bias = 0.2;
+                mat.albedoFresnelParameters.power = 4.0;
+                mat.albedoFresnelParameters.leftColor = new BABYLON.Color3(0.12, 0.35, 0.55);
+                mat.albedoFresnelParameters.rightColor = new BABYLON.Color3(0.04, 0.12, 0.25);
+
+                this._waterMesh.material = mat;
+            } else {
+                // Resize by scaling
+                const currentRadius = this._waterMesh.getBoundingInfo().boundingSphere.radiusWorld;
+                const s = currentRadius > 1e-6 ? (targetRadius / currentRadius) : 1.0;
+                this._waterMesh.scaling.set(s, s, s);
+            }
+        } catch (e) {
+            // Never let water creation break gameplay
+            console.warn("Water shell init failed:", e);
+        }
+    }
+
 }
