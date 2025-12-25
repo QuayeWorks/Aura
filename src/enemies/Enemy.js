@@ -53,7 +53,9 @@ export class Enemy {
         if (forward.lengthSquared() < 1e-4) forward.copyFromFloats(1, 0, 0);
         forward.normalize();
         const right = BABYLON.Vector3.Cross(forward, up).normalize();
-        this.mesh.rotationQuaternion = BABYLON.Quaternion.FromRotationMatrix(BABYLON.Matrix.FromXYZAxes(right, up, forward));
+        const rotationMatrix = BABYLON.Matrix.Identity();
+        BABYLON.Matrix.FromXYZAxesToRef(right, up, forward, rotationMatrix);
+        this.mesh.rotationQuaternion = BABYLON.Quaternion.FromRotationMatrix(rotationMatrix);
     }
 
     _pickNewPatrol() {
