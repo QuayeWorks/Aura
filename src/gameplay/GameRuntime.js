@@ -3,12 +3,17 @@
 
 import { PlayerStats } from "./PlayerStats.js";
 import { Abilities } from "./Abilities.js";
+import { CarveController } from "./CarveController.js";
+import { POIManager } from "../world/POIManager.js";
+import { EnemyManager } from "../enemies/EnemyManager.js";
 
 export class GameRuntime {
-    constructor({ player, terrain, hud, baseMovement, baseCarve } = {}) {
+    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem } = {}) {
         this.player = player;
         this.terrain = terrain;
         this.hud = hud;
+        this.scene = scene;
+        this.dayNightSystem = dayNightSystem;
 
         this.playerStats = new PlayerStats({
             baseMovement: {
@@ -42,11 +47,41 @@ export class GameRuntime {
 
         this.enabled = true;
         this.timeSinceHudUpdate = 0;
+
+        this.carveController = new CarveController({
+            terrain: this.terrain,
+            playerStats: this.playerStats,
+            abilities: this.abilities,
+            hud: this.hud,
+            baseRadius: baseCarve?.radius ?? 70,
+            baseNenCost: baseCarve?.nenCost ?? 12
+        });
+
+        this.poiManager = new POIManager({
+            scene,
+            terrain,
+            player,
+            seed: terrain?.seed ?? 1,
+            planetRadius: terrain?.radius ?? 1
+        });
+
+        this.enemyManager = new EnemyManager({
+            scene,
+            terrain,
+            player,
+            planetRadius: terrain?.radius ?? 1,
+            playerStats: this.playerStats,
+            dayNightSystem,
+            seed: terrain?.seed ?? 7
+        });
     }
 
     setEnabled(enabled) {
         this.enabled = !!enabled;
         this.abilities?.setEnabled(this.enabled);
+        if (this.carveController) this.carveController.enabled = this.enabled;
+        if (this.poiManager) this.poiManager.enabled = this.enabled;
+        if (this.enemyManager) this.enemyManager.enabled = this.enabled;
         if (!this.enabled && this.hud) {
             this.hud.setGameplayVisible(false);
         }
@@ -58,6 +93,9 @@ export class GameRuntime {
 
         this.playerStats.update(dtSeconds);
         this.abilities.update(dtSeconds);
+        this.carveController?.update(dtSeconds);
+        this.poiManager?.update(dtSeconds);
+        this.enemyManager?.update(dtSeconds);
 
         this._applyStatsToPlayer();
         this.timeSinceHudUpdate += dtSeconds;
@@ -97,33 +135,18 @@ export class GameRuntime {
             xpToNext: derived.xpToNext,
             abilityState,
             nenRegen: derived.nenRegenPerSec,
-            stats: derived.stats
+            stats: derived.stats,
+            carveHeat: this.carveController?.getHeat?.()
         });
     }
 
     handleCarve(worldPoint) {
         if (!this.enabled) return false;
         if (!this.terrain || !worldPoint) return false;
-
-        const derived = this.playerStats.getDerived();
-        const mods = this.abilities.getMovementModifiers();
-
-        const radius = (this.playerStats.baseCarve?.radius ?? 70)
-            * derived.carveRadiusMultiplier
-            * mods.carveRadiusMultiplier;
-
-        const baseCost = (this.playerStats.baseCarve?.nenCost ?? 12);
-        const radiusFactor = radius * 0.05;
-        const cost = (baseCost + radiusFactor)
-            * derived.carveCostMultiplier
-            * mods.carveCostMultiplier;
-
-        if (!this.playerStats.spendNen(cost)) {
-            this.hud?.flashNenBar();
-            return false;
+        const result = this.carveController?.tryCarve(worldPoint);
+        if (!result?.success && result?.reason === "lockout") {
+            this.hud?.flashNenBar?.();
         }
-
-        this.terrain.carveSphere(worldPoint, radius);
-        return true;
+        return !!result?.success;
     }
 }

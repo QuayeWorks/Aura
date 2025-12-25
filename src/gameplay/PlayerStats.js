@@ -79,6 +79,11 @@ export class PlayerStats {
         return true;
     }
 
+    applyDamage(amount) {
+        if (amount <= 0) return;
+        this.health = Math.max(0, this.health - amount);
+    }
+
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
 

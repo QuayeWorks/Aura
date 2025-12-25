@@ -165,10 +165,17 @@ export function createDomHUD() {
                 : "Ready";
         carveTile.appendChild(carveCd);
 
+        const heat = values?.carveHeat || {};
+        const heatPercent = heat.threshold ? Math.min(1, heat.value / heat.threshold) : 0;
+        const heatLine = heat.threshold
+            ? `Carve heat: ${(heatPercent * 100).toFixed(0)}%${heat.lockoutRemaining > 0 ? " (lockout)" : ""}`
+            : "Carve heat: -";
+
         debugPanel.textContent = `Power: ${stats.power ?? "-"}\n` +
             `Agility: ${stats.agility ?? "-"}\n` +
             `Focus: ${stats.focus ?? "-"}\n` +
-            `Nen regen: ${nenRegen.toFixed(1)} /s`;
+            `Nen regen: ${nenRegen.toFixed(1)} /s\n` +
+            heatLine;
     }
 
     return {

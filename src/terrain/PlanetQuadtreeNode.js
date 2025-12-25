@@ -8,6 +8,7 @@
  */
 export class PlanetQuadtreeNode {
     constructor(level, bounds, parent = null) {
+        this.id = PlanetQuadtreeNode._nextId++;
         this.level = level;
         this.bounds = bounds; // { minX, maxX, minY, maxY, minZ, maxZ }
         this.parent = parent;
@@ -113,3 +114,5 @@ export class PlanetQuadtreeNode {
     }
 
 }
+
+PlanetQuadtreeNode._nextId = 1;
