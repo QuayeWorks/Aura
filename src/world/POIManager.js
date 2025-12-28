@@ -26,7 +26,7 @@ export class POIManager {
         this.planetRadius = planetRadius;
 
         this.enabled = true;
-        this.showDebug = true;
+        this.showDebug = false;
 
         this.spawnDistance = this.planetRadius * 0.55;
         this.despawnDistance = this.spawnDistance * 1.25;
