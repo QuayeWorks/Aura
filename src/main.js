@@ -568,6 +568,7 @@ function startGame() {
                 mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
 
                 mainCamera.radius = Math.min(Math.max(mainCamera.radius, CAM_MIN_RADIUS), CAM_MAX_RADIUS);
+                mainCamera.maxZ = 1_000_000;
             }
 
             const baseMovement = {
