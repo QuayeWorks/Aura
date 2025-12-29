@@ -6,7 +6,7 @@ import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-        this.maxBuildDistance = 34000;
+        this.maxBuildDistance = 68000;
         this.seed = options.seed ?? 1337;
 
         // Legacy grid options kept for compatibility with callers / HUD
@@ -48,8 +48,8 @@ export class ChunkedPlanetTerrain {
         this.queuedJobKeys = new Set();
         this.inFlightJobKeys = new Set();
 
-        this.buildBudgetMs = options.buildBudgetMs ?? 12; // ms budget per frame
-        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 1;
+        this.buildBudgetMs = options.buildBudgetMs ?? 24; // ms budget per frame
+        this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 2;
         this.activeBuilds = 0;
 
 

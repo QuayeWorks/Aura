@@ -457,9 +457,11 @@ function continueFromSave() {
 // State transitions
 // --------------------
 function showMainMenu() {
-    if (gameState === GameState.PLAYING) {
+    const previousState = gameState;
+    if (previousState === GameState.PLAYING) {
         performSave();
     }
+    gameState = GameState.MENU;
     refreshContinueButton();
     if (minimap) {
         minimap.setEnabled(false);
@@ -489,6 +491,7 @@ function showMainMenu() {
 
 
 function showSettings() {
+    gameState = GameState.SETTINGS;
     if (minimap) minimap.setEnabled(false);
     if (uiState && uiState.showSettings) {
         uiState.showSettings();
