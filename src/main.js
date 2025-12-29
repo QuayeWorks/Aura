@@ -547,11 +547,11 @@ function startGame() {
             // Create player on planet surface
             player = new PlanetPlayer(scene, terrain, {
                 planetRadius: PLANET_RADIUS_UNITS + 500,
-                walkSpeed: 2,
-                runSpeed: 205,
-                height: 2,
+                walkSpeed: 2.2,
+                runSpeed: 11,
+                height: 1.8,
                 radius: 0.35,
-                jumpGraceSeconds: 15,
+                jumpGraceSeconds: 40,
                 inputEnabled: true
             });
 
