@@ -75,14 +75,6 @@ this.groundFriction = options.groundFriction ?? 8;
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
 
-        // Track last known good ground position for emergency recovery
-        this.lastGroundPosition = this.mesh.position.clone();
-        this.framesSinceGrounded = 0;
-        this.maxUngroundedFramesBeforeRecover =
-            options.maxUngroundedFramesBeforeRecover ?? 180; // ~3s at 60fps
-        this.emergencySurfaceRayLength =
-            options.emergencySurfaceRayLength ?? this.planetRadius * 0.1;
-
         // Camera we attach to (ArcRotate in your scene)
         this.camera = null;
 
@@ -93,9 +85,18 @@ this.groundFriction = options.groundFriction ?? 8;
         this._groundMissFrames = 0;   // how many frames in a row we saw no ground
 
         // Last safe position on solid ground (used as a respawn if we fall through)
-        this.lastSafePosition = null;
-        // Radius below which we assume we fell out of the world and must reset
-        this.fallResetRadius = this.planetRadius * 0.9;
+        this.lastSafePosition = this.mesh.position.clone();
+
+        // Collision miss detection helpers
+        this._previousPosition = this.mesh.position.clone();
+        this._wasGroundedLastFrame = false;
+        this._collisionRecoveryCooldown = 0;
+        this._debugLogRecoveries = false;
+
+        // Physics sub-stepping to avoid tunneling on large dt spikes or sprint speed
+        this.maxPhysicsStepSeconds = options.maxPhysicsStepSeconds ?? 1 / 60;
+        this.maxPhysicsSubsteps = options.maxPhysicsSubsteps ?? 5;
+        this.maxMoveFractionPerSubstep = options.maxMoveFractionPerSubstep ?? 0.75; // portion of capsule radius per micro-step
         
         // Input flags
         this.inputForward = false;
@@ -107,38 +108,6 @@ this.groundFriction = options.groundFriction ?? 8;
 
         this._registerInput();
     }
-
-    /**
-     * Enable/disable player gameplay inputs (WASD/space/etc).
-     * The menu can leave the player object alive but disable controls.
-     */
-    setInputEnabled(isEnabled) {
-        this.inputEnabled = !!isEnabled;
-        if (!this.inputEnabled) {
-            // Clear any latched inputs when disabling.
-            this.inputForward = false;
-            this.inputBack = false;
-            this.inputLeft = false;
-            this.inputRight = false;
-            this.inputRun = false;
-            this.inputJumpRequested = false;
-        }
-    }
-
-    /**
-     * Snap the player back to the nearest surface along their current radial direction.
-     * Useful after loading/resuming in case the terrain changed under them.
-     */
-    reprojectToSurface() {
-        const dir = this.mesh.position.clone();
-        if (dir.lengthSquared() < 1e-6) return;
-        dir.normalize();
-        this._spawnOnSurface(dir);
-    }
-
-    // --------------------------------------------------------------------
-    // Public API
-    // --------------------------------------------------------------------
 
     /**
      * Attach a camera so we can move relative to its orientation.
@@ -191,66 +160,36 @@ this.groundFriction = options.groundFriction ?? 8;
      * Per-frame update. Call from your render loop with delta in SECONDS.
      */
 
-        /**
-     * If we've been ungrounded for a long time (likely due to a missing
-     * collider / LOD seam), try to get back to a safe surface spot.
-     */
-    _emergencySurfaceRecovery() {
-        const pos = this.mesh.position.clone();
-        const r = pos.length();
-        if (r < 1e-3) return;
-
-        const up = pos.scale(1 / r);
-        const rayLen = this.planetRadius * 0.1;
-
-        // First try: ray outward from current position to find terrain above
-        const rayOut = new BABYLON.Ray(
-            this.mesh.position.clone(),
-            up,
-            rayLen
-        );
-
-        const pick = this.scene.pickWithRay(
-            rayOut,
-            (mesh) =>
-                mesh &&
-                mesh.metadata &&
-                (
-                    mesh.metadata.isTerrainCollider === true ||
-                    mesh.metadata.isTerrain === true
-                )
-        );
-
-        if (pick.hit && pick.pickedPoint) {
-            const bottomToCenter = this.height * 0.5;
-            const surfaceClearance = this.capsuleRadius * 0.1;
-
-            const targetPos = pick.pickedPoint.add(
-                up.scale(bottomToCenter + surfaceClearance)
-            );
-            this.mesh.position.copyFrom(targetPos);
-        } else if (this.lastSafePosition) {
-            // Fallback: teleport back to last known safe grounded position
-            this.mesh.position.copyFrom(this.lastSafePosition);
-        } else {
-            // Final fallback: snap to planet radius slightly above surface
-            this.mesh.position = up.scale(
-                this.planetRadius + this.height + this.capsuleRadius
-            );
-        }
-
-        // Reset velocity and counters so we don't immediately yeet again
-        this.velocity.set(0, 0, 0);
-        this.isGrounded = true;
-        this._framesSinceGrounded = 0;
-        this._groundMissFrames = 0;
-    }
-
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
 
+        // Remember starting point for tunnel detection
+        this._previousPosition.copyFrom(this.mesh.position);
+
+        // Clamp dt to avoid giant steps when the tab was unfocused, and sub-step
+        // to reduce tunneling when sprinting fast.
+        const clampedDt = Math.min(
+            dtSeconds,
+            this.maxPhysicsStepSeconds * this.maxPhysicsSubsteps
+        );
+        const steps = Math.max(1, Math.ceil(clampedDt / this.maxPhysicsStepSeconds));
+        const stepDt = clampedDt / steps;
+
+        this._collisionRecoveryCooldown = Math.max(
+            0,
+            this._collisionRecoveryCooldown - dtSeconds
+        );
+
+        for (let i = 0; i < steps; i++) {
+            this._integrateStep(stepDt);
+        }
+
+        this._wasGroundedLastFrame = this.isGrounded;
+    }
+
+    _integrateStep(dtSeconds) {
         const pos = this.mesh.position.clone();
-        const r = pos.length() + 5;
+        const r = pos.length();
 
         if (r < 1e-3) {
             // Avoid NaNs if somehow at the exact center
@@ -260,8 +199,6 @@ this.groundFriction = options.groundFriction ?? 8;
         const up = pos.scale(1 / r);   // radial up
         const down = up.scale(-1);
 
-        
-
         // Jump grace countdown + radial velocity gating
         if (this._jumpGraceRemaining > 0) {
             this._jumpGraceRemaining = Math.max(0, this._jumpGraceRemaining - dtSeconds);
@@ -269,7 +206,8 @@ this.groundFriction = options.groundFriction ?? 8;
         const radialVel = BABYLON.Vector3.Dot(this.velocity, up); // + = moving away from center
         const isMovingUp = radialVel > this._minUpwardVelForGrace;
         const inJumpGrace = (this._jumpGraceRemaining > 0) && isMovingUp;
-// ---------------------------
+
+        // ---------------------------
         // 1) Gravity
         // ---------------------------
         this.velocity.addInPlace(down.scale(this.gravity * dtSeconds));
@@ -354,57 +292,39 @@ this.groundFriction = options.groundFriction ?? 8;
         if (this.inputJumpRequested && this.isGrounded) {
             this.velocity.addInPlace(up.scale(this.jumpSpeed));
             this.isGrounded = false;
-        }
             // Grace window so ground snap / fail-safe won't cancel the jump
             this._jumpGraceRemaining = this.jumpGraceSeconds;
+        }
 
         // consume jump for this frame
         this.inputJumpRequested = false;
 
         // ---------------------------
-        // 4) Integrate motion
+        // 4) Integrate motion with micro-steps to avoid tunneling
         // ---------------------------
-        this.mesh.position.addInPlace(this.velocity.scale(dtSeconds));
+        const desiredDelta = this.velocity.scale(dtSeconds);
+        const maxMove = Math.max(
+            this.capsuleRadius * this.maxMoveFractionPerSubstep,
+            0.01
+        );
+        const microSteps = Math.max(
+            1,
+            Math.ceil(desiredDelta.length() / maxMove)
+        );
+        const microDt = dtSeconds / microSteps;
+        const microDelta = desiredDelta.scale(1 / microSteps);
 
-        // Prevent falling through the entire planet if something goes wrong.
-        // If we drop far below the expected surface shell, snap back to the
-        // last known safe grounded position.
-        const newR = this.mesh.position.length();
-        if (!inJumpGrace && newR < this.fallResetRadius) {
-            if (this.lastSafePosition) {
-                this.mesh.position.copyFrom(this.lastSafePosition);
-            } else {
-                // Fallback: put the player back on +Z at a safe radius
-                const fallbackDir = new BABYLON.Vector3(0, 0, 1);
-                this.mesh.position = fallbackDir
-                    .normalize()
-                    .scale(this.planetRadius * 1.02);
-            }
-
-            // Stop any crazy velocity and let ground snap re-acquire
-            this.velocity.set(0, 0, 0);
-            this.isGrounded = false;
-            this._groundMissFrames = 0;
+        for (let i = 0; i < microSteps; i++) {
+            const segmentStart = this.mesh.position.clone();
+            this.mesh.position.addInPlace(microDelta);
+            const recovered = this._detectCollisionMiss(segmentStart, this.mesh.position, up, microDt);
+            if (recovered) break;
         }
-
 
         // ---------------------------
         // 5) Ground snap vs terrain mesh
         // ---------------------------
         this._groundCheckAndSnap();
-
-        
-        // 5b) Emergency surface recovery if we've been ungrounded too long
-        if (!this.isGrounded) {
-            this.framesSinceGrounded++;
-
-            // Don't emergency-teleport while actively jumping upward
-            if (!inJumpGrace && this.framesSinceGrounded > this.maxUngroundedFramesBeforeRecover) {
-                this._emergencySurfaceRecovery();
-            }
-        } else {
-            this.framesSinceGrounded = 0;
-        }
 
         // ---------------------------
         // 6) Orient capsule to follow surface normal
@@ -415,23 +335,122 @@ this.groundFriction = options.groundFriction ?? 8;
         if (this.camera) {
             // Planet-normal up at player position
             const camUp = this.mesh.position.clone().normalize();
-        
+
             // Keep arc-rotate camera's up aligned with the planet
             this.camera.upVector = camUp;
-        
+
             // Always look at the player
             this.camera.setTarget(this.mesh.position);
         }
-
-
-
-        // Camera follow: ArcRotate already locked to mesh
-        // (nothing else required here for now)
     }
 
-    // --------------------------------------------------------------------
-    // Internal helpers
-    // --------------------------------------------------------------------
+    _detectCollisionMiss(startPos, endPos, up, dtSeconds) {
+        if (this._collisionRecoveryCooldown > 0) return false;
+
+        const movement = endPos.subtract(startPos);
+        const moveLen = movement.length();
+        if (moveLen < 1e-4) return false;
+
+        const speed = moveLen / Math.max(dtSeconds, 1e-4);
+        const checkBecauseSpeed =
+            speed > this.runSpeed * 1.25 ||
+            dtSeconds > this.maxPhysicsStepSeconds * 0.75 ||
+            moveLen > this.capsuleRadius * 0.9;
+        const lostGround = this._wasGroundedLastFrame && !this.isGrounded;
+        if (!(checkBecauseSpeed || lostGround)) return false;
+
+        const ray = new BABYLON.Ray(
+            startPos,
+            movement.normalize(),
+            moveLen + this.capsuleRadius * 0.5
+        );
+        const pick = this._terrainRaycast(ray);
+
+        const insideSolid = this._isInsideTerrainApprox(endPos, up);
+        let shouldRecover = false;
+        let recoveryHint = null;
+
+        if (pick?.hit && pick.distance <= ray.length) {
+            const hitPoint = pick.pickedPoint;
+            const endedInside =
+                endPos.length() + this.capsuleRadius * 0.25 < hitPoint.length() ||
+                insideSolid;
+            if (endedInside) {
+                shouldRecover = true;
+                recoveryHint = hitPoint;
+            }
+        } else if (insideSolid && this._previousPosition.length() > endPos.length()) {
+            shouldRecover = true;
+        }
+
+        if (shouldRecover) {
+            this._recoverToSafePosition(recoveryHint, up, {
+                speed,
+                dt: dtSeconds,
+                rayHit: !!pick?.hit,
+                insideSolid,
+            });
+            return true;
+        }
+
+        return false;
+    }
+
+    _terrainRaycast(ray) {
+        return this.scene.pickWithRay(
+            ray,
+            (mesh) =>
+                mesh &&
+                mesh.metadata &&
+                (
+                    mesh.metadata.isTerrainCollider === true ||
+                    mesh.metadata.isTerrain === true
+                )
+        );
+    }
+
+    _isInsideTerrainApprox(pos, up) {
+        const outward = new BABYLON.Ray(pos, up, this.capsuleRadius * 1.5);
+        const outwardHit = this._terrainRaycast(outward);
+        if (outwardHit?.hit && outwardHit.distance < this.capsuleRadius * 0.5) return true;
+
+        const inward = new BABYLON.Ray(
+            pos.add(up.scale(this.capsuleRadius * 0.5)),
+            up.scale(-1),
+            this.capsuleRadius * 2
+        );
+        const inwardHit = this._terrainRaycast(inward);
+        return !!(inwardHit?.hit && inwardHit.distance < this.capsuleRadius * 0.5);
+    }
+
+    _recoverToSafePosition(hitPoint, up, debugInfo = {}) {
+        let target = null;
+        if (this.lastSafePosition) {
+            target = this.lastSafePosition.clone();
+        } else if (hitPoint) {
+            target = hitPoint.add(up.scale(this.height * 0.5 + this.capsuleRadius));
+        } else if (this._previousPosition) {
+            target = this._previousPosition.clone();
+        }
+
+        if (target) {
+            this.mesh.position.copyFrom(target);
+            this.lastSafePosition = target.clone();
+        }
+
+        this.velocity.set(0, 0, 0);
+        this.isGrounded = false;
+        this._collisionRecoveryCooldown = 0.25;
+        this._groundMissFrames = 0;
+
+        if (this._debugLogRecoveries) {
+            // eslint-disable-next-line no-console
+            console.log('[Player] Collision miss recovery', {
+                ...debugInfo,
+                target,
+            });
+        }
+    }
 
     _spawnOnSurface(startDir) {
         const dir = (startDir ? startDir.clone() : new BABYLON.Vector3(0, 0, 1));
@@ -473,7 +492,6 @@ this.groundFriction = options.groundFriction ?? 8;
         // Reset motion so we don't inherit junk velocity on respawn.
         this.velocity?.set?.(0, 0, 0);
         this.isGrounded = false;
-        this.framesSinceGrounded = 0;
         this._groundMissFrames = 0;
     }
 
@@ -503,6 +521,13 @@ this.groundFriction = options.groundFriction ?? 8;
                     break;
                 case "Space":
                     this.inputJumpRequested = true;
+                    break;
+                case "F6":
+                    this._debugLogRecoveries = !this._debugLogRecoveries;
+                    // eslint-disable-next-line no-console
+                    console.log(
+                        `Collision miss recovery logging: ${this._debugLogRecoveries ? "ON" : "OFF"}`
+                    );
                     break;
             }
         });
@@ -656,8 +681,8 @@ this.groundFriction = options.groundFriction ?? 8;
                     groundedThisFrame = true;
                     // This still counts as standing on solid ground for safety
                     if (this._jumpGraceRemaining <= 0) {
-                this.lastSafePosition = this.mesh.position.clone();
-            }
+                        this.lastSafePosition = this.mesh.position.clone();
+                    }
                 }
             }
 

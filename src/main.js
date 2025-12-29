@@ -884,6 +884,9 @@ engine.runRenderLoop(() => {
     const dtSeconds = (now - lastFrameTime) / 1000;
     lastFrameTime = now;
 
+    // Clamp simulation delta to avoid massive physics jumps when tab focus is lost
+    const simDtSeconds = Math.min(dtSeconds, 1 / 30);
+
     // Focus position for LOD & hemisphere
     let focusPos = null;
     if (cameraCollider) {
@@ -901,14 +904,14 @@ engine.runRenderLoop(() => {
 
     // Update player & HUD
     if (player && gameState === GameState.PLAYING) {
-        autosaveTimer += dtSeconds;
+        autosaveTimer += simDtSeconds;
         if (autosaveTimer >= AUTOSAVE_INTERVAL) {
             performSave();
             autosaveTimer = 0;
         }
-        if (dtSeconds > 0) {
-            if (gameRuntime) gameRuntime.update(dtSeconds);
-            player.update(dtSeconds);
+        if (simDtSeconds > 0) {
+            if (gameRuntime) gameRuntime.update(simDtSeconds);
+            player.update(simDtSeconds);
             updateCameraRig();
 
             if (minimap) {
@@ -933,7 +936,7 @@ engine.runRenderLoop(() => {
             }
 
             if (audioSystem) {
-                audioSystem.update(dtSeconds);
+                audioSystem.update(simDtSeconds);
             }
 
             // === END CAMERA FIX ===
