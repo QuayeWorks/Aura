@@ -9,35 +9,71 @@ const EnemyState = {
 };
 
 export class Enemy {
-    constructor({ scene, planetRadius, position, id }) {
+    constructor({ scene, planetRadius, position, id, modelFile } = {}) {
         this.scene = scene;
-        this.planetRadius = planetRadius;
+        this.planetRadius = planetRadius ?? 1;
         this.id = id;
 
-        this.mesh = BABYLON.MeshBuilder.CreateSphere(`enemy_${id}`, {
-            diameter: this.planetRadius * 0.01
-        }, this.scene);
-        const mat = new BABYLON.StandardMaterial(`enemyMat_${id}`, this.scene);
-        mat.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2);
-        mat.emissiveColor = new BABYLON.Color3(0.5, 0.1, 0.1);
-        this.mesh.material = mat;
+        this.mesh = new BABYLON.TransformNode(`enemy_${id}`, this.scene);
         this.mesh.isPickable = false;
+
+        this.placeholder = BABYLON.MeshBuilder.CreateSphere(`enemy_placeholder_${id}`, {
+            diameter: 1.2
+        }, this.scene);
+        this.placeholder.material = new BABYLON.StandardMaterial(`enemy_placeholder_mat_${id}`, this.scene);
+        this.placeholder.material.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2);
+        this.placeholder.material.emissiveColor = new BABYLON.Color3(0.5, 0.1, 0.1);
+        this.placeholder.isPickable = false;
+        this.placeholder.parent = this.mesh;
 
         this.state = EnemyState.IDLE;
         this.stateTimer = 0;
         this.attackCooldown = 0;
 
-        this.speed = this.planetRadius * 0.0015;
-        this.surfaceOffset = this.planetRadius * 0.0025;
-        this.detectionRange = this.planetRadius * 0.08;
-        this.attackRange = this.planetRadius * 0.01;
+        this.speed = 6;
+        this.surfaceOffset = 2.0;
+        this.detectionRange = 20;
+        this.attackRange = 2.5;
 
         this.mesh.position.copyFrom(position || new BABYLON.Vector3(this.planetRadius, 0, 0));
         this._stickToSurface();
         this._pickNewPatrol();
+
+        if (modelFile) {
+            this._loadModel(modelFile);
+        }
+    }
+
+    async _loadModel(modelFile) {
+        try {
+            const result = await BABYLON.SceneLoader.ImportMeshAsync(
+                "",
+                "assets/characters/",
+                modelFile,
+                this.scene
+            );
+
+            for (const mesh of result.meshes) {
+                if (mesh === result.meshes[0] && mesh.name === "__root__") {
+                    mesh.setEnabled(false);
+                    mesh.parent = this.mesh;
+                    continue;
+                }
+                mesh.parent = this.mesh;
+                mesh.isPickable = false;
+            }
+
+            if (this.placeholder) {
+                this.placeholder.dispose();
+                this.placeholder = null;
+            }
+        } catch (err) {
+            console.error(`Failed to load enemy model ${modelFile}:`, err);
+        }
     }
 
     dispose() {
+        this.placeholder?.dispose();
         this.mesh?.dispose();
     }
 
@@ -82,7 +118,6 @@ export class Enemy {
         if (dtSeconds <= 0 || !this.mesh) return;
 
         const playerPos = player?.mesh?.position;
-        const up = this.mesh.position.clone().normalize();
         const toPlayer = playerPos ? playerPos.subtract(this.mesh.position) : null;
         const distanceToPlayer = toPlayer ? toPlayer.length() : Infinity;
 
@@ -126,6 +161,6 @@ export class Enemy {
         }
 
         // Keep aligned to surface
-        this._stickToSurface(up);
+        this._stickToSurface();
     }
 }

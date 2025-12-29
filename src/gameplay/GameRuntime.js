@@ -76,15 +76,15 @@ export class GameRuntime {
             seed: terrain?.seed ?? 1,
             planetRadius: terrain?.radius ?? 1
         });
-
         this.enemyManager = new EnemyManager({
             scene,
             terrain,
             player,
             planetRadius: terrain?.radius ?? 1,
             playerStats: this.playerStats,
-            dayNightSystem,
-            seed: terrain?.seed ?? 7
+            dayNightSystem: this.dayNightSystem,
+            spawnRadius: 10,
+            maxEnemies: 2
         });
 
         this.settlementSystem = new SettlementSystem({
