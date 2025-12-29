@@ -29,6 +29,7 @@ class NPC {
         this.vendorItems = vendorItems || [];
         this.interactionRadius = 40;
         this.inventory = inventory;
+        this.isFrozen = false;
 
         this.mesh = BABYLON.MeshBuilder.CreateBox(
             `npc_${name}`,
@@ -38,6 +39,8 @@ class NPC {
         this.mesh.position.copyFrom(this.position);
         this.mesh.isPickable = false;
         this.mesh.metadata = { isNPC: true };
+
+        this.position = this.mesh.position;
 
         const forward = BABYLON.Vector3.Cross(this.up, new BABYLON.Vector3(0, 1, 0));
         if (forward.lengthSquared() < 1e-4) forward.copyFromFloats(1, 0, 0);
@@ -55,16 +58,25 @@ class NPC {
     dispose() {
         this.mesh?.dispose();
     }
+
+    setFrozen(isFrozen) {
+        this.isFrozen = !!isFrozen;
+    }
+
+    applyGroundGateClamp() {
+        // NPCs don't move, so nothing to clamp, but method exists for interface parity.
+    }
 }
 
 export class SettlementSystem {
-    constructor({ scene, terrain, player, poiManager, inventory, hud } = {}) {
+    constructor({ scene, terrain, player, poiManager, inventory, hud, groundGate } = {}) {
         this.scene = scene;
         this.terrain = terrain;
         this.player = player;
         this.poiManager = poiManager;
         this.inventory = inventory;
         this.hud = hud;
+        this.groundGate = groundGate;
         this.questGoal = { item: "Crystal Shard", required: 3 };
 
         this.dialog = createNPCDialog();
@@ -115,6 +127,10 @@ export class SettlementSystem {
             vendorItems,
             inventory: this.inventory
         });
+
+        if (this.groundGate) {
+            this.groundGate.registerActor(npc, { planetRadius: this.terrain?.radius });
+        }
 
         this.settlements.set(plan.id, { plan, mesh, npc });
     }
@@ -182,8 +198,10 @@ export class SettlementSystem {
         let closestDist = Infinity;
         for (const [, settlement] of this.settlements) {
             const npc = settlement.npc;
-            if (!npc) continue;
-            const dist = BABYLON.Vector3.Distance(pos, npc.position);
+            if (!npc || npc.isFrozen) continue;
+            const npcPos = npc.mesh?.position || npc.position;
+            if (!npcPos) continue;
+            const dist = BABYLON.Vector3.Distance(pos, npcPos);
             if (dist < npc.interactionRadius && dist < closestDist) {
                 closest = npc;
                 closestDist = dist;

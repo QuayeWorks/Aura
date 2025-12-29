@@ -21,6 +21,7 @@ import { CompassHUD } from "./ui_dom/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
 import { createAbilityTreePanel } from "./ui_dom/AbilityTreePanel.js";
 import { createLoadingOverlay as createDomLoadingOverlay } from "./ui_dom/LoadingOverlay.js";
+import { repositionActorRadially } from "./gameplay/GroundSpawnGate.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -81,10 +82,14 @@ let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
 const LOADING_GRACE_SECONDS = 2;
-const LOADING_MAX_SECONDS = 40;
+const LOADING_MAX_SECONDS = 45;
 const LOADING_CHECK_INTERVAL = 1;
 const GROUND_RAY_LENGTH_METERS = 10;
 const GROUND_RAY_OFFSET_METERS = 1;
+const LOADING_REPOSITION_SECONDS = 40;
+const LOADING_FORCE_RELEASE_SECONDS = 45;
+const LOADING_RELEASE_CLAMP_SECONDS = 2;
+const LOADING_RELEASE_MAX_STEP = 1 / 120;
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
@@ -390,7 +395,9 @@ function beginLoadingGate() {
         elapsed: 0,
         timeSinceLastCheck: 0,
         graceRemaining: LOADING_GRACE_SECONDS,
-        hasGround: false
+        hasGround: false,
+        repositioned: false,
+        forceReleased: false
     };
 
     if (loadingOverlay?.show) {
@@ -408,6 +415,15 @@ function freezePlayerForLoading() {
     if (player.velocity?.set) {
         player.velocity.set(0, 0, 0);
     }
+}
+
+function repositionPlayerToFallbackAltitude() {
+    if (!player?.mesh) return;
+    const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
+    const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
+    const targetRadius = planetRadius + 600 * unitsPerMeter;
+    const fallbackUp = player.mesh.position?.clone();
+    repositionActorRadially(player, targetRadius, fallbackUp);
 }
 
 function checkGroundUnderPlayer() {
@@ -431,6 +447,20 @@ function checkGroundUnderPlayer() {
     );
 
     return !!(pick?.hit && pick.distance <= GROUND_RAY_LENGTH_METERS + 1e-3);
+}
+
+function forceReleaseLoadingGate() {
+    if (!loadingGate || loadingGate.forceReleased) return;
+    loadingGate.forceReleased = true;
+
+    if (player?.applyGroundGateClamp) {
+        player.applyGroundGateClamp(LOADING_RELEASE_CLAMP_SECONDS, LOADING_RELEASE_MAX_STEP);
+    }
+    if (player?.velocity?.set) {
+        player.velocity.set(0, 0, 0);
+    }
+
+    onLoadingGroundReady();
 }
 
 function onLoadingGroundReady() {
@@ -460,6 +490,16 @@ function updateLoadingGate(dtSeconds) {
         if (progress >= 1 && !loadingGate.hasGround) {
             loadingOverlay.setStreamingMessage("Still streaming terrain…");
         }
+    }
+
+    if (!loadingGate.repositioned && loadingGate.elapsed >= LOADING_REPOSITION_SECONDS) {
+        repositionPlayerToFallbackAltitude();
+        loadingGate.repositioned = true;
+    }
+
+    if (loadingGate.elapsed >= LOADING_FORCE_RELEASE_SECONDS) {
+        forceReleaseLoadingGate();
+        return;
     }
 
     if (loadingGate.graceRemaining > 0) {

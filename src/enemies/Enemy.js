@@ -64,6 +64,10 @@ export class Enemy {
         this._stickToSurface();
         this._pickNewPatrol();
 
+        this.isFrozen = false;
+        this._postReleaseClampRemaining = 0;
+        this._postReleaseMaxDt = 1 / 120;
+
         if (modelFile) {
             this._loadModel(modelFile);
         }
@@ -106,6 +110,15 @@ export class Enemy {
         this.mesh?.dispose();
     }
 
+    setFrozen(isFrozen) {
+        this.isFrozen = !!isFrozen;
+    }
+
+    applyGroundGateClamp(durationSeconds = 2, maxStepSeconds = 1 / 120) {
+        this._postReleaseClampRemaining = Math.max(this._postReleaseClampRemaining, durationSeconds);
+        this._postReleaseMaxDt = maxStepSeconds ?? this._postReleaseMaxDt;
+    }
+
     _stickToSurface() {
         const dir = this.mesh.position.clone();
         const len = dir.length();
@@ -146,6 +159,15 @@ export class Enemy {
 
     update(dtSeconds, player, onAttack) {
         if (dtSeconds <= 0 || !this.mesh) return;
+
+        if (this.isFrozen) {
+            return;
+        }
+
+        if (this._postReleaseClampRemaining > 0) {
+            this._postReleaseClampRemaining = Math.max(0, this._postReleaseClampRemaining - dtSeconds);
+            dtSeconds = Math.min(dtSeconds, this._postReleaseMaxDt);
+        }
 
         const playerPos = player?.mesh?.position;
         const toPlayer = playerPos ? playerPos.subtract(this.mesh.position) : null;

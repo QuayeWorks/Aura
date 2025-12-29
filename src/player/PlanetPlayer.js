@@ -98,6 +98,9 @@ this.groundFriction = options.groundFriction ?? 8;
         this.maxPhysicsSubsteps = options.maxPhysicsSubsteps ?? 5;
         this.maxMoveFractionPerSubstep = options.maxMoveFractionPerSubstep ?? 0.75; // portion of capsule radius per micro-step
 
+        this._postGateClampRemaining = 0;
+        this._postGateClampMaxStep = this.maxPhysicsStepSeconds;
+
         this.isFrozen = false;
 
         // Input flags
@@ -136,6 +139,12 @@ this.groundFriction = options.groundFriction ?? 8;
             this.velocity.set(0, 0, 0);
             this.inputJumpRequested = false;
         }
+    }
+
+    applyGroundGateClamp(durationSeconds = 2, maxStepSeconds = 1 / 120) {
+        this._postGateClampRemaining = Math.max(this._postGateClampRemaining, durationSeconds);
+        this._postGateClampMaxStep = Math.min(this._postGateClampMaxStep, maxStepSeconds ?? this._postGateClampMaxStep);
+        this.velocity.set(0, 0, 0);
     }
 
     /**
@@ -183,11 +192,14 @@ this.groundFriction = options.groundFriction ?? 8;
 
         // Clamp dt to avoid giant steps when the tab was unfocused, and sub-step
         // to reduce tunneling when sprinting fast.
-        const clampedDt = Math.min(
-            dtSeconds,
-            this.maxPhysicsStepSeconds * this.maxPhysicsSubsteps
-        );
-        const steps = Math.max(1, Math.ceil(clampedDt / this.maxPhysicsStepSeconds));
+        let maxStep = this.maxPhysicsStepSeconds;
+        if (this._postGateClampRemaining > 0) {
+            this._postGateClampRemaining = Math.max(0, this._postGateClampRemaining - dtSeconds);
+            maxStep = Math.min(maxStep, this._postGateClampMaxStep);
+        }
+
+        const clampedDt = Math.min(dtSeconds, maxStep * this.maxPhysicsSubsteps);
+        const steps = Math.max(1, Math.ceil(clampedDt / maxStep));
         const stepDt = clampedDt / steps;
 
         this._collisionRecoveryCooldown = Math.max(

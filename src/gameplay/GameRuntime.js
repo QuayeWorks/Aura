@@ -10,6 +10,7 @@ import { AbilityTreeSystem } from "./AbilityTree.js";
 import { Inventory } from "./Inventory.js";
 import { SettlementSystem } from "../world/SettlementSystem.js";
 import { LocalMultiplayerSim, NetEventBus, NetSyncController } from "../multiplayer/NetModel.js";
+import { GroundSpawnGate } from "./GroundSpawnGate.js";
 
 export class GameRuntime {
     constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem, saveSystem } = {}) {
@@ -60,6 +61,14 @@ export class GameRuntime {
         this.enabled = true;
         this.timeSinceHudUpdate = 0;
 
+        this.groundGate = new GroundSpawnGate({
+            scene,
+            terrain,
+            player,
+            planetRadius: terrain?.radius ?? 1,
+            unitsPerMeter: terrain?.biomeSettings?.unitsPerMeter ?? 1
+        });
+
         this.carveController = new CarveController({
             terrain: this.terrain,
             playerStats: this.playerStats,
@@ -83,6 +92,7 @@ export class GameRuntime {
             planetRadius: terrain?.radius ?? 1,
             playerStats: this.playerStats,
             dayNightSystem: this.dayNightSystem,
+            groundGate: this.groundGate,
             spawnRadius: 10,
             maxEnemies: 2
         });
@@ -94,6 +104,7 @@ export class GameRuntime {
             poiManager: this.poiManager,
             inventory: this.inventory,
             hud: this.hud,
+            groundGate: this.groundGate,
         });
 
         this.localPlayerId = "player-local";
@@ -159,6 +170,8 @@ export class GameRuntime {
     update(dtSeconds) {
         if (!this.enabled) return;
         if (!this.player) return;
+
+        this.groundGate?.update(dtSeconds);
 
         this.playerStats.update(dtSeconds);
         this.abilities.update(dtSeconds);
