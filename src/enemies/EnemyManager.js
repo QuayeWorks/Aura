@@ -15,7 +15,7 @@ export class EnemyManager {
         this.spawnRadius = spawnRadius;
         this.maxEnemies = maxEnemies;
         this.enemyConfigs = [
-            { type: "male", model: "Male_doll.glb" },
+            { type: "male", model: "male_doll.glb" },
             { type: "female", model: "female_doll.glb" }
         ];
 
@@ -45,14 +45,17 @@ export class EnemyManager {
         const playerPos = this.player?.mesh?.position;
         if (!playerPos) return null;
 
+        const playerRadius = playerPos.length();
+        if (playerRadius < 1e-4) return null;
+
         const up = playerPos.clone().normalize();
         const { tangent, bitangent } = this._tangentBasis(up);
         const angle = Math.random() * Math.PI * 2;
         const offsetDir = tangent.scale(Math.cos(angle)).add(bitangent.scale(Math.sin(angle))).normalize();
-        const baseRadius = Math.max(playerPos.length(), this.planetRadius);
-        const rawPos = playerPos.add(offsetDir.scale(this.spawnRadius));
-        const projected = rawPos.normalize().scale(baseRadius + 2);
-        return projected;
+
+        const angularOffset = Math.min(1, this.spawnRadius / playerRadius);
+        const spawnDir = up.scale(Math.cos(angularOffset)).add(offsetDir.scale(Math.sin(angularOffset))).normalize();
+        return spawnDir.scale(playerRadius);
     }
 
     _spawnEnemy(config) {

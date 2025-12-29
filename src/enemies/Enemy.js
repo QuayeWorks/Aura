@@ -8,6 +8,31 @@ const EnemyState = {
     FLEE: "flee"
 };
 
+const enemyModelCache = new Map();
+
+function assetUrl(relPath) {
+    return new URL(relPath, document.baseURI).toString();
+}
+
+async function getEnemyModelContainer(scene, modelFile) {
+    if (enemyModelCache.has(modelFile)) return enemyModelCache.get(modelFile);
+
+    const basePath = assetUrl("assets/characters/");
+    const loadPromise = BABYLON.SceneLoader.LoadAssetContainerAsync(basePath, modelFile, scene)
+        .then((container) => {
+            for (const mesh of container.meshes) {
+                mesh.isPickable = false;
+                if (mesh.name === "__root__") {
+                    mesh.setEnabled(false);
+                }
+            }
+            return container;
+        });
+
+    enemyModelCache.set(modelFile, loadPromise);
+    return loadPromise;
+}
+
 export class Enemy {
     constructor({ scene, planetRadius, position, id, modelFile } = {}) {
         this.scene = scene;
@@ -45,22 +70,19 @@ export class Enemy {
     }
 
     async _loadModel(modelFile) {
+        const resolvedUrl = assetUrl(`assets/characters/${modelFile}`);
         try {
-            const result = await BABYLON.SceneLoader.ImportMeshAsync(
-                "",
-                "assets/characters/",
-                modelFile,
-                this.scene
+            const container = await getEnemyModelContainer(this.scene, modelFile);
+            const { rootNodes } = container.instantiateModelsToScene(
+                (name) => `${name}_${this.id}`,
+                false
             );
 
-            for (const mesh of result.meshes) {
-                if (mesh === result.meshes[0] && mesh.name === "__root__") {
-                    mesh.setEnabled(false);
-                    mesh.parent = this.mesh;
-                    continue;
+            for (const node of rootNodes) {
+                node.parent = this.mesh;
+                if (node.name === "__root__") {
+                    node.setEnabled(false);
                 }
-                mesh.parent = this.mesh;
-                mesh.isPickable = false;
             }
 
             if (this.placeholder) {
@@ -69,6 +91,13 @@ export class Enemy {
             }
         } catch (err) {
             console.error(`Failed to load enemy model ${modelFile}:`, err);
+            try {
+                const res = await fetch(resolvedUrl);
+                const contentType = res.headers.get("content-type");
+                console.error(`[EnemyModelDebug] fetch ${resolvedUrl} ->`, res.status, contentType);
+            } catch (diagErr) {
+                console.error(`[EnemyModelDebug] Failed to diagnostic-fetch ${resolvedUrl}`, diagErr);
+            }
         }
     }
 
@@ -82,7 +111,8 @@ export class Enemy {
         const len = dir.length();
         if (len < 1e-5) return;
         dir.scaleInPlace(1 / len);
-        this.mesh.position.copyFrom(dir.scale(this.planetRadius + this.surfaceOffset));
+        const targetRadius = Math.max(len, this.planetRadius + this.surfaceOffset);
+        this.mesh.position.copyFrom(dir.scale(targetRadius));
 
         const up = dir;
         const forward = BABYLON.Vector3.Cross(up, new BABYLON.Vector3(0, 1, 0));
