@@ -87,7 +87,7 @@ const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
 const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.005;
 
 // Physical camera collision tuning
-const CAMERA_COLLIDER_RADIUS = 0.25;       // meters
+const CAMERA_COLLIDER_RADIUS = 1;       // meters
 const CAMERA_MAX_STEP_FRACTION = 0.75;    // portion of radius to move per collision step
 const CAMERA_HEAD_OFFSET = 2.0;           // meters above player origin to target
 const CAMERA_RECOVERY_STEPS = 4;          // attempts to push out if chunk rebuild spawns intersecting geometry
