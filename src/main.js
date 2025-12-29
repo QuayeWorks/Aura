@@ -54,6 +54,11 @@ let pendingLoadSnapshot = null;
 
 // Camera + environment
 let mainCamera = null;
+let orbitCamera = null;
+let cameraPivot = null;
+let cameraCollider = null;
+let cameraColliderDebug = null;
+let cameraColliderDebugVisible = false;
 let firefliesRoot = null;
 
 // UI
@@ -77,41 +82,16 @@ let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
 
-// --- Camera anti-clipping (ArcRotate spring arm) ---
-const CAM_PAD = 0.8;      // stay this far away from terrain
-const CAM_SMOOTH = 0.25;  // 0..1 (higher = snappier)
-
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
 const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.005;
 
-function clampArcRotateRadiusAgainstTerrain(scene, camera, targetPos) {
-    if (!scene || !camera || !targetPos) return;
-
-    // Desired camera position given current alpha/beta/radius
-    const desiredPos = camera.position.clone();
-    const origin = targetPos.clone();
-
-    const toCam = desiredPos.subtract(origin);
-    const desiredDist = toCam.length();
-    if (desiredDist < 1e-3) return;
-
-    const dir = toCam.scale(1 / desiredDist);
-
-    // Raycast from target -> camera
-    const ray = new BABYLON.Ray(origin, dir, desiredDist + 2.0);
-
-    // Only collide with terrain meshes (your terrain sets metadata.isTerrain = true)
-    const hit = scene.pickWithRay(ray, (m) => !!(m && m.isPickable && m.metadata && m.metadata.isTerrain));
-
-    let targetRadius = desiredDist;
-    if (hit && hit.hit) {
-        targetRadius = Math.max(camera.lowerRadiusLimit ?? 1.0, hit.distance - CAM_PAD);
-    }
-
-    // Smooth radius changes to avoid jitter
-    camera.radius = BABYLON.Scalar.Lerp(camera.radius, targetRadius, CAM_SMOOTH);
-}
+// Physical camera collision tuning
+const CAMERA_COLLIDER_RADIUS = 1.0;       // meters
+const CAMERA_MAX_STEP_FRACTION = 0.75;    // portion of radius to move per collision step
+const CAMERA_HEAD_OFFSET = 2.0;           // meters above player origin to target
+const CAMERA_RECOVERY_STEPS = 4;          // attempts to push out if chunk rebuild spawns intersecting geometry
+const CAMERA_RECOVERY_STEP_SIZE = CAMERA_COLLIDER_RADIUS * 0.65;
 
 function createScene() {
     scene = new BABYLON.Scene(engine);
@@ -122,25 +102,47 @@ function createScene() {
     // Collisions stay enabled for world meshes / player, but we won't use them on the camera
     scene.collisionsEnabled = true;
 
-    // Camera
-    mainCamera = new BABYLON.ArcRotateCamera(
-        "mainCamera",
+    // Camera rig: orbit controller (for input), physical collider, and view camera
+    orbitCamera = new BABYLON.ArcRotateCamera(
+        "orbitCamera",
         Math.PI * 1.3,
         Math.PI / 3,
         PLANET_RADIUS_UNITS * 0.01,
         new BABYLON.Vector3(0, 0, 0),
         scene
     );
-    mainCamera.attachControl(canvas, true);
+    orbitCamera.attachControl(canvas, true);
+    orbitCamera.allowUpsideDown = true;
+    orbitCamera.checkCollisions = false;
+    orbitCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
+    orbitCamera.upperRadiusLimit = CAM_MAX_RADIUS;
+    orbitCamera.panningSensibility = 0;
 
-    // Camera constraints to avoid flipping / clipping
-    mainCamera.allowUpsideDown = false;
-    mainCamera.lowerBetaLimit = 0.15;
-    mainCamera.upperBetaLimit = Math.PI / 2.1;
-    mainCamera.checkCollisions = false;      // IMPORTANT: let limits, not collisions, control it
-    mainCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
-    mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
-    mainCamera.panningSensibility = 0;       // avoid accidental panning weirdness
+    mainCamera = new BABYLON.FreeCamera(
+        "mainCamera",
+        orbitCamera.position.clone(),
+        scene
+    );
+    scene.activeCamera = mainCamera;
+    mainCamera.minZ = 0.1;
+    mainCamera.layerMask = 0x1;
+    mainCamera.inputs?.clear?.();
+
+    cameraPivot = new BABYLON.TransformNode("cameraPivot", scene);
+    cameraCollider = new BABYLON.Mesh("cameraCollider", scene);
+    cameraCollider.isVisible = false;
+    cameraCollider.isPickable = false;
+    cameraCollider.checkCollisions = true;
+    cameraCollider.ellipsoid = new BABYLON.Vector3(
+        CAMERA_COLLIDER_RADIUS,
+        CAMERA_COLLIDER_RADIUS,
+        CAMERA_COLLIDER_RADIUS
+    );
+    cameraCollider.ellipsoidOffset = BABYLON.Vector3.Zero();
+    cameraCollider.collisionRetryCount = 3;
+    cameraCollider.position.copyFrom(orbitCamera.position);
+    cameraPivot.position.copyFrom(orbitCamera.target || BABYLON.Vector3.Zero());
+    syncViewCamera(BABYLON.Axis.Y);
 
     // Lights for menu + in-game
     const hemi = new BABYLON.HemisphericLight(
@@ -268,6 +270,10 @@ function createScene() {
             e.preventDefault();
             gameRuntime.toggleLocalSim();
         }
+        if (e.code === "KeyC") {
+            cameraColliderDebugVisible = !cameraColliderDebugVisible;
+            if (cameraColliderDebugVisible) ensureCameraColliderDebugMesh();
+        }
     });
     
 
@@ -380,6 +386,151 @@ function refreshContinueButton() {
     }
 }
 
+function getCameraOrbitBasis(up) {
+    let forwardRef = BABYLON.Vector3.Cross(up, BABYLON.Axis.X);
+    if (forwardRef.lengthSquared() < 1e-3) {
+        forwardRef = BABYLON.Vector3.Cross(up, BABYLON.Axis.Z);
+    }
+    forwardRef.normalize();
+
+    const right = BABYLON.Vector3.Cross(up, forwardRef).normalize();
+    const forward = BABYLON.Vector3.Cross(right, up).normalize();
+    return { right, up, forward };
+}
+
+function computeDesiredCameraPosition(pivotPos, up) {
+    if (!orbitCamera) return pivotPos.clone();
+
+    const { right, up: basisUp, forward } = getCameraOrbitBasis(up);
+    const radius = orbitCamera.radius;
+    const alpha = orbitCamera.alpha;
+    const beta = orbitCamera.beta;
+
+    const sinBeta = Math.sin(beta);
+    const cosBeta = Math.cos(beta);
+
+    const offset = right
+        .scale(radius * sinBeta * Math.cos(alpha))
+        .add(basisUp.scale(radius * cosBeta))
+        .add(forward.scale(radius * sinBeta * Math.sin(alpha)));
+
+    return pivotPos.add(offset);
+}
+
+function moveCameraColliderToward(desiredPos) {
+    if (!cameraCollider) return;
+
+    const delta = desiredPos.subtract(cameraCollider.position);
+    const distance = delta.length();
+    if (distance < 1e-4) return;
+
+    const maxStep = CAMERA_COLLIDER_RADIUS * CAMERA_MAX_STEP_FRACTION;
+    const steps = Math.max(1, Math.ceil(distance / maxStep));
+    const step = delta.scale(1 / steps);
+
+    for (let i = 0; i < steps; i++) {
+        cameraCollider.moveWithCollisions(step);
+    }
+}
+
+function resolveCameraIntersections(camUp) {
+    if (!scene || !cameraCollider || !cameraPivot) return;
+
+    const meshes = scene.meshes;
+    if (!meshes || meshes.length === 0) return;
+
+    const pushDirBase = cameraCollider.position
+        .subtract(cameraPivot.position)
+        .normalize();
+    const pushDir = pushDirBase.lengthSquared() > 0
+        ? pushDirBase
+        : camUp?.normalize?.() ?? BABYLON.Axis.Y;
+
+    let iterations = 0;
+    let intersecting = true;
+
+    while (intersecting && iterations < CAMERA_RECOVERY_STEPS) {
+        intersecting = false;
+
+        for (const mesh of meshes) {
+            if (!mesh || !mesh.checkCollisions || !mesh.isEnabled()) continue;
+            if (!mesh.getBoundingInfo || !mesh.getBoundingInfo()) continue;
+
+            const box = mesh.getBoundingInfo().boundingBox;
+            const boxCenter = box.centerWorld;
+            const boxExtents = box.extendSizeWorld;
+            const delta = cameraCollider.position.subtract(boxCenter);
+            const maxDist = CAMERA_COLLIDER_RADIUS + boxExtents.length();
+            if (delta.lengthSquared() > maxDist * maxDist) continue;
+
+            if (cameraCollider.intersectsMesh(mesh, true)) {
+                cameraCollider.position.addInPlace(pushDir.scale(CAMERA_RECOVERY_STEP_SIZE));
+                cameraCollider.computeWorldMatrix(true);
+                intersecting = true;
+                break;
+            }
+        }
+
+        iterations++;
+    }
+}
+
+function syncViewCamera(camUp) {
+    if (!mainCamera || !cameraPivot || !cameraCollider) return;
+
+    mainCamera.position.copyFrom(cameraCollider.position);
+    mainCamera.upVector = camUp;
+    mainCamera.setTarget(cameraPivot.position);
+
+    if (cameraColliderDebug) {
+        cameraColliderDebug.position.copyFrom(cameraCollider.position);
+        cameraColliderDebug.isVisible = cameraColliderDebugVisible;
+    }
+    cameraCollider.isVisible = cameraColliderDebugVisible;
+}
+
+function ensureCameraColliderDebugMesh() {
+    if (cameraColliderDebug || !scene) return;
+    cameraColliderDebug = BABYLON.MeshBuilder.CreateSphere(
+        "cameraColliderDebug",
+        { diameter: CAMERA_COLLIDER_RADIUS * 2, segments: 12 },
+        scene
+    );
+    const mat = new BABYLON.StandardMaterial("cameraColliderDebugMat", scene);
+    mat.wireframe = true;
+    mat.emissiveColor = new BABYLON.Color3(0.1, 0.8, 1.0);
+    mat.disableLighting = true;
+    cameraColliderDebug.material = mat;
+    cameraColliderDebug.isPickable = false;
+    cameraColliderDebug.layerMask = 0x1;
+    cameraColliderDebug.isVisible = false;
+}
+
+function updateCameraRig() {
+    if (!player || !player.mesh || !mainCamera || !orbitCamera || !cameraPivot || !cameraCollider) {
+        return;
+    }
+
+    // Process orbit input even though orbitCamera is not the active renderer
+    orbitCamera._checkInputs();
+
+    const camUp = player.mesh.position.clone();
+    if (camUp.lengthSquared() > 0) camUp.normalize();
+
+    const headPos = player.mesh.position.add(camUp.scale(CAMERA_HEAD_OFFSET));
+    cameraPivot.position.copyFrom(headPos);
+
+    orbitCamera.upVector = camUp;
+    orbitCamera.target = cameraPivot.position;
+
+    const desiredPos = computeDesiredCameraPosition(cameraPivot.position, camUp);
+    moveCameraColliderToward(desiredPos);
+
+    resolveCameraIntersections(camUp);
+
+    syncViewCamera(camUp);
+}
+
 function buildSaveSnapshot() {
     if (!player || !player.mesh || !terrain || !gameRuntime) return null;
     const pos = player.mesh.position;
@@ -393,7 +544,13 @@ function buildSaveSnapshot() {
             position: { x: pos.x, y: pos.y, z: pos.z },
             forward: forward ? { x: forward.x, y: forward.y, z: forward.z } : null
         },
-        camera: mainCamera ? { alpha: mainCamera.alpha, beta: mainCamera.beta, radius: mainCamera.radius } : null,
+        camera: orbitCamera
+            ? {
+                  alpha: orbitCamera.alpha,
+                  beta: orbitCamera.beta,
+                  radius: orbitCamera.radius
+              }
+            : null,
         stats: runtimeSnapshot?.stats,
         abilityTree: runtimeSnapshot?.abilityTree,
         carves
@@ -428,10 +585,10 @@ function applyPendingSnapshot() {
         }
         if (player.reprojectToSurface) player.reprojectToSurface();
     }
-    if (mainCamera && snap.camera) {
-        if (snap.camera.alpha != null) mainCamera.alpha = snap.camera.alpha;
-        if (snap.camera.beta != null) mainCamera.beta = snap.camera.beta;
-        if (snap.camera.radius != null) mainCamera.radius = snap.camera.radius;
+    if (orbitCamera && snap.camera) {
+        if (snap.camera.alpha != null) orbitCamera.alpha = snap.camera.alpha;
+        if (snap.camera.beta != null) orbitCamera.beta = snap.camera.beta;
+        if (snap.camera.radius != null) orbitCamera.radius = snap.camera.radius;
     }
     pendingLoadSnapshot = null;
 }
@@ -485,7 +642,7 @@ function showMainMenu() {
 
     // Keep the menu camera stable even if a player exists.
     if (mainCamera) {
-        mainCamera.lockedTarget = new BABYLON.Vector3(0, 0, 0);
+        mainCamera.setTarget(new BABYLON.Vector3(0, 0, 0));
     }
 }
 
@@ -510,7 +667,7 @@ function showSettings() {
     if (compassHud) compassHud.setVisible(false);
 
     if (mainCamera) {
-        mainCamera.lockedTarget = new BABYLON.Vector3(0, 0, 0);
+        mainCamera.setTarget(new BABYLON.Vector3(0, 0, 0));
     }
 }
 
@@ -556,19 +713,21 @@ function startGame() {
             });
 
             if (mainCamera && player && player.mesh) {
-                // Let the player use this camera for movement direction
                 player.attachCamera(mainCamera);
-
-                // Reset camera constraints & orientation after attach
-                mainCamera.allowUpsideDown = false;
-                mainCamera.lowerBetaLimit = 0.15;
-                mainCamera.upperBetaLimit = Math.PI / 2.1;
-                mainCamera.checkCollisions = false;
-                mainCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
-                mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
-
-                mainCamera.radius = Math.min(Math.max(mainCamera.radius, CAM_MIN_RADIUS), CAM_MAX_RADIUS);
                 mainCamera.maxZ = 1_000_000;
+            }
+
+            if (orbitCamera && player && player.mesh) {
+                const up = player.mesh.position.clone().normalize();
+                cameraPivot.position.copyFrom(
+                    player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
+                );
+                orbitCamera.target = cameraPivot.position;
+                orbitCamera.upVector = up;
+                cameraCollider.position.copyFrom(
+                    computeDesiredCameraPosition(cameraPivot.position, up)
+                );
+                syncViewCamera(up);
             }
 
             const baseMovement = {
@@ -632,9 +791,9 @@ function startGame() {
             gameState = GameState.PLAYING;
             if (player && player.setInputEnabled) player.setInputEnabled(true);
             if (player && player.reprojectToSurface) player.reprojectToSurface();
-            if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
-            if (mainCamera && player && player.mesh) mainCamera.lockedTarget = player.mesh;
-            autosaveTimer = 0;
+        if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
+        if (mainCamera && player && player.mesh) mainCamera.setTarget(player.mesh.position);
+        autosaveTimer = 0;
             //minimap.setEnabled(true);
             //minimap.setOverlayVisible(true);
 
@@ -701,19 +860,22 @@ function startGame() {
         if (lodInfoText) lodInfoText.isVisible = false;
         if (hudPanel) hudPanel.isVisible = true;
 
-        // Re-assert camera constraints on resume
-        if (mainCamera) {
-            mainCamera.allowUpsideDown = false;
-            mainCamera.lowerBetaLimit = 0.15;
-            mainCamera.upperBetaLimit = Math.PI / 2.1;
-            mainCamera.checkCollisions = false;
-            mainCamera.lowerRadiusLimit = CAM_MIN_RADIUS;
-            mainCamera.upperRadiusLimit = CAM_MAX_RADIUS;
-        }
-
         gameState = GameState.PLAYING;
         if (player && player.setInputEnabled) player.setInputEnabled(true);
         if (player && player.reprojectToSurface) player.reprojectToSurface();
+        if (orbitCamera && player?.mesh) {
+            const up = player.mesh.position.clone();
+            if (up.lengthSquared() > 0) up.normalize();
+            cameraPivot.position.copyFrom(
+                player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
+            );
+            orbitCamera.target = cameraPivot.position;
+            orbitCamera.upVector = up;
+            cameraCollider.position.copyFrom(
+                computeDesiredCameraPosition(cameraPivot.position, up)
+            );
+            syncViewCamera(up);
+        }
         if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
         // Minimap is intentionally disabled. Keep these guarded for future RTT minimap return.
         if (minimap) {
@@ -739,7 +901,9 @@ engine.runRenderLoop(() => {
 
     // Focus position for LOD & hemisphere
     let focusPos = null;
-    if (player && player.mesh) {
+    if (cameraCollider) {
+        focusPos = cameraCollider.position;
+    } else if (player && player.mesh) {
         focusPos = player.mesh.position;
     } else if (scene.activeCamera) {
         focusPos = scene.activeCamera.position;
@@ -760,20 +924,7 @@ engine.runRenderLoop(() => {
         if (dtSeconds > 0) {
             if (gameRuntime) gameRuntime.update(dtSeconds);
             player.update(dtSeconds);
-            // === CAMERA TERRAIN CLIP PREVENTION (ADD THIS BLOCK) ===
-            if (mainCamera && player.mesh) {
-                // Player "head" position (planet-aware up)
-                const up = player.mesh.position.clone();
-                if (up.lengthSquared() > 0) up.normalize();
-    
-                const headPos = player.mesh.position.add(up.scale(2.0)); // tweak height if needed
-    
-                clampArcRotateRadiusAgainstTerrain(
-                    scene,
-                    mainCamera,
-                    headPos
-                );
-            }
+            updateCameraRig();
 
             if (minimap) {
                 minimap.updateFromPlayerMesh(player.mesh);
