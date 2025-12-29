@@ -10,8 +10,7 @@ import { DayNightSystem } from "./daynight/DayNightSystem.js";
 import {
     createMainMenu,
     createSettingsMenu,
-    createHud,
-    createLoadingOverlay
+    createHud
 } from "./menus/MainMenuUI.js";
 import { createUIStateHelpers } from "./menus/GameUIState.js";
 import { GameRuntime } from "./gameplay/GameRuntime.js";
@@ -21,6 +20,7 @@ import { SaveSystem } from "./save/SaveSystem.js";
 import { CompassHUD } from "./ui_dom/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
 import { createAbilityTreePanel } from "./ui_dom/AbilityTreePanel.js";
+import { createLoadingOverlay as createDomLoadingOverlay } from "./ui_dom/LoadingOverlay.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -50,6 +50,7 @@ let devPanel = null;
 let audioSystem = null;
 const saveSystem = new SaveSystem();
 let pendingLoadSnapshot = null;
+let loadingGate = null;
 
 
 // Camera + environment
@@ -67,8 +68,6 @@ let mainMenuPanel = null;
 let settingsPanel = null;
 let hudPanel = null;
 let loadingOverlay = null;
-let loadingBarFill = null;
-let loadingPercentText = null;
 let playerInfoText = null;
 let lodInfoText = null;
 let sunMoonInfoText = null;
@@ -81,6 +80,11 @@ let abilityTreePanel = null;
 let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
+const LOADING_GRACE_SECONDS = 2;
+const LOADING_MAX_SECONDS = 40;
+const LOADING_CHECK_INTERVAL = 1;
+const GROUND_RAY_LENGTH_METERS = 10;
+const GROUND_RAY_OFFSET_METERS = 1;
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
@@ -208,15 +212,6 @@ function createScene() {
         sunMoonInfoText = hud.sunMoonInfoText;
     }
 
-    // Loading overlay
-    {
-        const loading = createLoadingOverlay(ui);
-        loadingOverlay = loading.loadingOverlay;
-        loadingBarFill = loading.loadingBarFill;
-        loadingPercentText = loading.loadingPercentText;
-    }
-
-    
     // Hook up centralized UI state helpers
     uiState = createUIStateHelpers({
         scene,
@@ -228,7 +223,7 @@ function createScene() {
         mainMenuPanel,
         settingsPanel,
         hudPanel,
-        loadingOverlay,
+        loadingOverlay: null,
         playerInfoText,
         lodInfoText,
         setFirefliesVisible
@@ -252,6 +247,10 @@ function createScene() {
     if (!compassHud) {
         compassHud = new CompassHUD();
         compassHud.setVisible(false);
+    }
+
+    if (!loadingOverlay) {
+        loadingOverlay = createDomLoadingOverlay();
     }
 
     // Start in menu
@@ -383,6 +382,98 @@ function setFirefliesVisible(isVisible) {
 function refreshContinueButton() {
     if (mainMenuPanel && mainMenuPanel.setContinueVisible) {
         mainMenuPanel.setContinueVisible(saveSystem.hasSave());
+    }
+}
+
+function beginLoadingGate() {
+    loadingGate = {
+        elapsed: 0,
+        timeSinceLastCheck: 0,
+        graceRemaining: LOADING_GRACE_SECONDS,
+        hasGround: false
+    };
+
+    if (loadingOverlay?.show) {
+        loadingOverlay.show();
+        loadingOverlay.setProgress(0);
+        loadingOverlay.setMessage("Loading world… 0%");
+        loadingOverlay.setStreamingMessage("");
+    }
+}
+
+function freezePlayerForLoading() {
+    if (!player) return;
+    if (player.setFrozen) player.setFrozen(true);
+    if (player.setInputEnabled) player.setInputEnabled(false);
+    if (player.velocity?.set) {
+        player.velocity.set(0, 0, 0);
+    }
+}
+
+function checkGroundUnderPlayer() {
+    if (!player?.mesh || !scene) return false;
+
+    const up = player.mesh.position.clone();
+    if (up.lengthSquared() < 1e-6) return false;
+    up.normalize();
+
+    const origin = player.mesh.position.add(up.scale(GROUND_RAY_OFFSET_METERS));
+    const ray = new BABYLON.Ray(origin, up.scale(-1), GROUND_RAY_LENGTH_METERS);
+
+    const pick = scene.pickWithRay(
+        ray,
+        (mesh) => {
+            if (!mesh?.checkCollisions) return false;
+            const meta = mesh.metadata || {};
+            if (meta.isTerrainCollider || meta.isTerrain) return true;
+            return mesh.name ? mesh.name.toLowerCase().startsWith("terrain") : false;
+        }
+    );
+
+    return !!(pick?.hit && pick.distance <= GROUND_RAY_LENGTH_METERS + 1e-3);
+}
+
+function onLoadingGroundReady() {
+    if (!player) return;
+
+    if (loadingOverlay) {
+        loadingOverlay.setProgress(1);
+        loadingOverlay.setMessage("Loading world… 100%");
+        loadingOverlay.setStreamingMessage("");
+        loadingOverlay.fadeOut();
+    }
+
+    enterGameplayFromLoading();
+    loadingGate = null;
+}
+
+function updateLoadingGate(dtSeconds) {
+    if (!loadingGate) return;
+
+    loadingGate.elapsed += dtSeconds;
+    const progress = Math.min(loadingGate.elapsed / LOADING_MAX_SECONDS, 1);
+
+    if (loadingOverlay) {
+        loadingOverlay.setProgress(progress);
+        const pct = Math.round(progress * 100);
+        loadingOverlay.setMessage(`Loading world… ${pct}%`);
+        if (progress >= 1 && !loadingGate.hasGround) {
+            loadingOverlay.setStreamingMessage("Still streaming terrain…");
+        }
+    }
+
+    if (loadingGate.graceRemaining > 0) {
+        loadingGate.graceRemaining = Math.max(0, loadingGate.graceRemaining - dtSeconds);
+        return;
+    }
+
+    loadingGate.timeSinceLastCheck += dtSeconds;
+    if (loadingGate.timeSinceLastCheck < LOADING_CHECK_INTERVAL) return;
+    loadingGate.timeSinceLastCheck = 0;
+
+    if (checkGroundUnderPlayer()) {
+        loadingGate.hasGround = true;
+        onLoadingGroundReady();
     }
 }
 
@@ -624,6 +715,7 @@ function showMainMenu() {
     if (devPanel) devPanel.setVisible(false);
     if (abilityTreePanel) abilityTreePanel.setVisible(false);
     if (compassHud) compassHud.setVisible(false);
+    if (loadingOverlay?.hide) loadingOverlay.hide();
 
     // Keep the menu camera stable even if a player exists.
     if (mainCamera) {
@@ -638,6 +730,7 @@ function showSettings() {
     if (uiState && uiState.showSettings) {
         uiState.showSettings();
     }
+    if (loadingOverlay?.hide) loadingOverlay.hide();
 
     // Settings still counts as menu: no gameplay input/simulation
     if (player && player.setInputEnabled) player.setInputEnabled(false);
@@ -667,12 +760,20 @@ function startGame() {
     if (mainMenuPanel) mainMenuPanel.isVisible = false;
     if (settingsPanel) settingsPanel.isVisible = false;
     if (hudPanel) hudPanel.isVisible = true;
-    // no loading overlay – jump straight into the game
     if (playerInfoText) playerInfoText.isVisible = false;
     if (lodInfoText) lodInfoText.isVisible = false;
 
+    beginLoadingGate();
     setFirefliesVisible(true);
     applyMenuVisuals();
+
+    if (gameRuntime) gameRuntime.setEnabled(false);
+    if (domHud) {
+        domHud.setGameplayVisible(false);
+        domHud.setDebugVisible(false);
+    }
+    if (compassHud) compassHud.setVisible(false);
+    freezePlayerForLoading();
 
     if (!terrain) {
         terrain = new ChunkedPlanetTerrain(scene, {
@@ -685,191 +786,133 @@ function startGame() {
 
         terrain.setOnInitialBuildDone(() => {
             console.log("Initial planet build complete.");
-
-            // Create player on planet surface
-            player = new PlanetPlayer(scene, terrain, {
-                planetRadius: PLANET_RADIUS_UNITS + 500,
-                walkSpeed: 2.2,
-                runSpeed: 11,
-                height: 1.8,
-                radius: 0.35,
-                jumpGraceSeconds: 40,
-                inputEnabled: true
-            });
-
-            if (mainCamera && player && player.mesh) {
-                player.attachCamera(mainCamera);
-                mainCamera.maxZ = 1_000_000;
-            }
-
-            if (orbitCamera && player && player.mesh) {
-                const up = player.mesh.position.clone().normalize();
-                cameraPivot.position.copyFrom(
-                    player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
-                );
-                orbitCamera.target = cameraPivot.position;
-                orbitCamera.upVector = up;
-                cameraCollider.position.copyFrom(
-                    computeDesiredCameraPosition(cameraPivot.position, up)
-                );
-                syncViewCamera(up);
-            }
-
-            const baseMovement = {
-                walkSpeed: player.walkSpeed,
-                runSpeed: player.runSpeed,
-                jumpImpulse: player.jumpSpeed,
-                gravity: player.gravity,
-                accel: player.accel,
-                groundFriction: player.groundFriction,
-                airFriction: player.airFriction
-            };
-
-            gameRuntime = new GameRuntime({
-                player,
-                terrain,
-                hud: domHud,
-                baseMovement,
-                baseCarve: { radius: 70, nenCost: 14 },
-                scene,
-                dayNightSystem,
-                saveSystem
-            });
-
-            if (abilityTreePanel && gameRuntime?.abilityTree) {
-                abilityTreePanel.setAbilityTree(gameRuntime.abilityTree);
-            }
-
-            if (!audioSystem) {
-                audioSystem = new AudioSystem({ player, terrain, gameRuntime });
-            } else {
-                audioSystem.player = player;
-                audioSystem.terrain = terrain;
-                audioSystem.gameRuntime = gameRuntime;
-            }
-            if (audioSystem) {
-                audioSystem.ensureStarted();
-            }
-            if (domHud) {
-                domHud.setAudioToggleHandler(() => {
-                    if (audioSystem) audioSystem.toggleMute();
-                    domHud.setAudioMuted(audioSystem?.muted);
-                });
-                domHud.setAudioMuted(audioSystem?.muted);
-            }
-
-            applyPendingSnapshot();
-
-            // Switch to playing visuals
-            applyGameVisuals();
-            setFirefliesVisible(false);
-
-            if (domHud) domHud.setGameplayVisible(true);
-            if (gameRuntime) gameRuntime.setEnabled(true);
-            if (compassHud) compassHud.setVisible(true);
-
-            // loading overlay is no longer used
-            if (playerInfoText) playerInfoText.isVisible = false;
-            if (lodInfoText) lodInfoText.isVisible = false;
-            if (hudPanel) hudPanel.isVisible = true;
-
-            gameState = GameState.PLAYING;
-            if (player && player.setInputEnabled) player.setInputEnabled(true);
-            if (player && player.reprojectToSurface) player.reprojectToSurface();
-        if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
-        if (mainCamera && player && player.mesh) mainCamera.setTarget(player.mesh.position);
-        autosaveTimer = 0;
-            //minimap.setEnabled(true);
-            //minimap.setOverlayVisible(true);
-
-
+            setupPlayerAndSystems();
         });
     } else {
-        // Planet already exists – just resume quickly
-        applyGameVisuals();
-        setFirefliesVisible(false);
-
-        if (!gameRuntime && player) {
-            const baseMovement = {
-                walkSpeed: player.walkSpeed,
-                runSpeed: player.runSpeed,
-                jumpImpulse: player.jumpSpeed,
-                gravity: player.gravity,
-                accel: player.accel,
-                groundFriction: player.groundFriction,
-                airFriction: player.airFriction
-            };
-
-            gameRuntime = new GameRuntime({
-                player,
-                terrain,
-                hud: domHud,
-                baseMovement,
-                baseCarve: { radius: 70, nenCost: 14 },
-                scene,
-                dayNightSystem,
-                saveSystem
-            });
-
-            if (abilityTreePanel && gameRuntime?.abilityTree) {
-                abilityTreePanel.setAbilityTree(gameRuntime.abilityTree);
-            }
-        }
-
-        if (!audioSystem) {
-            audioSystem = new AudioSystem({ player, terrain, gameRuntime });
-        } else {
-            audioSystem.player = player;
-            audioSystem.terrain = terrain;
-            audioSystem.gameRuntime = gameRuntime;
-        }
-        if (audioSystem) {
-            audioSystem.ensureStarted();
-        }
-        if (domHud) {
-            domHud.setAudioToggleHandler(() => {
-                if (audioSystem) audioSystem.toggleMute();
-                domHud.setAudioMuted(audioSystem?.muted);
-            });
-            domHud.setAudioMuted(audioSystem?.muted);
-        }
-
-        applyPendingSnapshot();
-
-        if (domHud) domHud.setGameplayVisible(true);
-        if (gameRuntime) gameRuntime.setEnabled(true);
-        if (compassHud) compassHud.setVisible(true);
-
-        // no loading overlay
-        if (playerInfoText) playerInfoText.isVisible = false;
-        if (lodInfoText) lodInfoText.isVisible = false;
-        if (hudPanel) hudPanel.isVisible = true;
-
-        gameState = GameState.PLAYING;
-        if (player && player.setInputEnabled) player.setInputEnabled(true);
-        if (player && player.reprojectToSurface) player.reprojectToSurface();
-        if (orbitCamera && player?.mesh) {
-            const up = player.mesh.position.clone();
-            if (up.lengthSquared() > 0) up.normalize();
-            cameraPivot.position.copyFrom(
-                player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
-            );
-            orbitCamera.target = cameraPivot.position;
-            orbitCamera.upVector = up;
-            cameraCollider.position.copyFrom(
-                computeDesiredCameraPosition(cameraPivot.position, up)
-            );
-            syncViewCamera(up);
-        }
-        if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
-        // Minimap is intentionally disabled. Keep these guarded for future RTT minimap return.
-        if (minimap) {
-            minimap.setEnabled(true);
-            minimap.setOverlayVisible(true);
-        }
-        autosaveTimer = 0;
-
+        setupPlayerAndSystems();
     }
+}
+
+function setupPlayerAndSystems() {
+    if (!terrain) return;
+
+    if (!player) {
+        // Create player on planet surface
+        player = new PlanetPlayer(scene, terrain, {
+            planetRadius: PLANET_RADIUS_UNITS + 500,
+            walkSpeed: 2.2,
+            runSpeed: 11,
+            height: 1.8,
+            radius: 0.35,
+            jumpGraceSeconds: 40,
+            inputEnabled: false
+        });
+    }
+
+    freezePlayerForLoading();
+
+    if (mainCamera && player?.mesh) {
+        player.attachCamera(mainCamera);
+        mainCamera.maxZ = 1_000_000;
+        mainCamera.setTarget(player.mesh.position);
+    }
+
+    if (orbitCamera && player?.mesh) {
+        const up = player.mesh.position.clone();
+        if (up.lengthSquared() > 0) up.normalize();
+        cameraPivot.position.copyFrom(
+            player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
+        );
+        orbitCamera.target = cameraPivot.position;
+        orbitCamera.upVector = up;
+        cameraCollider.position.copyFrom(
+            computeDesiredCameraPosition(cameraPivot.position, up)
+        );
+        syncViewCamera(up);
+    }
+
+    const baseMovement = {
+        walkSpeed: player.walkSpeed,
+        runSpeed: player.runSpeed,
+        jumpImpulse: player.jumpSpeed,
+        gravity: player.gravity,
+        accel: player.accel,
+        groundFriction: player.groundFriction,
+        airFriction: player.airFriction
+    };
+
+    if (!gameRuntime) {
+        gameRuntime = new GameRuntime({
+            player,
+            terrain,
+            hud: domHud,
+            baseMovement,
+            baseCarve: { radius: 70, nenCost: 14 },
+            scene,
+            dayNightSystem,
+            saveSystem
+        });
+    }
+
+    if (abilityTreePanel && gameRuntime?.abilityTree) {
+        abilityTreePanel.setAbilityTree(gameRuntime.abilityTree);
+    }
+
+    if (!audioSystem) {
+        audioSystem = new AudioSystem({ player, terrain, gameRuntime });
+    } else {
+        audioSystem.player = player;
+        audioSystem.terrain = terrain;
+        audioSystem.gameRuntime = gameRuntime;
+    }
+    if (audioSystem) {
+        audioSystem.ensureStarted();
+    }
+    if (domHud) {
+        domHud.setAudioToggleHandler(() => {
+            if (audioSystem) audioSystem.toggleMute();
+            domHud.setAudioMuted(audioSystem?.muted);
+        });
+        domHud.setAudioMuted(audioSystem?.muted);
+    }
+
+    applyPendingSnapshot();
+
+    if (player?.reprojectToSurface) player.reprojectToSurface();
+
+    if (gameRuntime) gameRuntime.setEnabled(false);
+}
+
+function enterGameplayFromLoading() {
+    applyGameVisuals();
+    setFirefliesVisible(false);
+
+    if (domHud) domHud.setGameplayVisible(true);
+    if (gameRuntime) gameRuntime.setEnabled(true);
+    if (compassHud) compassHud.setVisible(true);
+
+    if (player && player.setFrozen) player.setFrozen(false);
+    if (player && player.setInputEnabled) player.setInputEnabled(true);
+    if (player && player.reprojectToSurface) player.reprojectToSurface();
+
+    if (orbitCamera && player?.mesh) {
+        const up = player.mesh.position.clone();
+        if (up.lengthSquared() > 0) up.normalize();
+        cameraPivot.position.copyFrom(
+            player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
+        );
+        orbitCamera.target = cameraPivot.position;
+        orbitCamera.upVector = up;
+        cameraCollider.position.copyFrom(
+            computeDesiredCameraPosition(cameraPivot.position, up)
+        );
+        syncViewCamera(up);
+    }
+
+    if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
+    if (mainCamera && player && player.mesh) mainCamera.setTarget(player.mesh.position);
+    gameState = GameState.PLAYING;
+    autosaveTimer = 0;
 }
 
 // --------------------
@@ -899,6 +942,10 @@ engine.runRenderLoop(() => {
 
     if (terrain && (gameState === GameState.LOADING || gameState === GameState.PLAYING)) {
         terrain.updateStreaming(focusPos);
+    }
+
+    if (gameState === GameState.LOADING) {
+        updateLoadingGate(simDtSeconds);
     }
 
 

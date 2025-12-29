@@ -97,7 +97,9 @@ this.groundFriction = options.groundFriction ?? 8;
         this.maxPhysicsStepSeconds = options.maxPhysicsStepSeconds ?? 1 / 60;
         this.maxPhysicsSubsteps = options.maxPhysicsSubsteps ?? 5;
         this.maxMoveFractionPerSubstep = options.maxMoveFractionPerSubstep ?? 0.75; // portion of capsule radius per micro-step
-        
+
+        this.isFrozen = false;
+
         // Input flags
         this.inputForward = false;
         this.inputBack = false;
@@ -125,6 +127,14 @@ this.groundFriction = options.groundFriction ?? 8;
         const minRadius = this.planetRadius * 0.02;
         if (this.camera.radius < minRadius) {
             this.camera.radius = minRadius;
+        }
+    }
+
+    setFrozen(isFrozen) {
+        this.isFrozen = !!isFrozen;
+        if (this.isFrozen) {
+            this.velocity.set(0, 0, 0);
+            this.inputJumpRequested = false;
         }
     }
 
@@ -162,6 +172,11 @@ this.groundFriction = options.groundFriction ?? 8;
 
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
+
+        if (this.isFrozen) {
+            this.velocity.set(0, 0, 0);
+            return;
+        }
 
         // Remember starting point for tunnel detection
         this._previousPosition.copyFrom(this.mesh.position);
