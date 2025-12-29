@@ -447,6 +447,26 @@ function syncViewCamera(camUp) {
     cameraCollider.isVisible = cameraColliderDebugVisible;
 }
 
+function resolveCameraGroundClip() {
+    if (!scene || !cameraPivot || !cameraCollider) return;
+
+    const toCam = cameraCollider.position.subtract(cameraPivot.position);
+    const dist = toCam.length();
+    if (dist < 1e-3) return;
+
+    const dir = toCam.scale(1 / dist);
+    const ray = new BABYLON.Ray(cameraPivot.position, dir, dist + CAMERA_COLLIDER_RADIUS);
+    const pick = scene.pickWithRay(
+        ray,
+        (mesh) => mesh?.metadata?.isTerrainCollider || mesh?.metadata?.isTerrain
+    );
+
+    if (pick?.hit && pick.distance < dist) {
+        const safeDist = Math.max(0, pick.distance - CAMERA_COLLIDER_RADIUS * 0.5);
+        cameraCollider.position.copyFrom(ray.origin.add(dir.scale(Math.min(safeDist, dist))));
+    }
+}
+
 function ensureCameraColliderDebugMesh() {
     if (cameraColliderDebug || !scene) return;
     cameraColliderDebug = BABYLON.MeshBuilder.CreateSphere(
@@ -490,6 +510,8 @@ function updateCameraRig() {
         const recoverDir = camUp.lengthSquared() > 0 ? camUp : BABYLON.Axis.Y;
         cameraCollider.moveWithCollisions(recoverDir.scale(CAMERA_COLLIDER_RADIUS));
     }
+
+    resolveCameraGroundClip();
 
     syncViewCamera(camUp);
 }
