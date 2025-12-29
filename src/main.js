@@ -90,6 +90,8 @@ const CAM_MAX_RADIUS = PLANET_RADIUS_UNITS * 0.005;
 const CAMERA_COLLIDER_RADIUS = 1.0;       // meters
 const CAMERA_MAX_STEP_FRACTION = 0.75;    // portion of radius to move per collision step
 const CAMERA_HEAD_OFFSET = 2.0;           // meters above player origin to target
+const CAMERA_RECOVERY_STEPS = 4;          // attempts to push out if chunk rebuild spawns intersecting geometry
+const CAMERA_RECOVERY_STEP_SIZE = CAMERA_COLLIDER_RADIUS * 0.65;
 
 function createScene() {
     scene = new BABYLON.Scene(engine);
@@ -862,7 +864,9 @@ engine.runRenderLoop(() => {
 
     // Focus position for LOD & hemisphere
     let focusPos = null;
-    if (player && player.mesh) {
+    if (cameraCollider) {
+        focusPos = cameraCollider.position;
+    } else if (player && player.mesh) {
         focusPos = player.mesh.position;
     } else if (scene.activeCamera) {
         focusPos = scene.activeCamera.position;
