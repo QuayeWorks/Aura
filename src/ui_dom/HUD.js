@@ -117,12 +117,6 @@ export function createDomHUD() {
     }
 
     window.addEventListener("keydown", (ev) => {
-        if (ev.code === "F1") {
-            setGameplayVisible(!gameplayVisible);
-        }
-        if (ev.code === "F2") {
-            setDebugVisible(!debugVisible);
-        }
         if (ev.code === "KeyM") {
             if (audioToggleHandler) audioToggleHandler();
         }
