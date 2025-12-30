@@ -399,6 +399,14 @@ export class ChunkedPlanetTerrain {
         const rP = focusPosition.length();
         if (rP < 1e-3 || this.radius <= 0) return -1;
 
+        // When the camera is inside the planet radius (e.g. during spawn
+        // before the player is fully placed on the surface), the horizon
+        // check becomes overly aggressive because radius / rP > 1. That
+        // forces cosHorizon to 1.0 and culls every chunk. In that situation
+        // we want to effectively disable horizon culling until the camera is
+        // above the surface.
+        if (rP <= this.radius) return -1;
+
         const raw = this.radius / rP - this.horizonCullMargin;
         return Math.min(1, Math.max(-1, raw));
     }
