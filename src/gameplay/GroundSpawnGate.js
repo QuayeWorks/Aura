@@ -1,14 +1,14 @@
 /* global BABYLON */
 
 const DEFAULT_GRACE_SECONDS = 2;
-const DEFAULT_REPOSITION_SECONDS = 40;
-const DEFAULT_FORCE_RELEASE_SECONDS = 55;
 const DEFAULT_CHECK_INTERVAL = 1;
-const DEFAULT_RAY_LENGTH_METERS = 10;
+const DEFAULT_MIN_RAY_LENGTH_METERS = 8000;
+const DEFAULT_MAX_RAY_LENGTH_METERS = 20000;
 const DEFAULT_RAY_OFFSET_METERS = 1;
-const DEFAULT_FALLBACK_ALTITUDE_METERS = 600;
 const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
+const DEFAULT_SURFACE_OFFSET_METERS = 2;
+const MAX_CHECKS_PER_UPDATE = 6;
 
 function terrainPredicate(mesh) {
     if (!mesh?.checkCollisions) return false;
@@ -56,6 +56,7 @@ export class GroundSpawnGate {
         this.unitsPerMeter = unitsPerMeter;
 
         this.entries = new Map();
+        this._checkCursor = 0;
     }
 
     registerActor(actor, { planetRadius } = {}) {
@@ -64,13 +65,12 @@ export class GroundSpawnGate {
         const entry = {
             actor,
             planetRadius: planetRadius ?? actor.planetRadius ?? this.defaultPlanetRadius,
-            elapsed: 0,
             graceRemaining: DEFAULT_GRACE_SECONDS,
             timeSinceCheck: 0,
-            repositioned: false,
-            released: false,
             clampRemaining: 0,
             maxClampDt: DEFAULT_CLAMP_MAX_STEP_SECONDS,
+            released: false,
+            surfaceOffset: this._computeSurfaceOffset(actor, planetRadius),
         };
 
         this.entries.set(actor, entry);
@@ -80,9 +80,18 @@ export class GroundSpawnGate {
     update(dtSeconds) {
         if (dtSeconds <= 0 || this.entries.size === 0) return;
 
-        for (const [actor, entry] of this.entries) {
-            if (!entry?.actor?.mesh || entry.actor.mesh.isDisposed()) {
-                this.entries.delete(actor);
+        const entriesArray = Array.from(this.entries.values());
+        let checksRemaining = MAX_CHECKS_PER_UPDATE;
+        let checksUsed = 0;
+        const startIndex = entriesArray.length > 0
+            ? this._checkCursor % entriesArray.length
+            : 0;
+
+        for (let i = 0; i < entriesArray.length; i++) {
+            const entry = entriesArray[(startIndex + i) % entriesArray.length];
+            const actor = entry?.actor;
+            if (!actor?.mesh || actor.mesh.isDisposed()) {
+                if (actor) this.entries.delete(actor);
                 continue;
             }
 
@@ -94,21 +103,10 @@ export class GroundSpawnGate {
                 continue;
             }
 
-            entry.elapsed += dtSeconds;
             entry.timeSinceCheck += dtSeconds;
 
             // Keep actor frozen while waiting for ground
             this._freezeActor(entry.actor);
-
-            if (!entry.repositioned && entry.elapsed >= DEFAULT_REPOSITION_SECONDS) {
-                this._repositionHigh(entry);
-                entry.repositioned = true;
-            }
-
-            if (entry.elapsed >= DEFAULT_FORCE_RELEASE_SECONDS) {
-                this._forceRelease(entry);
-                continue;
-            }
 
             if (entry.graceRemaining > 0) {
                 entry.graceRemaining = Math.max(0, entry.graceRemaining - dtSeconds);
@@ -116,11 +114,20 @@ export class GroundSpawnGate {
             }
 
             if (entry.timeSinceCheck < DEFAULT_CHECK_INTERVAL) continue;
-            entry.timeSinceCheck = 0;
+            if (checksRemaining <= 0) continue;
 
-            if (this._hasGround(entry)) {
+            entry.timeSinceCheck = 0;
+            const groundHit = this._getGroundHit(entry);
+            checksRemaining--;
+            checksUsed++;
+            if (groundHit) {
+                this._placeOnGround(entry, groundHit);
                 this._release(entry);
             }
+        }
+
+        if (this.entries.size > 0) {
+            this._checkCursor = (startIndex + checksUsed) % this.entries.size;
         }
     }
 
@@ -140,13 +147,6 @@ export class GroundSpawnGate {
         if (actor.setFrozen) actor.setFrozen(false);
     }
 
-    _repositionHigh(entry) {
-        const planetRadius = entry.planetRadius ?? this.defaultPlanetRadius;
-        const targetRadius = planetRadius + DEFAULT_FALLBACK_ALTITUDE_METERS * this.unitsPerMeter;
-        const fallbackUp = this.player?.mesh?.position;
-        repositionActorRadially(entry.actor, targetRadius, fallbackUp);
-    }
-
     _applyClamp(entry, clampDuration = DEFAULT_CLAMP_GRACE_SECONDS) {
         entry.clampRemaining = clampDuration;
         entry.maxClampDt = DEFAULT_CLAMP_MAX_STEP_SECONDS;
@@ -159,36 +159,73 @@ export class GroundSpawnGate {
     }
 
     _release(entry) {
-        this._unfreezeActor(entry.actor);
-        this.entries.delete(entry.actor);
-    }
-
-    _forceRelease(entry) {
-        entry.released = true;
         this._applyClamp(entry);
         this._unfreezeActor(entry.actor);
+        entry.released = true;
     }
 
-    _hasGround(entry) {
+    _getRayLength(entry) {
+        const planetRadius = entry.planetRadius ?? this.defaultPlanetRadius;
+        const minLength = DEFAULT_MIN_RAY_LENGTH_METERS * this.unitsPerMeter;
+        const maxLength = DEFAULT_MAX_RAY_LENGTH_METERS * this.unitsPerMeter;
+        const quarterRadius = planetRadius * 0.25;
+        return Math.min(maxLength, Math.max(minLength, quarterRadius));
+    }
+
+    _computeSurfaceOffset(actor, planetRadius) {
+        const pos = actor?.mesh?.position;
+        const currentRadius = pos?.length ? pos.length() : 0;
+        const baseOffset = Math.max(0, currentRadius - (planetRadius ?? this.defaultPlanetRadius));
+        return Math.max(DEFAULT_SURFACE_OFFSET_METERS * this.unitsPerMeter, baseOffset);
+    }
+
+    _getGroundHit(entry) {
         const pos = entry.actor?.mesh?.position;
-        if (!pos || !this.scene) return false;
+        if (!pos || !this.scene) return null;
 
         let up = pos.clone();
         if (up.lengthSquared() < 1e-6) {
             up = this.player?.mesh?.position?.clone();
         }
-        if (!up || up.lengthSquared() < 1e-6) return false;
+        if (!up || up.lengthSquared() < 1e-6) return null;
         up.normalize();
 
         const offset = up.scale(DEFAULT_RAY_OFFSET_METERS * this.unitsPerMeter);
         const origin = pos.add(offset);
-        const ray = new BABYLON.Ray(
-            origin,
-            up.scale(-1),
-            DEFAULT_RAY_LENGTH_METERS * this.unitsPerMeter
-        );
+        const rayLength = this._getRayLength(entry);
+        const ray = new BABYLON.Ray(origin, up.scale(-1), rayLength);
 
         const pick = this.scene.pickWithRay(ray, terrainPredicate);
-        return !!(pick?.hit && pick.distance <= DEFAULT_RAY_LENGTH_METERS * this.unitsPerMeter + 1e-3);
+        if (pick?.hit && pick.distance <= rayLength + 1e-3) {
+            return { hitPoint: pick.pickedPoint ?? pick.hitPoint, distance: pick.distance, up };
+        }
+        return null;
+    }
+
+    _placeOnGround(entry, groundHit) {
+        const actor = entry.actor;
+        if (!actor?.mesh || !groundHit?.hitPoint) return;
+
+        let up = groundHit.up?.clone?.() ?? actor.mesh.position?.clone?.();
+        if (up && up.lengthSquared() > 0) {
+            up.normalize();
+        } else {
+            const fallbackUp = this.player?.mesh?.position?.clone?.();
+            if (fallbackUp && fallbackUp.lengthSquared() > 0) {
+                up = fallbackUp.normalize();
+            } else {
+                up = new BABYLON.Vector3(0, 1, 0);
+            }
+        }
+
+        const surfaceOffset = entry.surfaceOffset ?? DEFAULT_SURFACE_OFFSET_METERS * this.unitsPerMeter;
+        const target = groundHit.hitPoint.add(up.scale(surfaceOffset));
+        actor.mesh.position.copyFrom(target);
+        if (actor.position?.copyFrom) {
+            actor.position.copyFrom(target);
+        }
+        if (actor.velocity?.set) {
+            actor.velocity.set(0, 0, 0);
+        }
     }
 }
