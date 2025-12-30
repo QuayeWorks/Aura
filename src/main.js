@@ -141,6 +141,7 @@ const LOADING_REPOSITION_SECONDS = 40;
 const LOADING_FORCE_RELEASE_SECONDS = 45;
 const LOADING_RELEASE_CLAMP_SECONDS = 2;
 const LOADING_RELEASE_MAX_STEP = 1 / 120;
+const SAFE_ALTITUDE_METERS = 600; // keep the player well above the planet center during loads
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
@@ -466,9 +467,40 @@ function repositionPlayerToFallbackAltitude() {
     if (!player?.mesh) return;
     const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
     const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
-    const targetRadius = planetRadius + 600 * unitsPerMeter;
+    const targetRadius = planetRadius + SAFE_ALTITUDE_METERS * unitsPerMeter;
     const fallbackUp = player.mesh.position?.clone();
     repositionActorRadially(player, targetRadius, fallbackUp);
+}
+
+function ensurePlayerAndCameraAboveSafeAltitude() {
+    if (!player?.mesh) return;
+
+    const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
+    const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
+    const minRadius = planetRadius + SAFE_ALTITUDE_METERS * unitsPerMeter;
+    const currentRadius = player.mesh.position.length();
+
+    if (currentRadius < minRadius) {
+        const fallbackUp = player.mesh.position?.lengthSquared() > 1e-6
+            ? player.mesh.position
+            : new BABYLON.Vector3(0, 0, 1);
+        repositionActorRadially(player, minRadius, fallbackUp);
+    }
+
+    if (orbitCamera && player?.mesh) {
+        const camUp = player.mesh.position.clone();
+        if (camUp.lengthSquared() > 0) camUp.normalize();
+
+        cameraPivot.position.copyFrom(
+            player.mesh.position.add(camUp.scale(CAMERA_HEAD_OFFSET))
+        );
+        orbitCamera.target = cameraPivot.position;
+        orbitCamera.upVector = camUp;
+        cameraCollider.position.copyFrom(
+            computeDesiredCameraPosition(cameraPivot.position, camUp)
+        );
+        syncViewCamera(camUp);
+    }
 }
 
 function checkGroundUnderPlayer() {
@@ -967,6 +999,8 @@ function setupPlayerAndSystems() {
 
     if (player?.reprojectToSurface) player.reprojectToSurface();
 
+    ensurePlayerAndCameraAboveSafeAltitude();
+
     if (gameRuntime) gameRuntime.setEnabled(false);
 }
 
@@ -981,6 +1015,8 @@ function enterGameplayFromLoading() {
     if (player && player.setFrozen) player.setFrozen(false);
     if (player && player.setInputEnabled) player.setInputEnabled(true);
     if (player && player.reprojectToSurface) player.reprojectToSurface();
+
+    ensurePlayerAndCameraAboveSafeAltitude();
 
     if (orbitCamera && player?.mesh) {
         const up = player.mesh.position.clone();
