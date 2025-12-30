@@ -278,6 +278,10 @@ function createScene() {
             cameraColliderDebugVisible = !cameraColliderDebugVisible;
             if (cameraColliderDebugVisible) ensureCameraColliderDebugMesh();
         }
+        if (e.code === "F5" && terrain && terrain.toggleCullDebug) {
+            const visible = terrain.toggleCullDebug();
+            console.log(`Cull debug ${visible ? "ON" : "OFF"}`);
+        }
     });
     
 
@@ -1040,7 +1044,9 @@ engine.runRenderLoop(() => {
             const dbg = terrain.getDebugInfo(focusPos);
             const stats = dbg.lodStats || {};
             const per = stats.perLod || [];
-            const maxLod = stats.maxLodInUse ?? 0;
+            const renderCount = stats.renderCount ?? stats.totalVisible ?? 0;
+            const preloadCount = stats.preloadCount ?? 0;
+            const activeCount = dbg.activeLeaves ?? stats.activeLeafCount ?? (renderCount + preloadCount);
 
             const chunkSizeX = (dbg.chunkWorldSizeX ?? 0).toFixed(1);
 
@@ -1057,7 +1063,15 @@ engine.runRenderLoop(() => {
                     baseRes: dbg.baseChunkResolution,
                     sizeX: chunkSizeX,
                     perLod: per.map((v, idx) => `${idx}:${v || 0}`),
-                    nearStr
+                    nearStr,
+                    rendered: renderCount,
+                    preload: preloadCount,
+                    active: activeCount,
+                    cull: {
+                        horizon: stats.horizonCulled ?? 0,
+                        frustum: stats.frustumCulled ?? 0
+                    },
+                    showCull: !!dbg.showCullDebug
                 };
             }
         }
