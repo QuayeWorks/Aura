@@ -22,6 +22,8 @@ import { AudioSystem } from "./audio/AudioSystem.js";
 import { createAbilityTreePanel } from "./ui_dom/AbilityTreePanel.js";
 import { createLoadingOverlay as createDomLoadingOverlay } from "./ui_dom/LoadingOverlay.js";
 import { repositionActorRadially } from "./gameplay/GroundSpawnGate.js";
+import { DebugSettings } from "./debug/DebugSettings.js";
+import { DebugMenu } from "./ui_dom/DebugMenu.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -75,6 +77,55 @@ let sunMoonInfoText = null;
 let uiState = null;
 let domHud = null;
 let abilityTreePanel = null;
+let debugMenu = null;
+
+function getDebugMenuOptions() {
+    return [
+        { key: "showGameplayHud", label: "Gameplay HUD" },
+        { key: "showDebugHud", label: "HUD Debug Overlay" },
+        { key: "showDevPanel", label: "Dev Panel" },
+        { key: "showCompass", label: "Compass HUD" },
+        { key: "showPOIDebug", label: "POI Debug Meshes" },
+        { key: "showCullDebug", label: "Chunk Cull Stats" },
+        { key: "biomeDebug", label: "Biome Debug View" },
+        { key: "cameraColliderDebug", label: "Camera Collider Debug" },
+        { key: "logCollisionRecovery", label: "Log Collision Recovery" },
+        { key: "localSimulation", label: "Local Simulation" }
+    ];
+}
+
+function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
+    if (domHud) {
+        domHud.setGameplayVisible(!!flags.showGameplayHud);
+        domHud.setDebugVisible(!!flags.showDebugHud);
+    }
+    if (devPanel) {
+        const allowDevPanel = !devPanel.toggleGuard || devPanel.toggleGuard();
+        devPanel.setVisible(allowDevPanel && !!flags.showDevPanel);
+    }
+    if (compassHud) compassHud.setVisible(!!flags.showCompass);
+    if (terrain) {
+        if (terrain.setCullDebugVisible) terrain.setCullDebugVisible(!!flags.showCullDebug);
+        if (terrain.setBiomeDebugEnabled) terrain.setBiomeDebugEnabled(!!flags.biomeDebug);
+    }
+    if (gameRuntime?.poiManager?.setDebugVisible) {
+        gameRuntime.poiManager.setDebugVisible(!!flags.showPOIDebug);
+    }
+
+    cameraColliderDebugVisible = !!flags.cameraColliderDebug;
+    if (cameraColliderDebugVisible) ensureCameraColliderDebugMesh();
+    if (cameraColliderDebug) cameraColliderDebug.isVisible = cameraColliderDebugVisible;
+    if (cameraCollider) cameraCollider.isVisible = cameraColliderDebugVisible;
+
+    if (player?.setRecoveryLoggingEnabled) {
+        player.setRecoveryLoggingEnabled(!!flags.logCollisionRecovery);
+    }
+    if (gameRuntime?.setLocalSimEnabled) {
+        gameRuntime.setLocalSimEnabled(!!flags.localSimulation);
+    }
+}
+
+DebugSettings.subscribe(({ flags }) => applyDebugFlags(flags));
 
 
 // Timing
@@ -258,6 +309,12 @@ function createScene() {
         loadingOverlay = createDomLoadingOverlay();
     }
 
+    if (!debugMenu) {
+        debugMenu = new DebugMenu({ options: getDebugMenuOptions() });
+    }
+
+    applyDebugFlags();
+
     // Start in menu
     showMainMenu();
 
@@ -266,22 +323,6 @@ function createScene() {
         if (e.repeat) return;
         if (e.code === "Enter" && gameState === GameState.MENU) startNewGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
-        if (e.code === "KeyB" && terrain && terrain.cycleBiomeDebugMode) {
-            const mode = terrain.cycleBiomeDebugMode();
-            console.log("Biome debug mode:", mode);
-        }
-        if (e.code === "F11" && gameRuntime) {
-            e.preventDefault();
-            gameRuntime.toggleLocalSim();
-        }
-        if (e.code === "KeyC") {
-            cameraColliderDebugVisible = !cameraColliderDebugVisible;
-            if (cameraColliderDebugVisible) ensureCameraColliderDebugMesh();
-        }
-        if (e.code === "F5" && terrain && terrain.toggleCullDebug) {
-            const visible = terrain.toggleCullDebug();
-            console.log(`Cull debug ${visible ? "ON" : "OFF"}`);
-        }
     });
     
 
@@ -898,6 +939,8 @@ function setupPlayerAndSystems() {
         });
     }
 
+    applyDebugFlags();
+
     if (abilityTreePanel && gameRuntime?.abilityTree) {
         abilityTreePanel.setAbilityTree(gameRuntime.abilityTree);
     }
@@ -955,6 +998,7 @@ function enterGameplayFromLoading() {
 
     if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
     if (mainCamera && player && player.mesh) mainCamera.setTarget(player.mesh.position);
+    applyDebugFlags();
     gameState = GameState.PLAYING;
     autosaveTimer = 0;
 }

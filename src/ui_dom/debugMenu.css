@@ -1,0 +1,181 @@
+#debug-menu {
+    position: fixed;
+    top: 32px;
+    right: 32px;
+    width: 320px;
+    max-height: 80vh;
+    background: rgba(12, 16, 24, 0.9);
+    color: #e4e8ef;
+    font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    border: 1px solid #2c3648;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    padding: 12px;
+    overflow-y: auto;
+    z-index: 2000;
+    backdrop-filter: blur(6px);
+}
+
+#debug-menu.hud-hidden {
+    display: none;
+}
+
+.debug-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    gap: 8px;
+}
+
+.debug-menu-title {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.debug-menu-lock-state {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    background: #1f2b3a;
+    color: #86d9ff;
+}
+
+#debug-menu.locked .debug-menu-lock-state {
+    color: #ffb17a;
+}
+
+.debug-menu-close {
+    background: transparent;
+    color: #e4e8ef;
+    border: 1px solid #3b465a;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.debug-menu-gate {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.debug-menu-gate input[type="password"] {
+    flex: 1;
+    padding: 6px 8px;
+    background: #0f141d;
+    border: 1px solid #2d3644;
+    border-radius: 4px;
+    color: #e4e8ef;
+}
+
+.debug-menu-gate button {
+    background: #1f2b3a;
+    border: 1px solid #3b465a;
+    color: #e4e8ef;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.debug-menu-msg {
+    font-size: 12px;
+    color: #8ab8ff;
+}
+
+.debug-menu-msg.error {
+    color: #ff8c7a;
+}
+
+.debug-menu-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.debug-menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.debug-menu-label {
+    flex: 1;
+    font-size: 13px;
+}
+
+.debug-menu-toggle {
+    position: relative;
+    display: inline-block;
+    width: 46px;
+    height: 24px;
+}
+
+.debug-menu-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.debug-menu-toggle .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #3b465a;
+    transition: 0.2s;
+    border-radius: 24px;
+}
+
+.debug-menu-toggle .slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.2s;
+    border-radius: 50%;
+}
+
+.debug-menu-toggle input:checked + .slider {
+    background-color: #3ca6ff;
+}
+
+.debug-menu-toggle input:focus + .slider {
+    box-shadow: 0 0 1px #3ca6ff;
+}
+
+.debug-menu-toggle input:checked + .slider:before {
+    transform: translateX(22px);
+}
+
+.debug-menu-toggle input:disabled + .slider {
+    background: #1b2432;
+    cursor: not-allowed;
+}
+
+.debug-menu-toggle input:disabled + .slider:before {
+    background: #6b7381;
+}
+
+.debug-menu-button {
+    background: #1f2b3a;
+    color: #e4e8ef;
+    border: 1px solid #3b465a;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.debug-menu-button:disabled,
+.debug-menu-close:disabled,
+.debug-menu-gate button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
