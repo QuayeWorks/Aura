@@ -133,14 +133,11 @@ let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
 const LOADING_GRACE_SECONDS = 2;
-const LOADING_MAX_SECONDS = 45;
+const LOADING_PROGRESS_SECONDS = 40;
 const LOADING_CHECK_INTERVAL = 1;
-const GROUND_RAY_LENGTH_METERS = 10;
 const GROUND_RAY_OFFSET_METERS = 1;
-const LOADING_REPOSITION_SECONDS = 40;
-const LOADING_FORCE_RELEASE_SECONDS = 45;
-const LOADING_RELEASE_CLAMP_SECONDS = 2;
-const LOADING_RELEASE_MAX_STEP = 1 / 120;
+const MIN_LOADING_RAY_LENGTH_METERS = 8000;
+const MAX_LOADING_RAY_LENGTH_METERS = 20000;
 const SAFE_ALTITUDE_METERS = 600; // keep the player well above the planet center during loads
 
 // Third-person camera distance (scaled to planet)
@@ -442,8 +439,6 @@ function beginLoadingGate() {
         timeSinceLastCheck: 0,
         graceRemaining: LOADING_GRACE_SECONDS,
         hasGround: false,
-        repositioned: false,
-        forceReleased: false
     };
 
     if (loadingOverlay?.show) {
@@ -461,15 +456,6 @@ function freezePlayerForLoading() {
     if (player.velocity?.set) {
         player.velocity.set(0, 0, 0);
     }
-}
-
-function repositionPlayerToFallbackAltitude() {
-    if (!player?.mesh) return;
-    const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
-    const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
-    const targetRadius = planetRadius + SAFE_ALTITUDE_METERS * unitsPerMeter;
-    const fallbackUp = player.mesh.position?.clone();
-    repositionActorRadially(player, targetRadius, fallbackUp);
 }
 
 function ensurePlayerAndCameraAboveSafeAltitude() {
@@ -503,15 +489,28 @@ function ensurePlayerAndCameraAboveSafeAltitude() {
     }
 }
 
-function checkGroundUnderPlayer() {
-    if (!player?.mesh || !scene) return false;
+function getLoadingRayLengthUnits() {
+    const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
+    const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
+    const minLength = MIN_LOADING_RAY_LENGTH_METERS * unitsPerMeter;
+    const maxLength = MAX_LOADING_RAY_LENGTH_METERS * unitsPerMeter;
+    const quarterRadius = planetRadius * 0.25;
+    return Math.min(maxLength, Math.max(minLength, quarterRadius));
+}
 
-    const up = player.mesh.position.clone();
-    if (up.lengthSquared() < 1e-6) return false;
+function checkGroundUnderPlayer() {
+    if (!player?.mesh || !scene) return null;
+
+    let up = player.mesh.position.clone();
+    if (up.lengthSquared() < 1e-6) {
+        up = new BABYLON.Vector3(0, 1, 0);
+    }
     up.normalize();
 
-    const origin = player.mesh.position.add(up.scale(GROUND_RAY_OFFSET_METERS));
-    const ray = new BABYLON.Ray(origin, up.scale(-1), GROUND_RAY_LENGTH_METERS);
+    const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
+    const origin = player.mesh.position.add(up.scale(GROUND_RAY_OFFSET_METERS * unitsPerMeter));
+    const rayLength = getLoadingRayLengthUnits();
+    const ray = new BABYLON.Ray(origin, up.scale(-1), rayLength);
 
     const pick = scene.pickWithRay(
         ray,
@@ -523,21 +522,38 @@ function checkGroundUnderPlayer() {
         }
     );
 
-    return !!(pick?.hit && pick.distance <= GROUND_RAY_LENGTH_METERS + 1e-3);
+    if (pick?.hit && pick.distance <= rayLength + 1e-3) {
+        return { hitPoint: pick.pickedPoint ?? pick.hitPoint, distance: pick.distance, up };
+    }
+    return null;
 }
 
-function forceReleaseLoadingGate() {
-    if (!loadingGate || loadingGate.forceReleased) return;
-    loadingGate.forceReleased = true;
+function snapPlayerToGround(hit) {
+    if (!player?.mesh || !hit?.hitPoint) return;
 
-    if (player?.applyGroundGateClamp) {
-        player.applyGroundGateClamp(LOADING_RELEASE_CLAMP_SECONDS, LOADING_RELEASE_MAX_STEP);
+    let up = hit.up?.clone?.() ?? player.mesh.position?.clone?.();
+    if (!up || up.lengthSquared() < 1e-6) {
+        up = new BABYLON.Vector3(0, 1, 0);
     }
-    if (player?.velocity?.set) {
+    up.normalize();
+
+    const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
+    const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
+    const currentRadius = player.mesh.position.length();
+    const baseOffset = Math.max(0, currentRadius - planetRadius);
+    const bottomToCenter = (player.height ?? 0) * 0.5;
+    const clearance = (player.capsuleRadius ?? 0) * 1.5 + (player.height ?? 0) * 0.25;
+    const minOffset = Math.max(GROUND_RAY_OFFSET_METERS * unitsPerMeter, bottomToCenter + clearance);
+    const surfaceOffset = Math.max(minOffset, baseOffset);
+
+    const target = hit.hitPoint.add(up.scale(surfaceOffset));
+    player.mesh.position.copyFrom(target);
+    if (player.position?.copyFrom) {
+        player.position.copyFrom(target);
+    }
+    if (player.velocity?.set) {
         player.velocity.set(0, 0, 0);
     }
-
-    onLoadingGroundReady();
 }
 
 function onLoadingGroundReady() {
@@ -558,7 +574,7 @@ function updateLoadingGate(dtSeconds) {
     if (!loadingGate) return;
 
     loadingGate.elapsed += dtSeconds;
-    const progress = Math.min(loadingGate.elapsed / LOADING_MAX_SECONDS, 1);
+    const progress = Math.min(loadingGate.elapsed / LOADING_PROGRESS_SECONDS, 1);
 
     if (loadingOverlay) {
         loadingOverlay.setProgress(progress);
@@ -567,16 +583,6 @@ function updateLoadingGate(dtSeconds) {
         if (progress >= 1 && !loadingGate.hasGround) {
             loadingOverlay.setStreamingMessage("Still streaming terrain…");
         }
-    }
-
-    if (!loadingGate.repositioned && loadingGate.elapsed >= LOADING_REPOSITION_SECONDS) {
-        repositionPlayerToFallbackAltitude();
-        loadingGate.repositioned = true;
-    }
-
-    if (loadingGate.elapsed >= LOADING_FORCE_RELEASE_SECONDS) {
-        forceReleaseLoadingGate();
-        return;
     }
 
     if (loadingGate.graceRemaining > 0) {
@@ -588,8 +594,10 @@ function updateLoadingGate(dtSeconds) {
     if (loadingGate.timeSinceLastCheck < LOADING_CHECK_INTERVAL) return;
     loadingGate.timeSinceLastCheck = 0;
 
-    if (checkGroundUnderPlayer()) {
+    const groundHit = checkGroundUnderPlayer();
+    if (groundHit) {
         loadingGate.hasGround = true;
+        snapPlayerToGround(groundHit);
         onLoadingGroundReady();
     }
 }
