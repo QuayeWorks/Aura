@@ -2,6 +2,9 @@
 // PlanetPlayer.js
 // Simple gravity-based capsule controller for a spherical planet.
 
+const RESNAP_MIN_RAY_LENGTH = 8000;
+const RESNAP_MAX_RAY_LENGTH = 20000;
+
 export class PlanetPlayer {
     /**
      * @param {BABYLON.Scene} scene
@@ -436,6 +439,56 @@ this.groundFriction = options.groundFriction ?? 8;
         );
     }
 
+    _findSurfaceContact(pos, up) {
+        if (!pos || !up) return null;
+
+        let snapUp = up.clone();
+        if (snapUp.lengthSquared() < 1e-6) {
+            snapUp = pos.clone();
+        }
+        if (!snapUp || snapUp.lengthSquared() < 1e-6) return null;
+
+        snapUp.normalize();
+        const down = snapUp.scale(-1);
+
+        const probeStart = Math.max(this.capsuleRadius * 1.5, 2);
+        const rayLength = Math.min(
+            RESNAP_MAX_RAY_LENGTH,
+            Math.max(RESNAP_MIN_RAY_LENGTH, this.planetRadius * 0.25)
+        );
+
+        const downRay = new BABYLON.Ray(
+            pos.add(snapUp.scale(probeStart)),
+            down,
+            rayLength
+        );
+        const upRay = new BABYLON.Ray(
+            pos.add(down.scale(probeStart)),
+            snapUp,
+            rayLength
+        );
+
+        const downHit = this._terrainRaycast(downRay);
+        const upHit = this._terrainRaycast(upRay);
+
+        const candidates = [];
+        if (downHit?.hit && downHit.distance <= rayLength + 1e-3) {
+            candidates.push(downHit);
+        }
+        if (upHit?.hit && upHit.distance <= rayLength + 1e-3) {
+            candidates.push(upHit);
+        }
+
+        if (candidates.length === 0) return null;
+
+        const closest = candidates.reduce((best, current) => {
+            if (!best) return current;
+            return current.distance < best.distance ? current : best;
+        }, null);
+
+        return { up: snapUp, hitPoint: closest.pickedPoint ?? closest.hitPoint };
+    }
+
     _isInsideTerrainApprox(pos, up) {
         const outward = new BABYLON.Ray(pos, up, this.capsuleRadius * 1.5);
         const outwardHit = this._terrainRaycast(outward);
@@ -452,10 +505,21 @@ this.groundFriction = options.groundFriction ?? 8;
 
     _recoverToSafePosition(hitPoint, up, debugInfo = {}) {
         let target = null;
-        if (this.lastSafePosition) {
+
+        const surfaceHit = this._findSurfaceContact(this.mesh.position, up || this.mesh.position);
+        if (surfaceHit?.hitPoint) {
+            const snapUp = surfaceHit.up || up || this.mesh.position || BABYLON.Axis.Y;
+            const resolvedUp = snapUp.clone();
+            if (resolvedUp.lengthSquared() > 0) resolvedUp.normalize();
+            const spawnOffset = this.height * 0.5 + this.capsuleRadius;
+            target = surfaceHit.hitPoint.add(resolvedUp.scale(spawnOffset));
+        } else if (this.lastSafePosition) {
             target = this.lastSafePosition.clone();
         } else if (hitPoint) {
-            target = hitPoint.add(up.scale(this.height * 0.5 + this.capsuleRadius));
+            const fallbackUp = (up && up.lengthSquared && up.lengthSquared() > 0)
+                ? up
+                : BABYLON.Axis.Y;
+            target = hitPoint.add(fallbackUp.scale(this.height * 0.5 + this.capsuleRadius));
         } else if (this._previousPosition) {
             target = this._previousPosition.clone();
         }
