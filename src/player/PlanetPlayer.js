@@ -452,41 +452,58 @@ this.groundFriction = options.groundFriction ?? 8;
         const down = snapUp.scale(-1);
 
         const probeStart = Math.max(this.capsuleRadius * 1.5, 2);
-        const rayLength = Math.min(
+        const baseRayLength = Math.max(
+            RESNAP_MIN_RAY_LENGTH,
+            this.planetRadius * 0.25
+        );
+        const maxRayLength = Math.max(
             RESNAP_MAX_RAY_LENGTH,
-            Math.max(RESNAP_MIN_RAY_LENGTH, this.planetRadius * 0.25)
+            this.planetRadius * 2
         );
 
-        const downRay = new BABYLON.Ray(
-            pos.add(snapUp.scale(probeStart)),
-            down,
-            rayLength
-        );
-        const upRay = new BABYLON.Ray(
-            pos.add(down.scale(probeStart)),
-            snapUp,
-            rayLength
-        );
+        // Try progressively longer rays in both directions until we find contact.
+        let rayLength = Math.min(baseRayLength, maxRayLength);
+        while (rayLength <= maxRayLength + 1e-3) {
+            const downRay = new BABYLON.Ray(
+                pos.add(snapUp.scale(probeStart)),
+                down,
+                rayLength
+            );
+            const upRay = new BABYLON.Ray(
+                pos.add(down.scale(probeStart)),
+                snapUp,
+                rayLength
+            );
 
-        const downHit = this._terrainRaycast(downRay);
-        const upHit = this._terrainRaycast(upRay);
+            const downHit = this._terrainRaycast(downRay);
+            const upHit = this._terrainRaycast(upRay);
 
-        const candidates = [];
-        if (downHit?.hit && downHit.distance <= rayLength + 1e-3) {
-            candidates.push(downHit);
+            const candidates = [];
+            if (downHit?.hit && downHit.distance <= rayLength + 1e-3) {
+                candidates.push(downHit);
+            }
+            if (upHit?.hit && upHit.distance <= rayLength + 1e-3) {
+                candidates.push(upHit);
+            }
+
+            if (candidates.length > 0) {
+                const closest = candidates.reduce((best, current) => {
+                    if (!best) return current;
+                    return current.distance < best.distance ? current : best;
+                }, null);
+
+                return {
+                    up: snapUp,
+                    hitPoint: closest.pickedPoint ?? closest.hitPoint,
+                };
+            }
+
+            // Extend the ray length and try again; cap growth to avoid runaway values.
+            if (rayLength >= maxRayLength - 1e-3) break;
+            rayLength = Math.min(maxRayLength, rayLength * 1.5);
         }
-        if (upHit?.hit && upHit.distance <= rayLength + 1e-3) {
-            candidates.push(upHit);
-        }
 
-        if (candidates.length === 0) return null;
-
-        const closest = candidates.reduce((best, current) => {
-            if (!best) return current;
-            return current.distance < best.distance ? current : best;
-        }, null);
-
-        return { up: snapUp, hitPoint: closest.pickedPoint ?? closest.hitPoint };
+        return null;
     }
 
     _isInsideTerrainApprox(pos, up) {
