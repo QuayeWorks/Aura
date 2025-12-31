@@ -133,8 +133,8 @@ DebugSettings.subscribe(({ flags }) => applyDebugFlags(flags));
 let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
-const LOADING_DURATION_SECONDS = 60;
-const SAFE_ALTITUDE_METERS = 3300; // keep actors well above the planet center during loads
+const LOADING_DURATION_SECONDS = 30;
+const SAFE_ALTITUDE_METERS = 3000; // keep actors well above the planet center during loads
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
