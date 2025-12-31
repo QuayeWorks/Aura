@@ -66,6 +66,9 @@ this.groundFriction = options.groundFriction ?? 8;
         // Input can be disabled while in menus so gameplay controls don't bleed through.
         this.inputEnabled = options.inputEnabled ?? true;
 
+        // Gameplay activation gate (disabled during spawn safety period).
+        this.isActive = true;
+
         // Deterministic spawn direction (defaults to +Z). We then raycast to the real surface.
         this.spawnDirection = (options.spawnDirection
             ? options.spawnDirection.clone()
@@ -144,6 +147,15 @@ this.groundFriction = options.groundFriction ?? 8;
         }
     }
 
+    setActive(isActive) {
+        this.isActive = !!isActive;
+        this.setInputEnabled(!!isActive);
+        if (!this.isActive) {
+            this.velocity.set(0, 0, 0);
+            this.inputJumpRequested = false;
+        }
+    }
+
     applyGroundGateClamp(durationSeconds = 2, maxStepSeconds = 1 / 120) {
         this._postGateClampRemaining = Math.max(this._postGateClampRemaining, durationSeconds);
         this._postGateClampMaxStep = Math.min(this._postGateClampMaxStep, maxStepSeconds ?? this._postGateClampMaxStep);
@@ -184,6 +196,11 @@ this.groundFriction = options.groundFriction ?? 8;
 
     update(dtSeconds) {
         if (dtSeconds <= 0) return;
+
+        if (!this.isActive) {
+            this.velocity.set(0, 0, 0);
+            return;
+        }
 
         if (this.isFrozen) {
             this.velocity.set(0, 0, 0);
