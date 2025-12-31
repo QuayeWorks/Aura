@@ -189,17 +189,39 @@ export class GroundSpawnGate {
         }
         if (!up || up.lengthSquared() < 1e-6) return null;
         up.normalize();
+        const down = up.scale(-1);
 
-        const offset = up.scale(DEFAULT_RAY_OFFSET_METERS * this.unitsPerMeter);
-        const origin = pos.add(offset);
+        const offset = DEFAULT_RAY_OFFSET_METERS * this.unitsPerMeter;
+        const probeStartUp = pos.add(up.scale(offset));
+        const probeStartDown = pos.add(down.scale(offset));
         const rayLength = this._getRayLength(entry);
-        const ray = new BABYLON.Ray(origin, up.scale(-1), rayLength);
 
-        const pick = this.scene.pickWithRay(ray, terrainPredicate);
-        if (pick?.hit && pick.distance <= rayLength + 1e-3) {
-            return { hitPoint: pick.pickedPoint ?? pick.hitPoint, distance: pick.distance, up };
+        const downRay = new BABYLON.Ray(probeStartUp, down, rayLength);
+        const upRay = new BABYLON.Ray(probeStartDown, up, rayLength);
+
+        const downHit = this.scene.pickWithRay(downRay, terrainPredicate);
+        const upHit = this.scene.pickWithRay(upRay, terrainPredicate);
+
+        const candidates = [];
+        if (downHit?.hit && downHit.distance <= rayLength + 1e-3) {
+            candidates.push({ pick: downHit });
         }
-        return null;
+        if (upHit?.hit && upHit.distance <= rayLength + 1e-3) {
+            candidates.push({ pick: upHit });
+        }
+
+        if (candidates.length === 0) return null;
+
+        const nearest = candidates.reduce((best, current) => {
+            if (!best) return current;
+            return current.pick.distance < best.pick.distance ? current : best;
+        }, null);
+
+        return {
+            hitPoint: nearest.pick.pickedPoint ?? nearest.pick.hitPoint,
+            distance: nearest.pick.distance,
+            up,
+        };
     }
 
     _placeOnGround(entry, groundHit) {

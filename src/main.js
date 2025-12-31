@@ -506,26 +506,42 @@ function checkGroundUnderPlayer() {
         up = new BABYLON.Vector3(0, 1, 0);
     }
     up.normalize();
+    const down = up.scale(-1);
 
     const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
-    const origin = player.mesh.position.add(up.scale(GROUND_RAY_OFFSET_METERS * unitsPerMeter));
+    const probeOffset = GROUND_RAY_OFFSET_METERS * unitsPerMeter;
+    const originDown = player.mesh.position.add(up.scale(probeOffset));
+    const originUp = player.mesh.position.add(down.scale(probeOffset));
     const rayLength = getLoadingRayLengthUnits();
-    const ray = new BABYLON.Ray(origin, up.scale(-1), rayLength);
+    const downRay = new BABYLON.Ray(originDown, down, rayLength);
+    const upRay = new BABYLON.Ray(originUp, up, rayLength);
 
-    const pick = scene.pickWithRay(
-        ray,
-        (mesh) => {
-            if (!mesh?.checkCollisions) return false;
-            const meta = mesh.metadata || {};
-            if (meta.isTerrainCollider || meta.isTerrain) return true;
-            return mesh.name ? mesh.name.toLowerCase().startsWith("terrain") : false;
-        }
-    );
+    const predicate = (mesh) => {
+        if (!mesh?.checkCollisions) return false;
+        const meta = mesh.metadata || {};
+        if (meta.isTerrainCollider || meta.isTerrain) return true;
+        return mesh.name ? mesh.name.toLowerCase().startsWith("terrain") : false;
+    };
 
-    if (pick?.hit && pick.distance <= rayLength + 1e-3) {
-        return { hitPoint: pick.pickedPoint ?? pick.hitPoint, distance: pick.distance, up };
+    const downPick = scene.pickWithRay(downRay, predicate);
+    const upPick = scene.pickWithRay(upRay, predicate);
+
+    const candidates = [];
+    if (downPick?.hit && downPick.distance <= rayLength + 1e-3) {
+        candidates.push(downPick);
     }
-    return null;
+    if (upPick?.hit && upPick.distance <= rayLength + 1e-3) {
+        candidates.push(upPick);
+    }
+
+    if (candidates.length === 0) return null;
+
+    const closest = candidates.reduce((best, current) => {
+        if (!best) return current;
+        return current.distance < best.distance ? current : best;
+    }, null);
+
+    return { hitPoint: closest.pickedPoint ?? closest.hitPoint, distance: closest.distance, up };
 }
 
 function snapPlayerToGround(hit) {
