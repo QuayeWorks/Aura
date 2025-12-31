@@ -30,7 +30,6 @@ class NPC {
         this.interactionRadius = 40;
         this.inventory = inventory;
         this.isFrozen = false;
-        this.isActive = true;
 
         this.mesh = BABYLON.MeshBuilder.CreateBox(
             `npc_${name}`,
@@ -64,24 +63,20 @@ class NPC {
         this.isFrozen = !!isFrozen;
     }
 
-    setActive(isActive) {
-        this.isActive = !!isActive;
-    }
-
     applyGroundGateClamp() {
         // NPCs don't move, so nothing to clamp, but method exists for interface parity.
     }
 }
 
 export class SettlementSystem {
-    constructor({ scene, terrain, player, poiManager, inventory, hud, spawnGate } = {}) {
+    constructor({ scene, terrain, player, poiManager, inventory, hud, groundGate } = {}) {
         this.scene = scene;
         this.terrain = terrain;
         this.player = player;
         this.poiManager = poiManager;
         this.inventory = inventory;
         this.hud = hud;
-        this.spawnGate = spawnGate;
+        this.groundGate = groundGate;
         this.questGoal = { item: "Crystal Shard", required: 3 };
 
         this.dialog = createNPCDialog();
@@ -133,8 +128,8 @@ export class SettlementSystem {
             inventory: this.inventory
         });
 
-        if (this.spawnGate) {
-            this.spawnGate.registerActor(npc, { planetRadius: this.terrain?.radius, type: "npc" });
+        if (this.groundGate) {
+            this.groundGate.registerActor(npc, { planetRadius: this.terrain?.radius });
         }
 
         this.settlements.set(plan.id, { plan, mesh, npc });
@@ -158,7 +153,7 @@ export class SettlementSystem {
             return;
         }
         const npc = this._closestNPC();
-        if (!npc || this.player?.inputEnabled === false || !npc.isActive) return;
+        if (!npc || this.player?.inputEnabled === false) return;
         this.activeNPC = npc;
         this.dialog.renderDialog({
             name: npc.name,

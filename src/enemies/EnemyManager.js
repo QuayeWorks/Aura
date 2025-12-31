@@ -2,14 +2,14 @@
 import { Enemy } from "./Enemy.js";
 
 export class EnemyManager {
-    constructor({ scene, terrain, player, planetRadius, playerStats, dayNightSystem, spawnGate, spawnRadius = 10, maxEnemies = 2 }) {
+    constructor({ scene, terrain, player, planetRadius, playerStats, dayNightSystem, groundGate, spawnRadius = 10, maxEnemies = 2 }) {
         this.scene = scene;
         this.terrain = terrain;
         this.player = player;
         this.planetRadius = planetRadius ?? 1;
         this.playerStats = playerStats;
         this.dayNightSystem = dayNightSystem;
-        this.spawnGate = spawnGate;
+        this.groundGate = groundGate;
 
         this.enabled = true;
 
@@ -71,8 +71,8 @@ export class EnemyManager {
             id: enemyId,
             modelFile: config.model
         });
-        if (this.spawnGate) {
-            this.spawnGate.registerActor(enemy, { planetRadius: this.planetRadius, type: "enemy" });
+        if (this.groundGate) {
+            this.groundGate.registerActor(enemy, { planetRadius: this.planetRadius });
         }
         this.enemies.set(config.type, enemy);
         return enemy;
@@ -100,7 +100,10 @@ export class EnemyManager {
         }
 
         for (const enemy of this.enemies.values()) {
-            enemy.update(dtSeconds, this.player, () => {
+            const safeDt = this.groundGate
+                ? this.groundGate.consumeClampedDt(enemy, dtSeconds)
+                : dtSeconds;
+            enemy.update(safeDt, this.player, () => {
                 if (this.playerStats?.applyDamage) {
                     this.playerStats.applyDamage(6 * dtSeconds);
                 }

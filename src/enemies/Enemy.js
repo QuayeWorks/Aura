@@ -65,7 +65,6 @@ export class Enemy {
         this._pickNewPatrol();
 
         this.isFrozen = false;
-        this.isActive = true;
         this._postReleaseClampRemaining = 0;
         this._postReleaseMaxDt = 1 / 120;
 
@@ -115,10 +114,6 @@ export class Enemy {
         this.isFrozen = !!isFrozen;
     }
 
-    setActive(isActive) {
-        this.isActive = !!isActive;
-    }
-
     applyGroundGateClamp(durationSeconds = 2, maxStepSeconds = 1 / 120) {
         this._postReleaseClampRemaining = Math.max(this._postReleaseClampRemaining, durationSeconds);
         this._postReleaseMaxDt = maxStepSeconds ?? this._postReleaseMaxDt;
@@ -164,10 +159,6 @@ export class Enemy {
 
     update(dtSeconds, player, onAttack) {
         if (dtSeconds <= 0 || !this.mesh) return;
-
-        if (!this.isActive) {
-            return;
-        }
 
         if (this.isFrozen) {
             return;

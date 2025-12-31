@@ -10,10 +10,10 @@ import { AbilityTreeSystem } from "./AbilityTree.js";
 import { Inventory } from "./Inventory.js";
 import { SettlementSystem } from "../world/SettlementSystem.js";
 import { LocalMultiplayerSim, NetEventBus, NetSyncController } from "../multiplayer/NetModel.js";
-import { SpawnSafetyGate } from "./SpawnSafetyGate.js";
+import { GroundSpawnGate } from "./GroundSpawnGate.js";
 
 export class GameRuntime {
-    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem, saveSystem, spawnGate } = {}) {
+    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem, saveSystem } = {}) {
         this.player = player;
         this.terrain = terrain;
         this.hud = hud;
@@ -61,7 +61,10 @@ export class GameRuntime {
         this.enabled = true;
         this.timeSinceHudUpdate = 0;
 
-        this.spawnGate = spawnGate || new SpawnSafetyGate({
+        this.groundGate = new GroundSpawnGate({
+            scene,
+            terrain,
+            player,
             planetRadius: terrain?.radius ?? 1,
             unitsPerMeter: terrain?.biomeSettings?.unitsPerMeter ?? 1
         });
@@ -89,7 +92,7 @@ export class GameRuntime {
             planetRadius: terrain?.radius ?? 1,
             playerStats: this.playerStats,
             dayNightSystem: this.dayNightSystem,
-            spawnGate: this.spawnGate,
+            groundGate: this.groundGate,
             spawnRadius: 10,
             maxEnemies: 2
         });
@@ -101,7 +104,7 @@ export class GameRuntime {
             poiManager: this.poiManager,
             inventory: this.inventory,
             hud: this.hud,
-            spawnGate: this.spawnGate,
+            groundGate: this.groundGate,
         });
 
         this.localPlayerId = "player-local";
@@ -167,6 +170,8 @@ export class GameRuntime {
     update(dtSeconds) {
         if (!this.enabled) return;
         if (!this.player) return;
+
+        this.groundGate?.update(dtSeconds);
 
         this.playerStats.update(dtSeconds);
         this.abilities.update(dtSeconds);

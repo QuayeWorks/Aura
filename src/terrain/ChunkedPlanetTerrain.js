@@ -6,7 +6,7 @@ import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-        this.maxBuildDistance = 34000;
+        this.maxBuildDistance = 36000;
         this.seed = options.seed ?? 1337;
 
         // Legacy grid options kept for compatibility with callers / HUD
@@ -398,14 +398,6 @@ export class ChunkedPlanetTerrain {
     _computeHorizonCosine(focusPosition) {
         const rP = focusPosition.length();
         if (rP < 1e-3 || this.radius <= 0) return -1;
-
-        // When the camera is inside the planet radius (e.g. during spawn
-        // before the player is fully placed on the surface), the horizon
-        // check becomes overly aggressive because radius / rP > 1. That
-        // forces cosHorizon to 1.0 and culls every chunk. In that situation
-        // we want to effectively disable horizon culling until the camera is
-        // above the surface.
-        if (rP <= this.radius) return -1;
 
         const raw = this.radius / rP - this.horizonCullMargin;
         return Math.min(1, Math.max(-1, raw));
