@@ -455,7 +455,7 @@ function ensurePlayerAndCameraAboveSafeAltitude() {
 
     const unitsPerMeter = terrain?.biomeSettings?.unitsPerMeter ?? 1;
     const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
-    const minRadius = planetRadius + SAFE_ALTITUDE_METERS * unitsPerMeter;
+    const minRadius = planetRadius;
     const currentRadius = player.mesh.position.length();
 
     if (currentRadius < minRadius) {
