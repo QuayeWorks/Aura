@@ -958,11 +958,6 @@ _collectCarvesForNode(node) {
         return next;
     }
 
-    setBiomeDebugEnabled(isEnabled) {
-        const next = isEnabled ? "biome" : "off";
-        this.setBiomeSettings({ debugMode: next });
-    }
-
     _forceRebuildActiveChunks() {
         for (const leaf of this.activeLeaves) {
             this._ensureTerrainForNode(leaf);
@@ -984,10 +979,6 @@ _collectCarvesForNode(node) {
     toggleCullDebug() {
         this.debugShowCullStats = !this.debugShowCullStats;
         return this.debugShowCullStats;
-    }
-
-    setCullDebugVisible(isVisible) {
-        this.debugShowCullStats = !!isVisible;
     }
 
     getDebugInfo(focusPosition) {

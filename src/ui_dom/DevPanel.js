@@ -25,7 +25,12 @@ export class DevPanel {
         this.lastUpdate = 0;
         this.toggleGuard = null;
 
-        // Visibility is now driven by DebugSettings via the DOM Debug Menu.
+        window.addEventListener("keydown", (ev) => {
+            if (ev.code === "F3") {
+                if (this.toggleGuard && !this.toggleGuard()) return;
+                this.setVisible(!this.visible);
+            }
+        });
     }
 
     _ensureRoot() {

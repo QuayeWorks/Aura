@@ -34,7 +34,11 @@ export class CompassHUD {
         this.container.appendChild(this.latText);
         this.root.appendChild(this.container);
 
-        // Visibility is now driven by DebugSettings via the DOM Debug Menu.
+        window.addEventListener("keydown", (ev) => {
+            if (ev.code === "F10") {
+                this.setVisible(!this.visible);
+            }
+        });
     }
 
     _ensureRoot() {
