@@ -77,6 +77,7 @@ let domHud = null;
 let abilityTreePanel = null;
 let debugMenu = null;
 let debugSubscription = null;
+let showCullDebugOverlay = false;
 
 function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
     if (domHud) {
@@ -87,6 +88,8 @@ function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
     if (devPanel) {
         devPanel.setVisible(!!flags.showDevPanel);
     }
+
+    showCullDebugOverlay = !!flags.showCullDebug;
 
     if (compassHud) {
         compassHud.setVisible(!!flags.showCompass);
@@ -125,6 +128,7 @@ function ensureDebugMenu() {
         { key: "showCompass", label: "Compass" },
         { key: "showPOIDebug", label: "POI Debug" },
         { key: "cameraColliderDebug", label: "Camera Collider" },
+        { key: "showCullDebug", label: "Cull Debug" },
         { key: "biomeDebug", label: "Biome Debug" },
         { key: "localSimulation", label: "Local Simulation" },
         { key: "logCollisionRecovery", label: "Log Collision Recovery" }
@@ -325,6 +329,11 @@ function createScene() {
         if (e.repeat) return;
         if (e.code === "Enter" && gameState === GameState.MENU) startNewGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
+        if (e.code === "F5") {
+            showCullDebugOverlay = !showCullDebugOverlay;
+            DebugSettings.setFlag("showCullDebug", showCullDebugOverlay);
+            e.preventDefault();
+        }
     });
     
 
@@ -1053,7 +1062,15 @@ engine.runRenderLoop(() => {
                     baseRes: dbg.baseChunkResolution,
                     sizeX: chunkSizeX,
                     perLod: per.map((v, idx) => `${idx}:${v || 0}`),
-                    nearStr
+                    nearStr,
+                    visible: dbg.visibleCount ?? stats.totalVisible ?? 0,
+                    rendered: dbg.renderCount ?? stats.renderCount ?? 0,
+                    preload: dbg.preloadCount ?? stats.preloadCount ?? 0,
+                    cull: {
+                        horizon: dbg.horizonCulled ?? stats.horizonCulled ?? 0,
+                        frustum: dbg.frustumCulled ?? stats.frustumCulled ?? 0
+                    },
+                    showCullDebug: showCullDebugOverlay
                 };
             }
         }

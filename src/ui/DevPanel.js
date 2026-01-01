@@ -63,8 +63,16 @@ export class DevPanel {
             lines.push(
                 `Chunks   ${c.count}  baseRes:${c.baseRes}  sizeX:${c.sizeX}`
             );
+            lines.push(
+                `Visible  total:${c.visible ?? 0}  render:${c.rendered ?? 0}  preload:${c.preload ?? 0}`
+            );
             if (c.perLod) {
                 lines.push(`LOD load [${c.perLod.join("  ")}]${c.nearStr ? "  " + c.nearStr : ""}`);
+            }
+            if (c.showCullDebug && c.cull) {
+                lines.push(
+                    `Culled   horizon:${c.cull.horizon ?? 0}  frustum:${c.cull.frustum ?? 0}`
+                );
             }
         }
 
