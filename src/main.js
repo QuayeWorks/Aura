@@ -148,7 +148,7 @@ function ensureDebugMenu() {
 let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
-const LOADING_WAIT_SECONDS = 30;
+const LOADING_WAIT_SECONDS = 60;
 const LOADING_RELEASE_CLAMP_SECONDS = 2;
 const LOADING_RELEASE_MAX_STEP = 1 / 120;
 
