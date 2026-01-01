@@ -833,7 +833,7 @@ function setupPlayerAndSystems() {
     if (!player) {
         // Create player on planet surface
         player = new PlanetPlayer(scene, terrain, {
-            planetRadius: PLANET_RADIUS_UNITS + 500,
+            planetRadius: PLANET_RADIUS_UNITS + 50,
             walkSpeed: 2.2,
             runSpeed: 11,
             height: 1.8,
