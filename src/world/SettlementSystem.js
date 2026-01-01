@@ -2,7 +2,7 @@
 // SettlementSystem.js
 // Uses POIManager hooks to spawn lightweight settlements with NPC vendors.
 
-import { createNPCDialog } from "../ui_dom/NPCDialog.js";
+import { createNPCDialog } from "../ui/NPCDialog.js";
 
 const VENDOR_ITEMS = [
     { name: "Crystal Shard", price: 8 },

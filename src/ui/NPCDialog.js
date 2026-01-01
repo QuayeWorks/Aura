@@ -1,4 +1,4 @@
-// src/ui_dom/NPCDialog.js
+// src/ui/NPCDialog.js
 // DOM dialog + vendor panel for settlement NPCs.
 
 export function createNPCDialog() {

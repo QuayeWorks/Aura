@@ -1,9 +1,9 @@
-// src/terrain/workers/terrainMeshWorker.js
+// src/workers/terrainMeshWorker.js
 // Worker does: SDF field + subtractive sphere carves + marching cubes + normals + colors.
 // No BABYLON here.
 
 import { edgeTable, triTable } from "./mcTables.js";
-import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "../biomeSettings.js";
+import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "../terrain/biomeSettings.js";
 
 // Corner index -> (dx, dy, dz)
 const CORNER_OFFSETS = [

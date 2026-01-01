@@ -1,4 +1,4 @@
-// src/ui_dom/CompassHUD.js
+// src/ui/CompassHUD.js
 // DOM-based compass + latitude overlay for orientation awareness.
 
 export class CompassHUD {

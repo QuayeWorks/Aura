@@ -1,4 +1,4 @@
-// src/ui_dom/HUD.js
+// src/ui/HUD.js
 // Lightweight DOM HUD overlay (health, Nen, abilities, level/XP, debug).
 
 function createBar(labelText, className) {

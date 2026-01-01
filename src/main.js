@@ -1,9 +1,7 @@
 /* global BABYLON */
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
-// Minimap is intentionally disabled for now.
-// (Keep the import commented to avoid bundling/confusion until RTT-based minimap returns.)
-// import { createMinimapViewport } from "./ui/MinimapViewport.js";
+// Minimap is intentionally disabled for now. Keep disabled until a new RTT-based minimap returns.
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 import { PlanetPlayer } from "./player/PlanetPlayer.js";
 import { DayNightSystem } from "./daynight/DayNightSystem.js";
@@ -11,19 +9,19 @@ import {
     createMainMenu,
     createSettingsMenu,
     createHud
-} from "./menus/MainMenuUI.js";
-import { createUIStateHelpers } from "./menus/GameUIState.js";
+} from "./ui/MainMenuUI.js";
+import { createUIStateHelpers } from "./ui/GameUIState.js";
 import { GameRuntime } from "./gameplay/GameRuntime.js";
-import { createDomHUD } from "./ui_dom/HUD.js";
-import { DevPanel } from "./ui_dom/DevPanel.js";
+import { createDomHUD } from "./ui/HUD.js";
+import { DevPanel } from "./ui/DevPanel.js";
 import { SaveSystem } from "./save/SaveSystem.js";
-import { CompassHUD } from "./ui_dom/CompassHUD.js";
+import { CompassHUD } from "./ui/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
-import { createAbilityTreePanel } from "./ui_dom/AbilityTreePanel.js";
-import { createLoadingOverlay as createDomLoadingOverlay } from "./ui_dom/LoadingOverlay.js";
+import { createAbilityTreePanel } from "./ui/AbilityTreePanel.js";
+import { createLoadingOverlay as createDomLoadingOverlay } from "./ui/LoadingOverlay.js";
 import { raiseActorToSafeAltitude } from "./gameplay/GroundSpawnGate.js";
-import { DebugMenu } from "./ui_dom/DebugMenu.js";
-import { DebugSettings } from "./debug/DebugSettings.js";
+import { DebugMenu } from "./ui/DebugMenu.js";
+import { DebugSettings } from "./systems/DebugSettings.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);

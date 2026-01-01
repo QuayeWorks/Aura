@@ -12,9 +12,9 @@ function ensureFieldWorker() {
     if (typeof Worker === "undefined") return null;
     if (FIELD_WORKER) return FIELD_WORKER;
 
-    // Worker lives next to this file
+    // Worker lives in the shared workers directory
     FIELD_WORKER = new Worker(
-        new URL("./workers/terrainFieldWorker.js", import.meta.url),
+        new URL("../workers/terrainFieldWorker.js", import.meta.url),
         { type: "module" }
     );
 
@@ -80,7 +80,7 @@ function ensureMeshWorker() {
     if (MESH_WORKER) return MESH_WORKER;
 
     MESH_WORKER = new Worker(
-        new URL("./workers/terrainMeshWorker.js", import.meta.url),
+        new URL("../workers/terrainMeshWorker.js", import.meta.url),
         { type: "module" }
     );
 
