@@ -11,6 +11,7 @@ const defaultFlags = {
     cameraColliderDebug: false,
     logCollisionRecovery: false,
     localSimulation: false,
+    flyMode: false,
 };
 
 let unlocked = false;
@@ -51,13 +52,17 @@ export const DebugSettings = {
         return flags[name];
     },
 
-    setFlag(name, value) {
-        if (!unlocked) return;
+    setFlag(name, value, { force = false } = {}) {
+        if (!(force || unlocked)) return;
         if (!(name in flags)) return;
         const next = !!value;
         if (flags[name] === next) return;
         flags[name] = next;
         notify({ name, value: next, flags: { ...flags }, unlocked });
+    },
+
+    forceSetFlag(name, value) {
+        this.setFlag(name, value, { force: true });
     },
 
     getAllFlags() {
