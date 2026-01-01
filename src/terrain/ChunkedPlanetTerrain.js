@@ -31,6 +31,9 @@ export class ChunkedPlanetTerrain {
         this.colliderEnableDistance =
             options.colliderEnableDistance ?? this.radius * 0.12;
 
+        this.horizonCullMargin = options.horizonCullMargin ?? 0.02;
+        this.preloadFrustumMargin = options.preloadFrustumMargin ?? 0.0;
+
         // Shared terrain material across all leaves
         this.material = new BABYLON.StandardMaterial("terrainSharedMat", this.scene);
         this.material.diffuseColor = new BABYLON.Color3(0.2, 0.9, 0.35);
@@ -73,7 +76,11 @@ export class ChunkedPlanetTerrain {
         this.lastLodStats = {
             totalVisible: 0,
             perLod: [0, 0, 0, 0, 0, 0],
-            maxLodInUse: 0
+            maxLodInUse: 0,
+            renderCount: 0,
+            preloadCount: 0,
+            horizonCulled: 0,
+            frustumCulled: 0
         };
 
         this.lodUpdateCounter = 0;
@@ -83,6 +90,9 @@ export class ChunkedPlanetTerrain {
         // Quadtree state
         this.rootNode = null;
         this.activeLeaves = [];
+        this.activeLeafSet = new Set();
+        this.renderableLeafIdSet = new Set();
+        this.preloadLeafIdSet = new Set();
 
         // Build the initial quadtree (replaces the old fixed grid)
         this._initializeQuadtree();
@@ -132,6 +142,66 @@ export class ChunkedPlanetTerrain {
     _isWithinViewDistance(dist) {
         const maxDist = this.maxBuildDistance || (this.radius ? this.radius * 2.0 : 1000);
         return dist <= maxDist;
+    }
+
+
+    _getNodeBoundingSphere(node) {
+        const cx = (node.bounds.minX + node.bounds.maxX) * 0.5;
+        const cy = (node.bounds.minY + node.bounds.maxY) * 0.5;
+        const cz = (node.bounds.minZ + node.bounds.maxZ) * 0.5;
+
+        const hx = (node.bounds.maxX - node.bounds.minX) * 0.5;
+        const hy = (node.bounds.maxY - node.bounds.minY) * 0.5;
+        const hz = (node.bounds.maxZ - node.bounds.minZ) * 0.5;
+        const radius = Math.sqrt(hx * hx + hy * hy + hz * hz);
+
+        return { center: new BABYLON.Vector3(cx, cy, cz), radius };
+    }
+
+    _isNodeAboveHorizon(nodeCenter, focusPos) {
+        if (!focusPos || !this.radius) return true;
+
+        const rP = focusPos.length();
+        if (rP < 1e-5) return true;
+
+        const cosHorizon = Math.min(1, Math.max(-1, this.radius / rP));
+
+        const uP = focusPos.scale(1 / rP);
+        const lenNode = nodeCenter.length();
+        if (lenNode < 1e-5) return true;
+        const uN = nodeCenter.scale(1 / lenNode);
+
+        const dot = BABYLON.Vector3.Dot(uP, uN);
+
+        return dot >= (cosHorizon - this.horizonCullMargin);
+    }
+
+    _getCameraFrustumPlanes() {
+        const cam = this.scene?.activeCamera;
+        if (!cam || !cam.getTransformationMatrix) return null;
+        const transform = cam.getTransformationMatrix();
+        return BABYLON.Frustum.GetPlanes(transform);
+    }
+
+    _sphereInFrustum(planes, sphere, margin = 0) {
+        if (!planes || !sphere) return true;
+
+        const center = sphere.center;
+        const radius = sphere.radius + margin;
+
+        for (const plane of planes) {
+            if (!plane) continue;
+            if (plane.dotCoordinate(center) <= -radius) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    _getPreloadFrustumMargin() {
+        if (this.preloadFrustumMargin > 0) return this.preloadFrustumMargin;
+        if (this.chunkWorldSizeX > 0) return this.chunkWorldSizeX * 0.35;
+        return this.radius * 0.1;
     }
 
 
@@ -252,6 +322,9 @@ export class ChunkedPlanetTerrain {
         }
         this.rootNode = null;
         this.activeLeaves = [];
+        this.activeLeafSet = new Set();
+        this.renderableLeafIdSet = new Set();
+        this.preloadLeafIdSet = new Set();
         this.buildQueue = [];
     }
 
@@ -440,11 +513,20 @@ export class ChunkedPlanetTerrain {
         const stats = {
             totalVisible: 0,
             perLod: [0, 0, 0, 0, 0, 0],
-            maxLodInUse: 0
+            maxLodInUse: 0,
+            renderCount: 0,
+            preloadCount: 0,
+            horizonCulled: 0,
+            frustumCulled: 0
         };
+
+        const frustumPlanes = this._getCameraFrustumPlanes();
+        const preloadMargin = this._getPreloadFrustumMargin();
 
         const stack = [this.rootNode];
         const newLeaves = [];
+        const renderableLeaves = [];
+        const preloadLeaves = [];
 
         while (stack.length > 0) {
             const node = stack.pop();
@@ -454,17 +536,31 @@ export class ChunkedPlanetTerrain {
 
             // Straight-line distance (for view culling)
             const centerDist = BABYLON.Vector3.Distance(focusPosition, center);
-            const onNearSide = this._isChunkOnNearHemisphere(
-                center,
-                focusPosition
-            );
+            const aboveHorizon = this._isNodeAboveHorizon(center, focusPosition);
             const withinView = this._isWithinViewDistance(centerDist);
 
-            if (!onNearSide || !withinView) {
+            if (!aboveHorizon || !withinView) {
+                if (!aboveHorizon) stats.horizonCulled++;
                 if (node.terrain && node.terrain.mesh) {
                     node.terrain.mesh.setEnabled(false);
                 }
                 // No further refinement when not visible
+                continue;
+            }
+
+            const sphere = this._getNodeBoundingSphere(node);
+            const inFrustum = this._sphereInFrustum(frustumPlanes, sphere, 0);
+            const inPreloadFrustum = inFrustum || this._sphereInFrustum(
+                frustumPlanes,
+                sphere,
+                preloadMargin
+            );
+
+            if (!inPreloadFrustum) {
+                stats.frustumCulled++;
+                if (node.terrain && node.terrain.mesh) {
+                    node.terrain.mesh.setEnabled(false);
+                }
                 continue;
             }
 
@@ -485,7 +581,10 @@ export class ChunkedPlanetTerrain {
                 surfaceDist = this.radius * angle;
             }
 
-            const desiredLod = this._lodForDistance(surfaceDist);
+            const desiredLodBase = this._lodForDistance(surfaceDist);
+            const desiredLod = inFrustum
+                ? desiredLodBase
+                : Math.min(desiredLodBase, 1);
             const framesSinceChange =
                 this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
             const canChangeLod =
@@ -516,20 +615,30 @@ export class ChunkedPlanetTerrain {
             // Leaf that should be visible
             newLeaves.push(node);
             stats.totalVisible++;
-            if (node.level >= 0 && node.level < stats.perLod.length) {
-                stats.perLod[node.level]++;
-                if (node.level > stats.maxLodInUse) {
-                    stats.maxLodInUse = node.level;
+            if (inFrustum) {
+                renderableLeaves.push(node);
+                stats.renderCount++;
+                if (node.level >= 0 && node.level < stats.perLod.length) {
+                    stats.perLod[node.level]++;
+                    if (node.level > stats.maxLodInUse) {
+                        stats.maxLodInUse = node.level;
+                    }
                 }
+            } else {
+                preloadLeaves.push(node);
+                stats.preloadCount++;
             }
 
             // Ensure mesh is enabled if already built
             if (node.terrain && node.terrain.mesh) {
-                node.terrain.mesh.setEnabled(true);
+                node.terrain.mesh.setEnabled(inFrustum);
             }
         }
 
         this.activeLeaves = newLeaves;
+        this.activeLeafSet = new Set(newLeaves.map((n) => n.id));
+        this.renderableLeafIdSet = new Set(renderableLeaves.map((n) => n.id));
+        this.preloadLeafIdSet = new Set(preloadLeaves.map((n) => n.id));
         this.lastLodStats = stats;
 
         // Queue builds for any leaves that need them (progressive refinement)
@@ -605,6 +714,12 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
         // This job is no longer queued
         this.queuedJobKeys.delete(key);
 
+        const stillActive = this.activeLeafSet?.has(node.id);
+        if (!stillActive) {
+            // Node fell out of relevance before processing this job
+            continue;
+        }
+
         // Ensure terrain instance exists
         this._ensureTerrainForNode(node);
 
@@ -624,6 +739,10 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
             node.lastBuiltRevision = revisionKey;
 
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
+            const shouldRender = this.renderableLeafIdSet?.has(node.id);
+            if (node.terrain?.mesh) {
+                node.terrain.mesh.setEnabled(!!shouldRender);
+            }
             this._onChunkBuilt();
 
             this.inFlightJobKeys.delete(key);
@@ -862,7 +981,12 @@ _collectCarvesForNode(node) {
             maxLodInUse: this.lastLodStats.maxLodInUse,
             chunkWorldSizeX: this.chunkWorldSizeX,
             chunkWorldSizeZ: this.chunkWorldSizeZ,
-            worldSpan: this.worldSpan
+            worldSpan: this.worldSpan,
+            visibleCount: this.activeLeaves.length,
+            renderCount: this.lastLodStats.renderCount,
+            preloadCount: this.lastLodStats.preloadCount,
+            horizonCulled: this.lastLodStats.horizonCulled,
+            frustumCulled: this.lastLodStats.frustumCulled
         };
 
         if (!focusPosition || !this.activeLeaves.length) {
