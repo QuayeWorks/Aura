@@ -1,7 +1,7 @@
 /* global BABYLON */
 
-const SAFE_ALTITUDE_METERS = 3300;
-const RELEASE_DELAY_SECONDS = 30;
+const SAFE_ALTITUDE_METERS = 100;
+const RELEASE_DELAY_SECONDS = 50;
 
 function resolvePosition(actor) {
     return actor?.mesh?.position || actor?.position || null;
@@ -99,7 +99,7 @@ export class SpawnSafetyGate {
     _liftToSafeAltitude(entry) {
         const actor = entry.actor;
         const up = resolveUpVector(actor, entry.fallbackUp);
-        const safeUnits = SAFE_ALTITUDE_METERS * this.unitsPerMeter;
+        const safeUnits = SAFE_ALTITUDE_METERS;
         const targetRadius = (entry.planetRadius ?? this.defaultPlanetRadius) + safeUnits;
         const newPos = up.scale(targetRadius);
         applyPosition(actor, newPos);
