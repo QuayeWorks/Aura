@@ -6,10 +6,10 @@ const DEFAULT_FORCE_RELEASE_SECONDS = 45;
 const DEFAULT_CHECK_INTERVAL = 1;
 const DEFAULT_RAY_LENGTH_METERS = 10;
 const DEFAULT_RAY_OFFSET_METERS = 1;
-const DEFAULT_FALLBACK_ALTITUDE_METERS = 100;
+const DEFAULT_FALLBACK_ALTITUDE_METERS = 600;
 const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
-const DEFAULT_SAFE_ALTITUDE_METERS = 100;
+const DEFAULT_SAFE_ALTITUDE_METERS = 3300;
 
 function terrainPredicate(mesh) {
     if (!mesh?.checkCollisions) return false;
@@ -153,7 +153,7 @@ export class GroundSpawnGate {
 
     _repositionHigh(entry) {
         const planetRadius = entry.planetRadius ?? this.defaultPlanetRadius;
-        const targetRadius = planetRadius + DEFAULT_FALLBACK_ALTITUDE_METERS;
+        const targetRadius = planetRadius + DEFAULT_FALLBACK_ALTITUDE_METERS * this.unitsPerMeter;
         const fallbackUp = this.player?.mesh?.position;
         repositionActorRadially(entry.actor, targetRadius, fallbackUp);
     }
