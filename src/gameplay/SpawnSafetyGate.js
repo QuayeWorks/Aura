@@ -1,6 +1,6 @@
 /* global BABYLON */
 
-const RELEASE_DELAY_SECONDS = 30;
+const RELEASE_DELAY_SECONDS = 50;
 
 function resolvePosition(actor) {
     return actor?.mesh?.position || actor?.position || null;
