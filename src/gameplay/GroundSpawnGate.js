@@ -9,6 +9,7 @@ const DEFAULT_RAY_OFFSET_METERS = 1;
 const DEFAULT_FALLBACK_ALTITUDE_METERS = 600;
 const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
+const DEFAULT_SAFE_ALTITUDE_METERS = 3300;
 
 function terrainPredicate(mesh) {
     if (!mesh?.checkCollisions) return false;
@@ -45,6 +46,16 @@ export function repositionActorRadially(actor, targetRadius, fallbackUp) {
     if (actor.velocity?.set) {
         actor.velocity.set(0, 0, 0);
     }
+}
+
+export function raiseActorToSafeAltitude(actor, {
+    planetRadius,
+    unitsPerMeter = 1,
+    fallbackUp
+} = {}) {
+    const targetRadius = (planetRadius ?? actor?.planetRadius ?? 1)
+        + DEFAULT_SAFE_ALTITUDE_METERS * unitsPerMeter;
+    repositionActorRadially(actor, targetRadius, fallbackUp);
 }
 
 export class GroundSpawnGate {
