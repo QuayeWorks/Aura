@@ -86,6 +86,24 @@ export class GroundSpawnGate {
 
         this.entries.set(actor, entry);
         this._freezeActor(actor);
+        this._moveActorToCenter(entry);
+    }
+
+    moveAllToCenter() {
+        for (const entry of this.entries.values()) {
+            this._moveActorToCenter(entry);
+        }
+    }
+
+    spawnAllAtNorthPole({ planetRadius, surfaceOffset = 10 } = {}) {
+        const radius = (planetRadius ?? this.defaultPlanetRadius) + surfaceOffset;
+        const up = new BABYLON.Vector3(0, 1, 0);
+
+        for (const entry of this.entries.values()) {
+            repositionActorRadially(entry.actor, radius, up);
+            entry.repositioned = true;
+            this._forceRelease(entry);
+        }
     }
 
     update(dtSeconds) {
@@ -178,6 +196,15 @@ export class GroundSpawnGate {
         entry.released = true;
         this._applyClamp(entry);
         this._unfreezeActor(entry.actor);
+    }
+
+    _moveActorToCenter(entry) {
+        if (!entry?.actor) return;
+        const fallbackUp = entry.actor.spawnDirection?.clone?.()
+            || this.player?.spawnDirection?.clone?.()
+            || new BABYLON.Vector3(0, 1, 0);
+        repositionActorRadially(entry.actor, 0, fallbackUp);
+        this._freezeActor(entry.actor);
     }
 
     _hasGround(entry) {
