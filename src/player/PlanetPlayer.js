@@ -2,6 +2,8 @@
 // PlanetPlayer.js
 // Simple gravity-based capsule controller for a spherical planet.
 
+import { DebugSettings } from "../systems/DebugSettings.js";
+
 export class PlanetPlayer {
     /**
      * @param {BABYLON.Scene} scene
@@ -36,6 +38,14 @@ export class PlanetPlayer {
         this.accel = options.accel ?? 20;           // how fast we reach target speed
         this.gravity = options.gravity ?? 10;       // "m/s^2" toward planet center
         this.jumpSpeed = options.jumpSpeed ?? 10;
+
+        // Fly mode tuning
+        this.flySpeed = options.flySpeed ?? 60;
+        this.flyAccel = options.flyAccel ?? 30;
+        this.flyLiftSpeed = options.flyLiftSpeed ?? this.flySpeed;
+        this.flyDescentRatio = options.flyDescentRatio ?? 0.25;
+        this.maxFlyDescentSpeed = options.maxFlyDescentSpeed ?? 50;
+        this.flyDoubleTapWindowSeconds = options.flyDoubleTapWindowSeconds ?? 0.3;
         
         // Jump grace: prevents fall-safeguard/ground-snap from cancelling an intentional jump
         this.jumpGraceSeconds = options.jumpGraceSeconds ?? 3;
@@ -97,11 +107,14 @@ this.groundFriction = options.groundFriction ?? 8;
         this.maxPhysicsStepSeconds = options.maxPhysicsStepSeconds ?? 1 / 60;
         this.maxPhysicsSubsteps = options.maxPhysicsSubsteps ?? 5;
         this.maxMoveFractionPerSubstep = options.maxMoveFractionPerSubstep ?? 0.75; // portion of capsule radius per micro-step
+        this.maxFlightStepSeconds = options.maxFlightStepSeconds ?? this.maxPhysicsStepSeconds;
 
         this._postGateClampRemaining = 0;
         this._postGateClampMaxStep = this.maxPhysicsStepSeconds;
 
         this.isFrozen = false;
+
+        this.flyMode = false;
 
         // Input flags
         this.inputForward = false;
@@ -110,6 +123,11 @@ this.groundFriction = options.groundFriction ?? 8;
         this.inputRight = false;
         this.inputRun = false;
         this.inputJumpRequested = false;
+        this.inputJumpHeld = false;
+        this.inputDescend = false;
+
+        this._pendingFlyLiftDelay = 0;
+        this._lastSpacePressMs = 0;
 
         this._registerInput();
     }
@@ -141,6 +159,40 @@ this.groundFriction = options.groundFriction ?? 8;
         }
     }
 
+    setFlyMode(enabled, { syncDebug = true } = {}) {
+        const next = !!enabled;
+        if (this.flyMode === next) return;
+
+        this.flyMode = next;
+        this.isGrounded = false;
+        this._pendingFlyLiftDelay = 0;
+        this.inputDescend = false;
+        this.inputJumpHeld = false;
+
+        const pos = this.mesh?.position;
+        const hasPos = pos && pos.lengthSquared() > 1e-6;
+
+        if (next) {
+            if (hasPos) {
+                const up = pos.clone().normalize();
+                const radialVel = BABYLON.Vector3.Dot(this.velocity, up);
+                if (Math.abs(radialVel) > 0) {
+                    this.velocity = this.velocity.subtract(up.scale(radialVel));
+                }
+            }
+        } else if (hasPos) {
+            const up = pos.clone().normalize();
+            const upward = BABYLON.Vector3.Dot(this.velocity, up);
+            if (upward > 0) {
+                this.velocity = this.velocity.subtract(up.scale(upward));
+            }
+        }
+
+        if (syncDebug) {
+            DebugSettings.forceSetFlag("flyMode", next);
+        }
+    }
+
     applyGroundGateClamp(durationSeconds = 2, maxStepSeconds = 1 / 120) {
         this._postGateClampRemaining = Math.max(this._postGateClampRemaining, durationSeconds);
         this._postGateClampMaxStep = Math.min(this._postGateClampMaxStep, maxStepSeconds ?? this._postGateClampMaxStep);
@@ -161,6 +213,9 @@ this.groundFriction = options.groundFriction ?? 8;
             this.inputRight = false;
             this.inputRun = false;
             this.inputJumpRequested = false;
+            this.inputJumpHeld = false;
+            this.inputDescend = false;
+            this._pendingFlyLiftDelay = 0;
         }
     }
 
@@ -202,6 +257,8 @@ this.groundFriction = options.groundFriction ?? 8;
         const steps = Math.max(1, Math.ceil(clampedDt / maxStep));
         const stepDt = clampedDt / steps;
 
+        this._updateFlyInputTimers(clampedDt);
+
         this._collisionRecoveryCooldown = Math.max(
             0,
             this._collisionRecoveryCooldown - dtSeconds
@@ -225,6 +282,11 @@ this.groundFriction = options.groundFriction ?? 8;
 
         const up = pos.scale(1 / r);   // radial up
         const down = up.scale(-1);
+
+        if (this.flyMode) {
+            this._integrateFlightStep(dtSeconds, pos, up, down);
+            return;
+        }
 
         // Jump grace countdown + radial velocity gating
         if (this._jumpGraceRemaining > 0) {
@@ -369,6 +431,86 @@ this.groundFriction = options.groundFriction ?? 8;
             // Always look at the player
             this.camera.setTarget(this.mesh.position);
         }
+    }
+
+    _integrateFlightStep(dtSeconds, pos, up, down) {
+        const safeDt = Math.min(dtSeconds, this.maxFlightStepSeconds);
+
+        let moveInput = new BABYLON.Vector3(0, 0, 0);
+        if (this.inputForward) moveInput.z += 1;
+        if (this.inputBack) moveInput.z -= 1;
+        if (this.inputRight) moveInput.x += 1;
+        if (this.inputLeft) moveInput.x -= 1;
+
+        const hasMoveInput = moveInput.lengthSquared() > 0.0001;
+        const targetVelocity = new BABYLON.Vector3(0, 0, 0);
+
+        if (hasMoveInput) {
+            moveInput.normalize();
+
+            let forwardTangent;
+            let rightTangent;
+
+            if (this.camera && this.camera.getDirection) {
+                const camForward = this.camera.getDirection(
+                    new BABYLON.Vector3(0, 0, 1)
+                );
+                const camRight = this.camera.getDirection(
+                    new BABYLON.Vector3(1, 0, 0)
+                );
+
+                forwardTangent = this._projectOntoPlane(camForward, up);
+                rightTangent = this._projectOntoPlane(camRight, up);
+            } else {
+                forwardTangent = this._projectOntoPlane(
+                    BABYLON.Axis.Z,
+                    up
+                );
+                rightTangent = BABYLON.Vector3.Cross(
+                    forwardTangent,
+                    up
+                );
+            }
+
+            if (forwardTangent.lengthSquared() < 1e-6) {
+                forwardTangent = this._projectOntoPlane(BABYLON.Axis.Z, up);
+            }
+            forwardTangent.normalize();
+            rightTangent.normalize();
+
+            const desiredDir = forwardTangent
+                .scale(moveInput.z)
+                .add(rightTangent.scale(moveInput.x))
+                .normalize();
+
+            targetVelocity.addInPlace(desiredDir.scale(this.flySpeed));
+        }
+
+        const liftActive = this.inputJumpHeld && this._pendingFlyLiftDelay <= 0;
+        if (liftActive) {
+            targetVelocity.addInPlace(up.scale(this.flyLiftSpeed));
+        }
+
+        if (this.inputDescend) {
+            const descentSpeed = Math.min(
+                this.flySpeed * this.flyDescentRatio,
+                this.maxFlyDescentSpeed
+            );
+            targetVelocity.addInPlace(down.scale(descentSpeed));
+        }
+
+        const lerpFactor = 1 - Math.exp(-this.flyAccel * safeDt);
+        this.velocity = BABYLON.Vector3.Lerp(
+            this.velocity,
+            targetVelocity,
+            lerpFactor
+        );
+
+        const delta = this.velocity.scale(safeDt);
+        this.mesh.position.addInPlace(delta);
+        this.isGrounded = false;
+        this._groundMissFrames = 0;
+        this.inputJumpRequested = false;
     }
 
     _detectCollisionMiss(startPos, endPos, up, dtSeconds) {
@@ -547,7 +689,10 @@ this.groundFriction = options.groundFriction ?? 8;
                     this.inputRun = true;
                     break;
                 case "Space":
-                    this.inputJumpRequested = true;
+                    this._handleSpacePress();
+                    break;
+                case "ControlLeft":
+                    this.inputDescend = true;
                     break;
             }
         });
@@ -575,8 +720,55 @@ this.groundFriction = options.groundFriction ?? 8;
                 case "ShiftRight":
                     this.inputRun = false;
                     break;
+                case "Space":
+                    this.inputJumpHeld = false;
+                    this._pendingFlyLiftDelay = 0;
+                    break;
+                case "ControlLeft":
+                    this.inputDescend = false;
+                    break;
             }
         });
+    }
+
+    _handleSpacePress() {
+        this.inputJumpHeld = true;
+
+        const now = performance.now();
+        const elapsedMs = now - this._lastSpacePressMs;
+        const windowMs = this.flyDoubleTapWindowSeconds * 1000;
+        const doubleTap = elapsedMs > 0 && elapsedMs <= windowMs;
+        this._lastSpacePressMs = now;
+
+        if (this.flyMode) {
+            if (doubleTap) {
+                this.setFlyMode(false);
+                return;
+            }
+            this._pendingFlyLiftDelay = this.flyDoubleTapWindowSeconds;
+            return;
+        }
+
+        if (doubleTap && this.isGrounded) {
+            this.setFlyMode(true);
+            return;
+        }
+
+        this.inputJumpRequested = true;
+    }
+
+    _updateFlyInputTimers(dtSeconds) {
+        if (!this.flyMode) {
+            this._pendingFlyLiftDelay = 0;
+            return;
+        }
+
+        if (this._pendingFlyLiftDelay > 0) {
+            this._pendingFlyLiftDelay = Math.max(
+                0,
+                this._pendingFlyLiftDelay - dtSeconds
+            );
+        }
     }
 
     setDebugLogRecoveries(isEnabled) {

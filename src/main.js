@@ -113,6 +113,10 @@ function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
     if (player?.setDebugLogRecoveries) {
         player.setDebugLogRecoveries(!!flags.logCollisionRecovery);
     }
+
+    if (player?.setFlyMode) {
+        player.setFlyMode(!!flags.flyMode, { syncDebug: false });
+    }
 }
 
 function ensureDebugMenu() {
@@ -127,6 +131,7 @@ function ensureDebugMenu() {
         { key: "cameraColliderDebug", label: "Camera Collider" },
         { key: "biomeDebug", label: "Biome Debug" },
         { key: "localSimulation", label: "Local Simulation" },
+        { key: "flyMode", label: "Fly Mode" },
         { key: "logCollisionRecovery", label: "Log Collision Recovery" }
     ];
 
