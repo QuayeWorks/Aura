@@ -533,6 +533,12 @@ export class ChunkedPlanetTerrain {
         const renderableLeaves = [];
         const preloadLeaves = [];
 
+        const focusRadius = focusPosition?.length?.() ?? null;
+        const observerInsidePlanet =
+            typeof focusRadius === "number" && this.radius
+                ? focusRadius <= this.radius
+                : false;
+
         while (stack.length > 0) {
             const node = stack.pop();
             if (!node) continue;
@@ -554,12 +560,16 @@ export class ChunkedPlanetTerrain {
             }
 
             const sphere = this._getNodeBoundingSphere(node);
-            const inFrustum = this._sphereInFrustum(frustumPlanes, sphere, 0);
-            const inPreloadFrustum = inFrustum || this._sphereInFrustum(
-                frustumPlanes,
-                sphere,
-                preloadMargin
-            );
+            const inFrustum = observerInsidePlanet
+                ? true
+                : this._sphereInFrustum(frustumPlanes, sphere, 0);
+            const inPreloadFrustum = observerInsidePlanet
+                ? true
+                : inFrustum || this._sphereInFrustum(
+                    frustumPlanes,
+                    sphere,
+                    preloadMargin
+                );
 
             if (!inPreloadFrustum) {
                 stats.frustumCulled++;
