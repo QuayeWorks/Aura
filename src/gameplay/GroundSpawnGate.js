@@ -9,7 +9,7 @@ const DEFAULT_RAY_OFFSET_METERS = 1;
 const DEFAULT_FALLBACK_ALTITUDE_METERS = 100;
 const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
-const DEFAULT_SAFE_ALTITUDE_METERS = 3240;
+const DEFAULT_SAFE_ALTITUDE_METERS = 100;
 
 function terrainPredicate(mesh) {
     if (!mesh?.checkCollisions) return false;
