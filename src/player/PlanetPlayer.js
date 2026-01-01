@@ -193,6 +193,12 @@ this.groundFriction = options.groundFriction ?? 8;
         }
     }
 
+    setFlySpeed(speed) {
+        const clamped = Math.max(1, Number(speed) || this.flySpeed);
+        this.flySpeed = clamped;
+        this.flyLiftSpeed = clamped;
+    }
+
     applyGroundGateClamp(durationSeconds = 2, maxStepSeconds = 1 / 120) {
         this._postGateClampRemaining = Math.max(this._postGateClampRemaining, durationSeconds);
         this._postGateClampMaxStep = Math.min(this._postGateClampMaxStep, maxStepSeconds ?? this._postGateClampMaxStep);

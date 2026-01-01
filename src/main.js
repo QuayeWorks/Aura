@@ -78,7 +78,10 @@ let abilityTreePanel = null;
 let debugMenu = null;
 let debugSubscription = null;
 
-function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
+function applyDebugFlags(state = {}) {
+    const flags = state.flags ?? DebugSettings.getAllFlags();
+    const values = state.values ?? DebugSettings.getAllValues();
+
     if (domHud) {
         domHud.setGameplayVisible(!!flags.showGameplayHud);
         domHud.setDebugVisible(!!flags.showDebugHud);
@@ -117,6 +120,10 @@ function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
     if (player?.setFlyMode) {
         player.setFlyMode(!!flags.flyMode, { syncDebug: false });
     }
+
+    if (player?.setFlySpeed && typeof values?.flySpeed === "number") {
+        player.setFlySpeed(values.flySpeed);
+    }
 }
 
 function ensureDebugMenu() {
@@ -132,6 +139,16 @@ function ensureDebugMenu() {
         { key: "biomeDebug", label: "Biome Debug" },
         { key: "localSimulation", label: "Local Simulation" },
         { key: "flyMode", label: "Fly Mode" },
+        {
+            key: "flySpeed",
+            label: "Fly Speed",
+            type: "slider",
+            min: 20,
+            max: 200,
+            step: 5,
+            precision: 0,
+            format: (val) => `${Math.round(val)} m/s`,
+        },
         { key: "logCollisionRecovery", label: "Log Collision Recovery" }
     ];
 
@@ -144,8 +161,13 @@ function ensureDebugMenu() {
         }
     });
 
-    debugSubscription = DebugSettings.subscribe(({ flags }) => applyDebugFlags(flags));
-    applyDebugFlags(DebugSettings.getAllFlags());
+    debugSubscription = DebugSettings.subscribe(({ flags, values }) =>
+        applyDebugFlags({ flags, values })
+    );
+    applyDebugFlags({
+        flags: DebugSettings.getAllFlags(),
+        values: DebugSettings.getAllValues(),
+    });
 }
 
 

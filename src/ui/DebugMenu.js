@@ -105,6 +105,44 @@ export class DebugMenu {
                     if (!DebugSettings.isUnlocked()) return;
                     opt.onClick?.();
                 });
+            } else if (opt.type === "slider") {
+                control = document.createElement("div");
+                control.className = "debug-menu-slider";
+
+                const input = document.createElement("input");
+                input.type = "range";
+                input.min = opt.min ?? 0;
+                input.max = opt.max ?? 100;
+                input.step = opt.step ?? 1;
+
+                const currentValue = DebugSettings.getValue(opt.key);
+                input.value =
+                    typeof currentValue === "number"
+                        ? currentValue
+                        : opt.defaultValue ?? input.min;
+
+                const valueLabel = document.createElement("span");
+                valueLabel.className = "debug-menu-slider-value";
+
+                const updateLabel = (val) => {
+                    const formatted = opt.format
+                        ? opt.format(val)
+                        : Number(val).toFixed(opt.precision ?? 0);
+                    valueLabel.textContent = formatted;
+                };
+
+                updateLabel(input.value);
+
+                input.addEventListener("input", () => {
+                    const val = Number(input.value);
+                    DebugSettings.setValue(opt.key, val);
+                    updateLabel(val);
+                });
+
+                control.appendChild(input);
+                control.appendChild(valueLabel);
+
+                this.optionRows.set(opt.key, { row, input, valueLabel, option: opt, type: "slider" });
             } else {
                 control = document.createElement("label");
                 control.className = "debug-menu-toggle";
@@ -121,7 +159,7 @@ export class DebugMenu {
                 control.appendChild(input);
                 control.appendChild(slider);
 
-                this.optionRows.set(opt.key, { row, input });
+                this.optionRows.set(opt.key, { row, input, type: "toggle" });
             }
 
             row.appendChild(label);
@@ -178,7 +216,7 @@ export class DebugMenu {
         this.gateMessage.classList.remove("error");
     }
 
-    _syncFromSettings({ flags = {}, unlocked }) {
+    _syncFromSettings({ flags = {}, values = {}, unlocked }) {
         this.lockState.textContent = unlocked ? "Unlocked" : "Locked";
         this.root.classList.toggle("locked", !unlocked);
         this.unlockBtn.disabled = unlocked;
@@ -187,8 +225,20 @@ export class DebugMenu {
 
         this.optionRows.forEach((entry, key) => {
             if (!entry?.input) return;
-            entry.input.checked = !!flags[key];
-            entry.input.disabled = !unlocked;
+            if (entry.type === "slider") {
+                const value = values?.[key];
+                if (typeof value === "number") {
+                    entry.input.value = value;
+                    const formatter = entry.option?.format;
+                    entry.valueLabel.textContent = formatter
+                        ? formatter(value)
+                        : Number(value).toFixed(entry.option?.precision ?? 0);
+                }
+                entry.input.disabled = !unlocked;
+            } else {
+                entry.input.checked = !!flags[key];
+                entry.input.disabled = !unlocked;
+            }
         });
     }
 }

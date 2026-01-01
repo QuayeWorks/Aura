@@ -14,14 +14,19 @@ const defaultFlags = {
     flyMode: false,
 };
 
+const defaultValues = {
+    flySpeed: 60,
+};
+
 let unlocked = false;
 const subscribers = new Set();
 const flags = { ...defaultFlags };
+const values = { ...defaultValues };
 
 function notify(change) {
     subscribers.forEach((cb) => {
         try {
-            cb(change || { flags: { ...flags }, unlocked });
+            cb(change || { flags: { ...flags }, values: { ...values }, unlocked });
         } catch (err) {
             // eslint-disable-next-line no-console
             console.error(err);
@@ -37,7 +42,7 @@ export const DebugSettings = {
     unlock(password) {
         if (password === PASSWORD) {
             unlocked = true;
-            notify({ unlocked, flags: { ...flags } });
+            notify({ unlocked, flags: { ...flags }, values: { ...values } });
             return true;
         }
         return false;
@@ -45,7 +50,7 @@ export const DebugSettings = {
 
     lock() {
         unlocked = false;
-        notify({ unlocked, flags: { ...flags } });
+        notify({ unlocked, flags: { ...flags }, values: { ...values } });
     },
 
     getFlag(name) {
@@ -58,7 +63,7 @@ export const DebugSettings = {
         const next = !!value;
         if (flags[name] === next) return;
         flags[name] = next;
-        notify({ name, value: next, flags: { ...flags }, unlocked });
+        notify({ name, value: next, flags: { ...flags }, values: { ...values }, unlocked });
     },
 
     forceSetFlag(name, value) {
@@ -69,10 +74,32 @@ export const DebugSettings = {
         return { ...flags };
     },
 
+    getValue(name) {
+        return values[name];
+    },
+
+    setValue(name, value, { force = false } = {}) {
+        if (!(force || unlocked)) return;
+        if (!(name in values)) return;
+        const next = Number(value);
+        if (Number.isNaN(next)) return;
+        if (values[name] === next) return;
+        values[name] = next;
+        notify({ name, value: next, flags: { ...flags }, values: { ...values }, unlocked });
+    },
+
+    forceSetValue(name, value) {
+        this.setValue(name, value, { force: true });
+    },
+
+    getAllValues() {
+        return { ...values };
+    },
+
     subscribe(cb) {
         if (typeof cb !== "function") return () => {};
         subscribers.add(cb);
-        cb({ flags: { ...flags }, unlocked });
+        cb({ flags: { ...flags }, values: { ...values }, unlocked });
         return () => subscribers.delete(cb);
     },
 };
