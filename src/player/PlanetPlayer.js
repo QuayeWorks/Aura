@@ -479,13 +479,21 @@ this.groundFriction = options.groundFriction ?? 8;
         }
     }
 
-    _spawnOnSurface(startDir) {
+    spawnAtDirection(direction, surfaceClearanceOverride) {
+        if (!direction) return;
+        const dir = direction.clone();
+        if (dir.lengthSquared() < 1e-6) return;
+        dir.normalize();
+        this._spawnOnSurface(dir, surfaceClearanceOverride);
+    }
+
+    _spawnOnSurface(startDir, surfaceClearanceOverride) {
         const dir = (startDir ? startDir.clone() : new BABYLON.Vector3(0, 0, 1));
         if (dir.lengthSquared() < 1e-6) dir.copyFromFloats(0, 0, 1);
         dir.normalize();
 
         // Clearance above the surface.
-        const surfaceClearance = this.capsuleRadius * 1.5 + this.height * 0.25;
+        const surfaceClearance = surfaceClearanceOverride ?? (this.capsuleRadius * 1.5 + this.height * 0.25);
 
         // Start from well above the expected surface and raycast inward.
         const startRadius = this.planetRadius + (this.planetRadius * 0.08);

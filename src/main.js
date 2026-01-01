@@ -78,6 +78,7 @@ let abilityTreePanel = null;
 let debugMenu = null;
 let debugSubscription = null;
 let showCullDebugOverlay = false;
+const PLANET_TOP = new BABYLON.Vector3(0, 1, 0);
 
 function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
     if (domHud) {
@@ -466,6 +467,10 @@ function freezePlayerForLoading() {
     if (player.velocity?.set) {
         player.velocity.set(0, 0, 0);
     }
+    if (player.mesh?.position?.set) {
+        player.mesh.position.set(0, 0, 0);
+    }
+    if (player.setFrozen) player.setFrozen(true);
 }
 
 function moveActorToSafeAltitude(actor, fallbackUp) {
@@ -485,6 +490,8 @@ function releaseLoadingGate() {
     if (!player) return;
     if (loadingGate?.released) return;
     loadingGate.released = true;
+
+    spawnActorsAtPlanetTop();
 
     if (loadingOverlay) {
         loadingOverlay.setProgress(1);
@@ -518,6 +525,28 @@ function updateLoadingGate(dtSeconds) {
 
     if (loadingGate.elapsed >= LOADING_WAIT_SECONDS) {
         releaseLoadingGate();
+    }
+}
+
+function spawnActorsAtPlanetTop() {
+    const planetRadius = terrain?.radius ?? PLANET_RADIUS_UNITS;
+
+    if (player?.spawnAtDirection) {
+        player.spawnAtDirection(PLANET_TOP);
+    } else if (player?.mesh?.position) {
+        const surfaceClearance = (player?.capsuleRadius ?? 2) * 1.5 + (player?.height ?? 0) * 0.25;
+        player.mesh.position.copyFrom(
+            PLANET_TOP.scale(planetRadius + surfaceClearance)
+        );
+        if (player.velocity?.set) player.velocity.set(0, 0, 0);
+    }
+
+    if (gameRuntime?.groundGate?.spawnAllAtNorthPole) {
+        const surfaceOffset = Math.max((player?.capsuleRadius ?? 2) * 2, 10);
+        gameRuntime.groundGate.spawnAllAtNorthPole({
+            planetRadius,
+            surfaceOffset
+        });
     }
 }
 
@@ -853,8 +882,9 @@ function setupPlayerAndSystems() {
     }
 
     freezePlayerForLoading();
-
-    moveActorToSafeAltitude(player, player.spawnDirection);
+    if (player?.mesh?.position?.set) {
+        player.mesh.position.set(0, 0, 0);
+    }
 
     if (mainCamera && player?.mesh) {
         player.attachCamera(mainCamera);
@@ -924,8 +954,6 @@ function setupPlayerAndSystems() {
     applyDebugFlags(DebugSettings.getAllFlags());
 
     applyPendingSnapshot();
-
-    moveActorToSafeAltitude(player, player.spawnDirection);
 
     if (gameRuntime) gameRuntime.setEnabled(false);
 }
