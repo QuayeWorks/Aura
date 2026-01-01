@@ -1,7 +1,7 @@
 /* global BABYLON */
 
 const SAFE_ALTITUDE_METERS = 3300;
-const RELEASE_DELAY_SECONDS = 30;
+const RELEASE_DELAY_SECONDS = 40;
 
 function resolvePosition(actor) {
     return actor?.mesh?.position || actor?.position || null;
