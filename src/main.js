@@ -27,7 +27,7 @@ const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
 // Planet radius in world units (meters, conceptually)
-const PLANET_RADIUS_UNITS = 36000;
+const PLANET_RADIUS_UNITS = 32400;
 
 // Game state machine
 const GameState = {
