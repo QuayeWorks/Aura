@@ -153,7 +153,7 @@ export class GroundSpawnGate {
 
     _repositionHigh(entry) {
         const planetRadius = entry.planetRadius ?? this.defaultPlanetRadius;
-        const targetRadius = planetRadius + DEFAULT_FALLBACK_ALTITUDE_METERS * this.unitsPerMeter;
+        const targetRadius = planetRadius + DEFAULT_FALLBACK_ALTITUDE_METERS;
         const fallbackUp = this.player?.mesh?.position;
         repositionActorRadially(entry.actor, targetRadius, fallbackUp);
     }
