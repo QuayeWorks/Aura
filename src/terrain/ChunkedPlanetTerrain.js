@@ -6,7 +6,7 @@ import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
         this.scene = scene;
-        this.maxBuildDistance = 36000;
+        this.maxBuildDistance = 32400;
         this.seed = options.seed ?? 1337;
 
         // Legacy grid options kept for compatibility with callers / HUD
