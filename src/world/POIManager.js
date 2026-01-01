@@ -38,13 +38,12 @@ export class POIManager {
         this.onSpawn = onSpawn;
         this.onDespawn = onDespawn;
 
-        window.addEventListener("keydown", (ev) => {
-            if (ev.code === "F7") {
-                this.showDebug = !this.showDebug;
-                this._applyVisibility();
-                console.log(`POIs ${this.showDebug ? "shown" : "hidden"} (count ${this.spawnedPOIs.size})`);
-            }
-        });
+    }
+
+    setDebugVisible(isVisible) {
+        this.showDebug = !!isVisible;
+        this._applyVisibility();
+        console.log(`POIs ${this.showDebug ? "shown" : "hidden"} (count ${this.spawnedPOIs.size})`);
     }
 
     setPlayer(player) {

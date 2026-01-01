@@ -825,6 +825,13 @@ _collectCarvesForNode(node) {
         return next;
     }
 
+    setBiomeDebugMode(mode) {
+        const modes = ["off", "biome", "height", "slope", "isolateSand", "isolateSnow"];
+        if (!modes.includes(mode)) return this.biomeSettings?.debugMode || "off";
+        this.setBiomeSettings({ debugMode: mode });
+        return mode;
+    }
+
     _forceRebuildActiveChunks() {
         for (const leaf of this.activeLeaves) {
             this._ensureTerrainForNode(leaf);
