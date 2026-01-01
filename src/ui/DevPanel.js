@@ -1,4 +1,4 @@
-// src/ui_dom/DevPanel.js
+// src/ui/DevPanel.js
 // Toggleable developer telemetry panel (DOM-based, hidden by default).
 
 export class DevPanel {

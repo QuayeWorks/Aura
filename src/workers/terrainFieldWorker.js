@@ -1,4 +1,4 @@
-// src/terrain/terrainFieldWorker.js
+// src/workers/terrainFieldWorker.js
 // Web Worker: builds SDF scalar field for one marching-cubes chunk.
 // No Babylon.js here, only math and noise.
 

@@ -1,4 +1,4 @@
-import { DebugSettings } from "../debug/DebugSettings.js";
+import { DebugSettings } from "../systems/DebugSettings.js";
 
 export class DebugMenu {
     constructor({ options = [], onVisibilityChange = null } = {}) {

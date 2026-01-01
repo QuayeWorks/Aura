@@ -1,5 +1,5 @@
 /* global BABYLON */
-// src/Menus/MainMenuUI.js
+// src/ui/MainMenuUI.js
 // Centralized UI creation for main menu, settings, HUD, and loading overlay.
 
 function createModernButton(label, accentColor, onClick) {

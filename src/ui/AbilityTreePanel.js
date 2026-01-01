@@ -1,4 +1,4 @@
-// src/ui_dom/AbilityTreePanel.js
+// src/ui/AbilityTreePanel.js
 // Minimal DOM-driven ability tree listing with unlock controls.
 
 function createNodeElement(node, state, onUnlock, availability) {

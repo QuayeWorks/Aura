@@ -1,4 +1,4 @@
-// src/ui_dom/LoadingOverlay.js
+// src/ui/LoadingOverlay.js
 // Simple DOM loading overlay with a timed progress bar.
 
 function clamp01(value) {
