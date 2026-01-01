@@ -162,6 +162,11 @@ export class ChunkedPlanetTerrain {
         if (!focusPos || !this.radius) return true;
 
         const rP = focusPos.length();
+        // When the camera is inside the planet (or extremely close to the center),
+        // every chunk should be considered above the horizon. Otherwise nearly all
+        // nodes get culled because the horizon check expects an observer outside
+        // the sphere.
+        if (rP <= this.radius) return true;
         if (rP < 1e-5) return true;
 
         const cosHorizon = Math.min(1, Math.max(-1, this.radius / rP));
