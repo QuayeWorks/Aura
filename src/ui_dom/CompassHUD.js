@@ -34,11 +34,6 @@ export class CompassHUD {
         this.container.appendChild(this.latText);
         this.root.appendChild(this.container);
 
-        window.addEventListener("keydown", (ev) => {
-            if (ev.code === "F10") {
-                this.setVisible(!this.visible);
-            }
-        });
     }
 
     _ensureRoot() {

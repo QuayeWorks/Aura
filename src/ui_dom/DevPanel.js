@@ -25,12 +25,6 @@ export class DevPanel {
         this.lastUpdate = 0;
         this.toggleGuard = null;
 
-        window.addEventListener("keydown", (ev) => {
-            if (ev.code === "F3") {
-                if (this.toggleGuard && !this.toggleGuard()) return;
-                this.setVisible(!this.visible);
-            }
-        });
     }
 
     _ensureRoot() {

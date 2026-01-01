@@ -549,13 +549,6 @@ this.groundFriction = options.groundFriction ?? 8;
                 case "Space":
                     this.inputJumpRequested = true;
                     break;
-                case "F6":
-                    this._debugLogRecoveries = !this._debugLogRecoveries;
-                    // eslint-disable-next-line no-console
-                    console.log(
-                        `Collision miss recovery logging: ${this._debugLogRecoveries ? "ON" : "OFF"}`
-                    );
-                    break;
             }
         });
 
@@ -584,6 +577,14 @@ this.groundFriction = options.groundFriction ?? 8;
                     break;
             }
         });
+    }
+
+    setDebugLogRecoveries(isEnabled) {
+        const next = !!isEnabled;
+        if (this._debugLogRecoveries === next) return;
+        this._debugLogRecoveries = next;
+        // eslint-disable-next-line no-console
+        console.log(`Collision miss recovery logging: ${this._debugLogRecoveries ? "ON" : "OFF"}`);
     }
 
     _projectOntoPlane(vec, planeNormal) {

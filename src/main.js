@@ -22,6 +22,8 @@ import { AudioSystem } from "./audio/AudioSystem.js";
 import { createAbilityTreePanel } from "./ui_dom/AbilityTreePanel.js";
 import { createLoadingOverlay as createDomLoadingOverlay } from "./ui_dom/LoadingOverlay.js";
 import { repositionActorRadially } from "./gameplay/GroundSpawnGate.js";
+import { DebugMenu } from "./ui_dom/DebugMenu.js";
+import { DebugSettings } from "./debug/DebugSettings.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -75,6 +77,73 @@ let sunMoonInfoText = null;
 let uiState = null;
 let domHud = null;
 let abilityTreePanel = null;
+let debugMenu = null;
+let debugSubscription = null;
+
+function applyDebugFlags(flags = DebugSettings.getAllFlags()) {
+    if (domHud) {
+        domHud.setGameplayVisible(!!flags.showGameplayHud);
+        domHud.setDebugVisible(!!flags.showDebugHud);
+    }
+
+    if (devPanel) {
+        devPanel.setVisible(!!flags.showDevPanel);
+    }
+
+    if (compassHud) {
+        compassHud.setVisible(!!flags.showCompass);
+    }
+
+    if (terrain?.setBiomeDebugMode) {
+        terrain.setBiomeDebugMode(flags.biomeDebug ? "biome" : "off");
+    }
+
+    cameraColliderDebugVisible = !!flags.cameraColliderDebug;
+    if (cameraColliderDebugVisible) ensureCameraColliderDebugMesh();
+    if (cameraColliderDebug) {
+        cameraColliderDebug.isVisible = cameraColliderDebugVisible;
+    }
+    if (cameraCollider) {
+        cameraCollider.isVisible = cameraColliderDebugVisible;
+    }
+
+    if (gameRuntime) {
+        gameRuntime.setLocalSimEnabled(!!flags.localSimulation);
+        gameRuntime.poiManager?.setDebugVisible?.(!!flags.showPOIDebug);
+    }
+
+    if (player?.setDebugLogRecoveries) {
+        player.setDebugLogRecoveries(!!flags.logCollisionRecovery);
+    }
+}
+
+function ensureDebugMenu() {
+    if (debugMenu) return;
+
+    const options = [
+        { key: "showDevPanel", label: "Dev Panel" },
+        { key: "showGameplayHud", label: "Gameplay HUD" },
+        { key: "showDebugHud", label: "Debug HUD" },
+        { key: "showCompass", label: "Compass" },
+        { key: "showPOIDebug", label: "POI Debug" },
+        { key: "cameraColliderDebug", label: "Camera Collider" },
+        { key: "biomeDebug", label: "Biome Debug" },
+        { key: "localSimulation", label: "Local Simulation" },
+        { key: "logCollisionRecovery", label: "Log Collision Recovery" }
+    ];
+
+    debugMenu = new DebugMenu({
+        options,
+        onVisibilityChange: (isVisible) => {
+            if (player?.setInputEnabled) {
+                player.setInputEnabled(!isVisible);
+            }
+        }
+    });
+
+    debugSubscription = DebugSettings.subscribe(({ flags }) => applyDebugFlags(flags));
+    applyDebugFlags(DebugSettings.getAllFlags());
+}
 
 
 // Timing
@@ -237,12 +306,9 @@ function createScene() {
     // DOM HUD overlay (not Babylon GUI)
     if (!domHud) {
         domHud = createDomHUD();
-        domHud.setGameplayVisible(false);
-        domHud.setDebugVisible(false);
     }
     if (!devPanel) {
         devPanel = new DevPanel();
-        devPanel.setVisible(false);
         devPanel.setToggleGuard(() => gameState === GameState.PLAYING);
     }
     if (!abilityTreePanel) {
@@ -251,12 +317,13 @@ function createScene() {
     }
     if (!compassHud) {
         compassHud = new CompassHUD();
-        compassHud.setVisible(false);
     }
 
     if (!loadingOverlay) {
         loadingOverlay = createDomLoadingOverlay();
     }
+
+    ensureDebugMenu();
 
     // Start in menu
     showMainMenu();
@@ -266,18 +333,6 @@ function createScene() {
         if (e.repeat) return;
         if (e.code === "Enter" && gameState === GameState.MENU) startNewGame();
         if (e.code === "Escape" && gameState === GameState.PLAYING) showMainMenu();
-        if (e.code === "KeyB" && terrain && terrain.cycleBiomeDebugMode) {
-            const mode = terrain.cycleBiomeDebugMode();
-            console.log("Biome debug mode:", mode);
-        }
-        if (e.code === "F11" && gameRuntime) {
-            e.preventDefault();
-            gameRuntime.toggleLocalSim();
-        }
-        if (e.code === "KeyC") {
-            cameraColliderDebugVisible = !cameraColliderDebugVisible;
-            if (cameraColliderDebugVisible) ensureCameraColliderDebugMesh();
-        }
     });
     
 
@@ -916,6 +971,8 @@ function setupPlayerAndSystems() {
         domHud.setAudioMuted(audioSystem?.muted);
     }
 
+    applyDebugFlags(DebugSettings.getAllFlags());
+
     applyPendingSnapshot();
 
     if (player?.reprojectToSurface) player.reprojectToSurface();
@@ -927,9 +984,8 @@ function enterGameplayFromLoading() {
     applyGameVisuals();
     setFirefliesVisible(false);
 
-    if (domHud) domHud.setGameplayVisible(true);
+    applyDebugFlags(DebugSettings.getAllFlags());
     if (gameRuntime) gameRuntime.setEnabled(true);
-    if (compassHud) compassHud.setVisible(true);
 
     if (player && player.setFrozen) player.setFrozen(false);
     if (player && player.setInputEnabled) player.setInputEnabled(true);
