@@ -1,7 +1,6 @@
 /* global BABYLON */
 // src/main.js
 // Babylon + GUI come from global scripts in index.html
-// Minimap is intentionally disabled for now. Keep disabled until a new RTT-based minimap returns.
 import { ChunkedPlanetTerrain } from "./terrain/ChunkedPlanetTerrain.js";
 import { PlanetPlayer } from "./player/PlanetPlayer.js";
 import { DayNightSystem } from "./daynight/DayNightSystem.js";
@@ -44,7 +43,6 @@ let scene = null;
 let terrain = null;
 let player = null;
 let dayNightSystem = null;
-let minimap = null;
 let gameRuntime = null;
 let compassHud = null;
 let devPanel = null;
@@ -273,8 +271,7 @@ function createScene() {
 
 
     // --- UI ---
-    // You *do* still want the main menu / HUD, just not the minimap.
-    // So we create a single main ADT and skip any minimap UI/camera wiring.
+    // UI uses a single fullscreen ADT. Minimap wiring is removed until a new RTT-based version returns.
     ui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
     ui.layer.layerMask = 0x1;
 
@@ -765,10 +762,6 @@ function showMainMenu() {
     }
     gameState = GameState.MENU;
     refreshContinueButton();
-    if (minimap) {
-        minimap.setEnabled(false);
-        minimap.setOverlayVisible(false);
-    }
     if (uiState && uiState.showMainMenu) {
         uiState.showMainMenu();
     }
@@ -795,7 +788,6 @@ function showMainMenu() {
 
 function showSettings() {
     gameState = GameState.SETTINGS;
-    if (minimap) minimap.setEnabled(false);
     if (uiState && uiState.showSettings) {
         uiState.showSettings();
     }
@@ -1031,10 +1023,6 @@ engine.runRenderLoop(() => {
             if (gameRuntime) gameRuntime.update(simDtSeconds);
             player.update(simDtSeconds);
             updateCameraRig();
-
-            if (minimap) {
-                minimap.updateFromPlayerMesh(player.mesh);
-            }
 
             if (compassHud && player.mesh) {
                 const playerForward = player.mesh.getDirection
