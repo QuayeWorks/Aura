@@ -19,7 +19,7 @@ import { CompassHUD } from "./ui/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
 import { createAbilityTreePanel } from "./ui/AbilityTreePanel.js";
 import { createLoadingOverlay as createDomLoadingOverlay } from "./ui/LoadingOverlay.js";
-import { raiseActorToSafeAltitude } from "./gameplay/GroundSpawnGate.js";
+import { placeActorOnTerrainSurface, raiseActorToSafeAltitude } from "./gameplay/GroundSpawnGate.js";
 import { DebugMenu } from "./ui/DebugMenu.js";
 import { DebugSettings } from "./systems/DebugSettings.js";
 
@@ -493,7 +493,15 @@ function moveActorToSafeAltitude(actor, fallbackUp) {
     const up = fallbackUp
         || actor.spawnDirection?.clone?.()
         || actor?.mesh?.position?.clone?.();
-    raiseActorToSafeAltitude(actor, { planetRadius, unitsPerMeter, fallbackUp: up });
+    const placed = placeActorOnTerrainSurface(actor, {
+        scene,
+        planetRadius,
+        unitsPerMeter,
+        fallbackUp: up
+    });
+    if (!placed) {
+        raiseActorToSafeAltitude(actor, { planetRadius, unitsPerMeter, fallbackUp: up });
+    }
     if (actor.velocity?.set) {
         actor.velocity.set(0, 0, 0);
     }

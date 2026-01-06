@@ -46,6 +46,54 @@ export function repositionActorRadially(actor, targetRadius, fallbackUp) {
     }
 }
 
+export function placeActorOnTerrainSurface(actor, {
+    scene,
+    planetRadius,
+    unitsPerMeter = 1,
+    surfaceClearance,
+    fallbackUp
+} = {}) {
+    if (!actor?.mesh || !scene) return false;
+
+    let up = actor.mesh.position ? actor.mesh.position.clone() : null;
+    if (!up || up.lengthSquared() < 1e-6) {
+        up = fallbackUp ? fallbackUp.clone() : null;
+    }
+    if (!up || up.lengthSquared() < 1e-6) {
+        up = new BABYLON.Vector3(0, 1, 0);
+    }
+    up.normalize();
+
+    const clearance = surfaceClearance
+        ?? actor.surfaceOffset
+        ?? (actor.capsuleRadius ? actor.capsuleRadius * 1.5 : null)
+        ?? actor.radius
+        ?? 1;
+
+    const startRadius = planetRadius
+        ?? actor.planetRadius
+        ?? Math.max(1, actor.mesh.position.length());
+
+    const rayOrigin = up.scale(startRadius + clearance * 2);
+    const rayLength = Math.max(clearance * 2, DEFAULT_RAY_LENGTH_METERS * unitsPerMeter);
+    const ray = new BABYLON.Ray(rayOrigin, up.scale(-1), rayLength);
+
+    const pick = scene.pickWithRay(ray, terrainPredicate);
+    if (pick?.hit && pick.pickedPoint) {
+        const target = pick.pickedPoint.add(up.scale(clearance));
+        actor.mesh.position.copyFrom(target);
+        if (actor.position?.copyFrom) {
+            actor.position.copyFrom(target);
+        }
+        if (actor.position && !actor.position.copyFrom) {
+            actor.position = target.clone();
+        }
+        return true;
+    }
+
+    return false;
+}
+
 export function raiseActorToSafeAltitude(actor, {
     planetRadius,
     unitsPerMeter = 1,
