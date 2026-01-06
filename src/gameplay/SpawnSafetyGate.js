@@ -1,6 +1,6 @@
 /* global BABYLON */
 
-const SAFE_ALTITUDE_METERS = 3300;
+const SAFE_ALTITUDE_METERS = 3500;
 const RELEASE_DELAY_SECONDS = 60;
 
 function resolvePosition(actor) {
