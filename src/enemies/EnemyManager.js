@@ -1,6 +1,6 @@
 /* global BABYLON */
 import { Enemy } from "./Enemy.js";
-import { raiseActorToSafeAltitude } from "../gameplay/GroundSpawnGate.js";
+import { placeActorOnTerrainSurface, raiseActorToSafeAltitude } from "../gameplay/GroundSpawnGate.js";
 
 export class EnemyManager {
     constructor({ scene, terrain, player, planetRadius, playerStats, dayNightSystem, groundGate, spawnRadius = 10, maxEnemies = 2 }) {
@@ -72,11 +72,21 @@ export class EnemyManager {
             id: enemyId,
             modelFile: config.model
         });
-        raiseActorToSafeAltitude(enemy, {
+        const unitsPerMeter = this.terrain?.biomeSettings?.unitsPerMeter ?? 1;
+        const snapped = placeActorOnTerrainSurface(enemy, {
+            scene: this.scene,
             planetRadius: this.planetRadius,
-            unitsPerMeter: this.terrain?.biomeSettings?.unitsPerMeter ?? 1,
-            fallbackUp: position
+            unitsPerMeter,
+            fallbackUp: position,
+            surfaceClearance: enemy.surfaceOffset
         });
+        if (!snapped) {
+            raiseActorToSafeAltitude(enemy, {
+                planetRadius: this.planetRadius,
+                unitsPerMeter,
+                fallbackUp: position
+            });
+        }
         if (this.groundGate) {
             this.groundGate.registerActor(enemy, { planetRadius: this.planetRadius });
         }
