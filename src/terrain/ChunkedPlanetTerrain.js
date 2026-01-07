@@ -243,7 +243,7 @@ export class ChunkedPlanetTerrain {
 
         mesh.metadata.isTerrainCollider = isCollider;
         mesh.isPickable = true;
-        mesh.checkCollisions = isCollider;
+        mesh.checkCollisions = true;
     }
 
     _registerActiveTerrainMesh(mesh) {
@@ -271,7 +271,6 @@ export class ChunkedPlanetTerrain {
     _unregisterActiveTerrainMesh(mesh) {
         if (!mesh) return;
         this.activeTerrainMeshes.delete(mesh);
-        this._collisionMeshes.delete(mesh);
     }
 
     _releaseNodeTerrain(node) {
@@ -539,10 +538,8 @@ export class ChunkedPlanetTerrain {
 
             // Straight-line distance (for view culling)
             const centerDist = BABYLON.Vector3.Distance(focusPosition, center);
-            const onNearSide = this._isChunkAboveHorizon(
-                node,
-                focusPosition
-            );
+            // TEMP: disable onNearSide until proper horizon test uses surface direction
+            const onNearSide = true;
             const withinView = this._isWithinViewDistance(centerDist);
 
             if (!onNearSide || !withinView) {
@@ -1020,6 +1017,8 @@ _collectCarvesForNode(node) {
     }
 
     getCollisionMeshes() {
-        return Array.from(this._collisionMeshes);
+        return Array.from(this._collisionMeshes).filter(
+            (mesh) => mesh && !mesh.isDisposed?.() && mesh.isEnabled?.()
+        );
     }
 }
