@@ -49,24 +49,31 @@ function resetActorVelocity(actor) {
     }
 }
 
-function getCollisionMeshes(terrain) {
-    if (terrain?.getCollisionMeshes) {
-        return terrain.getCollisionMeshes();
+function getPlacementMeshes(terrain, scene) {
+    let meshes = [];
+    if (terrain && typeof terrain.getCollisionMeshes === "function") {
+        meshes = terrain.getCollisionMeshes();
     }
-    return [];
+
+    if (!meshes || meshes.length === 0) {
+        const scanScene = scene ?? terrain?.scene;
+        if (scanScene?.meshes) {
+            meshes = scanScene.meshes.filter((mesh) =>
+                mesh
+                && !mesh.isDisposed?.()
+                && mesh.isEnabled?.()
+                && mesh.checkCollisions === true
+            );
+        }
+    }
+
+    return meshes;
 }
 
-function findTerrainHit(ray, terrain) {
-    const meshes = getCollisionMeshes(terrain);
+function findTerrainHit(ray, terrain, scene) {
+    const meshes = getPlacementMeshes(terrain, scene);
     const terrainId = terrain?._debugId ?? "unknown";
-    const hasActiveMeshes = Array.isArray(meshes)
-        && meshes.length > 0
-        && meshes.some((mesh) => mesh?.checkCollisions && mesh?.isEnabled?.());
-    logOnce(
-        `ground-spawn-meshes-active-${terrainId}-${hasActiveMeshes}`,
-        "[GroundSpawnGate] Placement terrain meshes active:",
-        hasActiveMeshes
-    );
+    const hasActiveMeshes = Array.isArray(meshes) && meshes.length > 0;
     if (Array.isArray(meshes) && meshes.length > 0) {
         logOnce(
             `ground-spawn-collision-meshes-${terrainId}`,
@@ -78,24 +85,7 @@ function findTerrainHit(ray, terrain) {
             }))
         );
     }
-    if (!hasActiveMeshes) {
-        const scene = terrain?.scene;
-        if (scene?.meshes) {
-            const all = scene.meshes;
-            const enabled = all.filter((mesh) => mesh?.isEnabled?.());
-            const coll = enabled.filter((mesh) => mesh?.checkCollisions);
-            logOnce(
-                `ground-spawn-scene-meshes-${terrainId}`,
-                "[GroundSpawnGate] scene meshes:",
-                all.length,
-                "enabled:",
-                enabled.length,
-                "collidable:",
-                coll.length
-            );
-        }
-        return null;
-    }
+    if (!hasActiveMeshes) return null;
 
     let bestHit = null;
     let testedMeshes = 0;
@@ -154,7 +144,7 @@ export function placeActorOnTerrainSurface(actor, terrain, options = {}) {
     const rayOrigin = origin.add(up.scale(probeStartAbove));
     const ray = new BABYLON.Ray(rayOrigin, up.scale(-1), maxRayDistance);
 
-    const hit = findTerrainHit(ray, terrain);
+    const hit = findTerrainHit(ray, terrain, terrain?.scene);
     if (hit?.hit && hit.pickedPoint) {
         const target = hit.pickedPoint.add(up.scale(spawnOffset));
         applyActorPosition(actor, target);
@@ -296,6 +286,15 @@ export class GroundSpawnGate {
         const pos = entry.actor?.mesh?.position;
         if (!pos || !this.terrain) return false;
 
+        const meshes = this._getPlacementMeshes();
+        const active = meshes.length > 0;
+        console.log(
+            "[GroundSpawnGate] Placement terrain meshes active:",
+            active,
+            "count:",
+            meshes.length
+        );
+
         const fallbackUp = this.player?.mesh?.position?.clone?.() ?? entry.fallbackUp;
         const placed = placeActorOnTerrainSurface(entry.actor, this.terrain, {
             planetRadius: entry.planetRadius ?? this.defaultPlanetRadius,
@@ -308,5 +307,9 @@ export class GroundSpawnGate {
             this._applyClamp(entry);
         }
         return placed;
+    }
+
+    _getPlacementMeshes() {
+        return getPlacementMeshes(this.terrain, this.scene);
     }
 }
