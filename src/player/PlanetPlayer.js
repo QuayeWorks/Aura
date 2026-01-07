@@ -572,16 +572,55 @@ this.groundFriction = options.groundFriction ?? 8;
     }
 
     _terrainRaycast(ray) {
-        return this.scene.pickWithRay(
-            ray,
-            (mesh) =>
-                mesh &&
-                mesh.metadata &&
-                (
-                    mesh.metadata.isTerrainCollider === true ||
-                    mesh.metadata.isTerrain === true
-                )
-        );
+        const predicate = (mesh) =>
+            mesh &&
+            mesh.metadata &&
+            (
+                mesh.metadata.isTerrainCollider === true ||
+                mesh.metadata.isTerrain === true
+            );
+
+        // First try Babylon's picking (fast path when meshes are pickable)
+        const primaryPick = this.scene.pickWithRay(ray, predicate);
+        if (primaryPick?.hit && primaryPick.pickedPoint) {
+            return primaryPick;
+        }
+
+        // Fallback: manual ray intersection that ignores `isPickable`
+        let bestPick = primaryPick?.hit ? primaryPick : null;
+        const meshes = this.scene?.meshes || [];
+        for (const mesh of meshes) {
+            if (!predicate(mesh)) continue;
+
+            const info = ray.intersectsMesh(mesh, false);
+            if (!info?.hit) continue;
+
+            if (!bestPick || info.distance < bestPick.distance) {
+                const pickedPoint = info.pickedPoint
+                    ?? ray.origin.add(ray.direction.scale(info.distance));
+
+                const getNormal = () => {
+                    if (typeof mesh.getFacetNormal === "function" && info.faceId >= 0) {
+                        try {
+                            return mesh.getFacetNormal(info.faceId);
+                        } catch (err) {
+                            return null;
+                        }
+                    }
+                    return null;
+                };
+
+                bestPick = {
+                    ...info,
+                    pickedMesh: mesh,
+                    pickedPoint,
+                    hit: true,
+                    getNormal,
+                };
+            }
+        }
+
+        return bestPick ?? primaryPick ?? { hit: false };
     }
 
     _isInsideTerrainApprox(pos, up) {
@@ -638,18 +677,13 @@ this.groundFriction = options.groundFriction ?? 8;
         // Start from well above the expected surface and raycast inward.
         const startRadius = this.planetRadius + (this.planetRadius * 0.08);
         const rayOrigin = dir.scale(startRadius);
-        const ray = new BABYLON.Ray(rayOrigin, dir.scale(-1), this.planetRadius * 0.2);
-
-        const pick = this.scene.pickWithRay(
-            ray,
-            (mesh) =>
-                mesh &&
-                mesh.metadata &&
-                (
-                    mesh.metadata.isTerrainCollider === true ||
-                    mesh.metadata.isTerrain === true
-                )
+        const ray = new BABYLON.Ray(
+            rayOrigin,
+            dir.scale(-1),
+            this.planetRadius * 2.5 // long enough to cross the whole planet
         );
+
+        const pick = this._terrainRaycast(ray);
 
         if (pick && pick.hit && pick.pickedPoint) {
             // Place player just above the surface hit.
@@ -827,16 +861,7 @@ this.groundFriction = options.groundFriction ?? 8;
         const ray = new BABYLON.Ray(rayOrigin, down, rayLen);
 
         // Only hit terrain chunks (metadata.isTerrain set on them)
-        const pick = this.scene.pickWithRay(
-            ray,
-            (mesh) =>
-                mesh &&
-                mesh.metadata &&
-                (
-                    mesh.metadata.isTerrainCollider === true ||
-                    mesh.metadata.isTerrain === true
-                )
-        );
+        const pick = this._terrainRaycast(ray);
 
 
         let groundedThisFrame = false;
