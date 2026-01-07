@@ -173,9 +173,14 @@ function ensureDebugMenu() {
 let lastFrameTime = performance.now();
 let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
-const LOADING_WAIT_SECONDS = 45;
+const LOADING_PROGRESS_RAMP_SECONDS = 12;
 const LOADING_RELEASE_CLAMP_SECONDS = 2;
 const LOADING_RELEASE_MAX_STEP = 1 / 120;
+const LOADING_PLACEMENT_GRACE_SECONDS = 2;
+const LOADING_PLACEMENT_INTERVAL_SECONDS = 1;
+const LOADING_PROGRESS_CAP = 0.9;
+const LOADING_STREAMING_MESSAGE_AFTER_SECONDS = 6;
+const PLAYER_SPAWN_OFFSET = 500;
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
@@ -464,7 +469,10 @@ function refreshContinueButton() {
 function beginLoadingGate() {
     loadingGate = {
         elapsed: 0,
-        released: false
+        released: false,
+        placementGrace: LOADING_PLACEMENT_GRACE_SECONDS,
+        timeSincePlacementCheck: 0,
+        streamingNoticeShown: false
     };
 
     if (loadingOverlay?.show) {
@@ -490,18 +498,7 @@ function moveActorToSafeAltitude(actor, fallbackUp) {
     const up = fallbackUp
         || actor.spawnDirection?.clone?.()
         || actor?.mesh?.position?.clone?.();
-    const placed = placeActorOnTerrainSurface(actor, {
-        scene,
-        planetRadius,
-        unitsPerMeter,
-        fallbackUp: up
-    });
-    if (!placed) {
-        raiseActorToSafeAltitude(actor, { planetRadius, unitsPerMeter, fallbackUp: up });
-    }
-    if (actor.velocity?.set) {
-        actor.velocity.set(0, 0, 0);
-    }
+    raiseActorToSafeAltitude(actor, { planetRadius, unitsPerMeter, fallbackUp: up });
 }
 
 function releaseLoadingGate() {
@@ -531,7 +528,9 @@ function updateLoadingGate(dtSeconds) {
     if (!loadingGate) return;
 
     loadingGate.elapsed += dtSeconds;
-    const progress = Math.min(loadingGate.elapsed / LOADING_WAIT_SECONDS, 1);
+    const terrainProgress = terrain?.getInitialBuildProgress?.() ?? 0;
+    const rampProgress = Math.min(loadingGate.elapsed / LOADING_PROGRESS_RAMP_SECONDS, 1);
+    const progress = Math.min(LOADING_PROGRESS_CAP, Math.max(terrainProgress, rampProgress) * LOADING_PROGRESS_CAP);
 
     if (loadingOverlay) {
         loadingOverlay.setProgress(progress);
@@ -539,7 +538,32 @@ function updateLoadingGate(dtSeconds) {
         loadingOverlay.setMessage(`Loading world… ${pct}%`);
     }
 
-    if (loadingGate.elapsed >= LOADING_WAIT_SECONDS) {
+    if (loadingGate.elapsed >= LOADING_STREAMING_MESSAGE_AFTER_SECONDS && loadingOverlay) {
+        loadingOverlay.setStreamingMessage("Streaming terrain…");
+        loadingGate.streamingNoticeShown = true;
+    }
+
+    if (loadingGate.placementGrace > 0) {
+        loadingGate.placementGrace = Math.max(0, loadingGate.placementGrace - dtSeconds);
+        return;
+    }
+
+    loadingGate.timeSincePlacementCheck += dtSeconds;
+    if (loadingGate.timeSincePlacementCheck < LOADING_PLACEMENT_INTERVAL_SECONDS) return;
+    loadingGate.timeSincePlacementCheck = 0;
+
+    if (!player || !terrain) return;
+
+    const up = player.mesh?.position?.clone?.() ?? player.spawnDirection?.clone?.();
+    const placed = placeActorOnTerrainSurface(player, terrain, {
+        planetRadius: PLANET_RADIUS_UNITS,
+        spawnOffset: PLAYER_SPAWN_OFFSET,
+        probeStartAbove: 5,
+        maxRayDistance: Math.max(PLANET_RADIUS_UNITS * 3, 200000),
+        fallbackUp: up
+    });
+
+    if (placed) {
         releaseLoadingGate();
     }
 }
@@ -1154,7 +1178,6 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
 
 
 

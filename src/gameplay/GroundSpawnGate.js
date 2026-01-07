@@ -1,37 +1,29 @@
 /* global BABYLON */
 
 const DEFAULT_GRACE_SECONDS = 2;
-const DEFAULT_REPOSITION_SECONDS = 35;
-const DEFAULT_FORCE_RELEASE_SECONDS = 45;
 const DEFAULT_CHECK_INTERVAL = 1;
-const DEFAULT_RAY_LENGTH_METERS = 10;
-const DEFAULT_RAY_OFFSET_METERS = 1;
 const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
+const DEFAULT_MAX_CHECKS_PER_TICK = 3;
 
-function terrainPredicate(mesh) {
-    if (!mesh?.checkCollisions) return false;
-    const meta = mesh.metadata || {};
-    if (meta.isTerrainCollider || meta.isTerrain) return true;
-    return mesh.name ? mesh.name.toLowerCase().startsWith("terrain") : false;
+function getActorPosition(actor) {
+    return actor?.mesh?.position || actor?.position || null;
 }
 
-export function repositionActorRadially(actor, targetRadius, fallbackUp) {
-    if (!actor) return;
-    const pos = actor?.mesh?.position || actor.position;
-    let up = pos ? pos.clone() : null;
-
+function resolveUpVector(actor, fallbackUp) {
+    let up = getActorPosition(actor)?.clone?.() ?? null;
     if (!up || up.lengthSquared() < 1e-6) {
-        up = fallbackUp ? fallbackUp.clone() : null;
+        up = fallbackUp?.clone?.() ?? null;
     }
-
     if (!up || up.lengthSquared() < 1e-6) {
         up = new BABYLON.Vector3(0, 1, 0);
     }
-
     up.normalize();
-    const newPos = up.scale(targetRadius);
+    return up;
+}
 
+function applyActorPosition(actor, newPos) {
+    if (!newPos || !actor) return;
     if (actor.mesh?.position) {
         actor.mesh.position.copyFrom(newPos);
     }
@@ -40,54 +32,78 @@ export function repositionActorRadially(actor, targetRadius, fallbackUp) {
     } else if (actor.position) {
         actor.position = newPos.clone();
     }
+}
 
-    if (actor.velocity?.set) {
+function resetActorVelocity(actor) {
+    if (actor?.velocity?.set) {
         actor.velocity.set(0, 0, 0);
     }
 }
 
-export function placeActorOnTerrainSurface(actor, {
-    scene,
-    planetRadius,
-    unitsPerMeter = 1,
-    surfaceClearance,
-    fallbackUp
-} = {}) {
-    if (!actor?.mesh || !scene) return false;
-
-    let up = actor.mesh.position ? actor.mesh.position.clone() : null;
-    if (!up || up.lengthSquared() < 1e-6) {
-        up = fallbackUp ? fallbackUp.clone() : null;
+function getActiveCollisionMeshes(terrain) {
+    if (terrain?.getActiveCollisionMeshes) {
+        return terrain.getActiveCollisionMeshes();
     }
-    if (!up || up.lengthSquared() < 1e-6) {
-        up = new BABYLON.Vector3(0, 1, 0);
-    }
-    up.normalize();
+    return [];
+}
 
-    const clearance = surfaceClearance
+function findTerrainHit(ray, terrain) {
+    const meshes = getActiveCollisionMeshes(terrain);
+    if (!meshes || meshes.length === 0) return null;
+
+    let bestHit = null;
+    for (const mesh of meshes) {
+        if (!mesh || !mesh.isEnabled?.() || !mesh.checkCollisions) continue;
+        const hit = ray.intersectsMesh(mesh, true);
+        if (!hit?.hit) continue;
+
+        if (!bestHit || hit.distance < bestHit.distance) {
+            bestHit = hit;
+        }
+    }
+
+    if (!bestHit) return null;
+    const pickedPoint = bestHit.pickedPoint
+        ?? ray.origin.add(ray.direction.scale(bestHit.distance));
+    return {
+        ...bestHit,
+        pickedPoint,
+        hit: true
+    };
+}
+
+export function repositionActorRadially(actor, targetRadius, fallbackUp) {
+    if (!actor) return;
+    const up = resolveUpVector(actor, fallbackUp);
+    const newPos = up.scale(targetRadius);
+    applyActorPosition(actor, newPos);
+    resetActorVelocity(actor);
+}
+
+export function placeActorOnTerrainSurface(actor, terrain, options = {}) {
+    if (!actor || !terrain) return false;
+
+    const planetRadius = options.planetRadius ?? terrain?.radius ?? actor.planetRadius ?? 1;
+    const spawnOffset = options.spawnOffset
         ?? actor.surfaceOffset
         ?? (actor.capsuleRadius ? actor.capsuleRadius * 1.5 : null)
         ?? actor.radius
         ?? 1;
+    const probeStartAbove = options.probeStartAbove ?? 5;
+    const maxRayDistance = options.maxRayDistance ?? Math.max(planetRadius * 3, 200000);
 
-    const startRadius = planetRadius
-        ?? actor.planetRadius
-        ?? Math.max(1, actor.mesh.position.length());
+    const up = resolveUpVector(actor, options.fallbackUp);
+    const origin = getActorPosition(actor);
+    if (!origin) return false;
 
-    const rayOrigin = up.scale(startRadius + clearance * 2);
-    const rayLength = Math.max(clearance * 2, DEFAULT_RAY_LENGTH_METERS * unitsPerMeter);
-    const ray = new BABYLON.Ray(rayOrigin, up.scale(-1), rayLength);
+    const rayOrigin = origin.add(up.scale(probeStartAbove));
+    const ray = new BABYLON.Ray(rayOrigin, up.scale(-1), maxRayDistance);
 
-    const pick = scene.pickWithRay(ray, terrainPredicate);
-    if (pick?.hit && pick.pickedPoint) {
-        const target = pick.pickedPoint.add(up.scale(clearance));
-        actor.mesh.position.copyFrom(target);
-        if (actor.position?.copyFrom) {
-            actor.position.copyFrom(target);
-        }
-        if (actor.position && !actor.position.copyFrom) {
-            actor.position = target.clone();
-        }
+    const hit = findTerrainHit(ray, terrain);
+    if (hit?.hit && hit.pickedPoint) {
+        const target = hit.pickedPoint.add(up.scale(spawnOffset));
+        applyActorPosition(actor, target);
+        resetActorVelocity(actor);
         return true;
     }
 
@@ -97,9 +113,11 @@ export function placeActorOnTerrainSurface(actor, {
 export function raiseActorToSafeAltitude(actor, {
     planetRadius,
     unitsPerMeter = 1,
-    fallbackUp
+    fallbackUp,
+    safeAltitudeMeters = 4000
 } = {}) {
-    const targetRadius = (planetRadius ?? actor?.planetRadius ?? 1);
+    const safeUnits = safeAltitudeMeters * unitsPerMeter;
+    const targetRadius = (planetRadius ?? actor?.planetRadius ?? 1) + safeUnits;
     repositionActorRadially(actor, targetRadius, fallbackUp);
 }
 
@@ -114,7 +132,7 @@ export class GroundSpawnGate {
         this.entries = new Map();
     }
 
-    registerActor(actor, { planetRadius } = {}) {
+    registerActor(actor, { planetRadius, fallbackUp, safeAltitudeMeters } = {}) {
         if (!actor?.mesh) return;
 
         const entry = {
@@ -123,19 +141,26 @@ export class GroundSpawnGate {
             elapsed: 0,
             graceRemaining: DEFAULT_GRACE_SECONDS,
             timeSinceCheck: 0,
-            repositioned: false,
             released: false,
             clampRemaining: 0,
             maxClampDt: DEFAULT_CLAMP_MAX_STEP_SECONDS,
+            fallbackUp
         };
 
         this.entries.set(actor, entry);
+        raiseActorToSafeAltitude(actor, {
+            planetRadius: entry.planetRadius,
+            unitsPerMeter: this.unitsPerMeter,
+            fallbackUp,
+            safeAltitudeMeters
+        });
         this._freezeActor(actor);
     }
 
     update(dtSeconds) {
         if (dtSeconds <= 0 || this.entries.size === 0) return;
 
+        let checksRemaining = DEFAULT_MAX_CHECKS_PER_TICK;
         for (const [actor, entry] of this.entries) {
             if (!entry?.actor?.mesh || entry.actor.mesh.isDisposed()) {
                 this.entries.delete(actor);
@@ -156,16 +181,6 @@ export class GroundSpawnGate {
             // Keep actor frozen while waiting for ground
             this._freezeActor(entry.actor);
 
-            if (!entry.repositioned && entry.elapsed >= DEFAULT_REPOSITION_SECONDS) {
-                this._repositionHigh(entry);
-                entry.repositioned = true;
-            }
-
-            if (entry.elapsed >= DEFAULT_FORCE_RELEASE_SECONDS) {
-                this._forceRelease(entry);
-                continue;
-            }
-
             if (entry.graceRemaining > 0) {
                 entry.graceRemaining = Math.max(0, entry.graceRemaining - dtSeconds);
                 continue;
@@ -174,7 +189,10 @@ export class GroundSpawnGate {
             if (entry.timeSinceCheck < DEFAULT_CHECK_INTERVAL) continue;
             entry.timeSinceCheck = 0;
 
-            if (this._hasGround(entry)) {
+            if (checksRemaining <= 0) continue;
+            checksRemaining -= 1;
+
+            if (this._tryPlace(entry)) {
                 this._release(entry);
             }
         }
@@ -196,13 +214,6 @@ export class GroundSpawnGate {
         if (actor.setFrozen) actor.setFrozen(false);
     }
 
-    _repositionHigh(entry) {
-        const planetRadius = entry.planetRadius ?? this.defaultPlanetRadius;
-        const targetRadius = planetRadius;
-        const fallbackUp = this.player?.mesh?.position;
-        repositionActorRadially(entry.actor, targetRadius, fallbackUp);
-    }
-
     _applyClamp(entry, clampDuration = DEFAULT_CLAMP_GRACE_SECONDS) {
         entry.clampRemaining = clampDuration;
         entry.maxClampDt = DEFAULT_CLAMP_MAX_STEP_SECONDS;
@@ -219,32 +230,21 @@ export class GroundSpawnGate {
         this.entries.delete(entry.actor);
     }
 
-    _forceRelease(entry) {
-        entry.released = true;
-        this._applyClamp(entry);
-        this._unfreezeActor(entry.actor);
-    }
-
-    _hasGround(entry) {
+    _tryPlace(entry) {
         const pos = entry.actor?.mesh?.position;
-        if (!pos || !this.scene) return false;
+        if (!pos || !this.terrain) return false;
 
-        let up = pos.clone();
-        if (up.lengthSquared() < 1e-6) {
-            up = this.player?.mesh?.position?.clone();
+        const fallbackUp = this.player?.mesh?.position?.clone?.() ?? entry.fallbackUp;
+        const placed = placeActorOnTerrainSurface(entry.actor, this.terrain, {
+            planetRadius: entry.planetRadius ?? this.defaultPlanetRadius,
+            spawnOffset: entry.actor?.surfaceOffset ?? 2,
+            probeStartAbove: 5 * this.unitsPerMeter,
+            maxRayDistance: Math.max((entry.planetRadius ?? this.defaultPlanetRadius) * 3, 200000),
+            fallbackUp
+        });
+        if (placed) {
+            this._applyClamp(entry);
         }
-        if (!up || up.lengthSquared() < 1e-6) return false;
-        up.normalize();
-
-        const offset = up.scale(DEFAULT_RAY_OFFSET_METERS * this.unitsPerMeter);
-        const origin = pos.add(offset);
-        const ray = new BABYLON.Ray(
-            origin,
-            up.scale(-1),
-            DEFAULT_RAY_LENGTH_METERS * this.unitsPerMeter
-        );
-
-        const pick = this.scene.pickWithRay(ray, terrainPredicate);
-        return !!(pick?.hit && pick.distance <= DEFAULT_RAY_LENGTH_METERS * this.unitsPerMeter + 1e-3);
+        return placed;
     }
 }
