@@ -5,6 +5,14 @@ import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js
 
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
+        const nextDebugId = (ChunkedPlanetTerrain._nextDebugId ?? 1);
+        this._debugId = (typeof crypto !== "undefined" && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : nextDebugId;
+        if (!crypto?.randomUUID) {
+            ChunkedPlanetTerrain._nextDebugId = nextDebugId + 1;
+        }
+
         this.scene = scene;
         this.maxBuildDistance = 33400;
         this.seed = options.seed ?? 1337;
@@ -83,6 +91,8 @@ export class ChunkedPlanetTerrain {
         // Quadtree state
         this.rootNode = null;
         this.activeLeaves = [];
+        this.activeTerrainMeshes = new Set();
+        this._loggedTerrainMeshes = new WeakSet();
 
         // Build the initial quadtree (replaces the old fixed grid)
         this._initializeQuadtree();
@@ -234,10 +244,37 @@ export class ChunkedPlanetTerrain {
         mesh.checkCollisions = isCollider;
     }
 
+    _registerActiveTerrainMesh(mesh) {
+        if (!mesh) return;
+        mesh.metadata = mesh.metadata || {};
+        mesh.metadata.isTerrain = true;
+        // GroundSpawnGate requires terrain chunk meshes to register as collidable.
+        mesh.checkCollisions = true;
+
+        this.activeTerrainMeshes.add(mesh);
+        if (!this._loggedTerrainMeshes.has(mesh)) {
+            console.log(
+                "[Terrain] chunk mesh created:",
+                mesh.name,
+                "collisions:",
+                mesh.checkCollisions,
+                "enabled:",
+                mesh.isEnabled?.()
+            );
+            this._loggedTerrainMeshes.add(mesh);
+        }
+    }
+
+    _unregisterActiveTerrainMesh(mesh) {
+        if (!mesh) return;
+        this.activeTerrainMeshes.delete(mesh);
+    }
+
     _releaseNodeTerrain(node) {
         if (!node || !node.terrain) return;
         const terrain = node.terrain;
         if (terrain.mesh) {
+            this._unregisterActiveTerrainMesh(terrain.mesh);
             terrain.mesh.setEnabled(false);
             this.meshPool.push(terrain.mesh);
         }
@@ -463,6 +500,7 @@ export class ChunkedPlanetTerrain {
             if (!onNearSide || !withinView) {
                 if (node.terrain && node.terrain.mesh) {
                     node.terrain.mesh.setEnabled(false);
+                    this._unregisterActiveTerrainMesh(node.terrain.mesh);
                 }
                 // No further refinement when not visible
                 continue;
@@ -526,6 +564,7 @@ export class ChunkedPlanetTerrain {
             // Ensure mesh is enabled if already built
             if (node.terrain && node.terrain.mesh) {
                 node.terrain.mesh.setEnabled(true);
+                this._registerActiveTerrainMesh(node.terrain.mesh);
             }
         }
 
@@ -624,6 +663,7 @@ _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
             node.lastBuiltRevision = revisionKey;
 
             this._tagColliderForTerrain(node.terrain, job.lodLevel);
+            this._registerActiveTerrainMesh(node.terrain?.mesh);
             this._onChunkBuilt();
 
             this.inFlightJobKeys.delete(key);
@@ -924,10 +964,8 @@ _collectCarvesForNode(node) {
 
     getActiveCollisionMeshes() {
         const meshes = [];
-        for (const node of this.activeLeaves || []) {
-            const mesh = node?.terrain?.mesh;
-            if (!mesh || !mesh.isEnabled()) continue;
-            if (!mesh.checkCollisions) continue;
+        for (const mesh of this.activeTerrainMeshes) {
+            if (!mesh || !mesh.isEnabled?.()) continue;
             meshes.push(mesh);
         }
         return meshes;

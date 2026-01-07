@@ -51,12 +51,33 @@ function findTerrainHit(ray, terrain) {
     const meshes = getActiveCollisionMeshes(terrain);
     const hasActiveMeshes = Array.isArray(meshes) && meshes.length > 0;
     console.log("[GroundSpawnGate] Placement terrain meshes active:", hasActiveMeshes);
-    if (!hasActiveMeshes) return null;
+    if (!hasActiveMeshes) {
+        const scene = terrain?.scene;
+        if (scene?.meshes) {
+            const all = scene.meshes;
+            const enabled = all.filter((mesh) => mesh?.isEnabled?.());
+            const coll = enabled.filter((mesh) => mesh?.checkCollisions);
+            const terrainish = enabled.filter((mesh) => /chunk|terrain|planet/i.test(mesh?.name || ""));
+            console.log(
+                "[GroundSpawnGate] scene meshes:",
+                all.length,
+                "enabled:",
+                enabled.length,
+                "collidable:",
+                coll.length,
+                "terrainish:",
+                terrainish.length,
+                "examples:",
+                terrainish.slice(0, 10).map((mesh) => mesh.name)
+            );
+        }
+        return null;
+    }
 
     let bestHit = null;
     let testedMeshes = 0;
     for (const mesh of meshes) {
-        if (!mesh || !mesh.isEnabled?.() || !mesh.checkCollisions) continue;
+        if (!mesh || !mesh.isEnabled?.()) continue;
         testedMeshes += 1;
         const hit = ray.intersectsMesh(mesh, true);
         if (!hit?.hit) continue;
@@ -135,6 +156,7 @@ export class GroundSpawnGate {
         this.unitsPerMeter = unitsPerMeter;
 
         this.entries = new Map();
+        console.log("[GroundSpawnGate] terrain ref", terrain, "id", terrain?._debugId);
     }
 
     registerActor(actor, { planetRadius, fallbackUp, safeAltitudeMeters } = {}) {
@@ -163,6 +185,7 @@ export class GroundSpawnGate {
     }
 
     update(dtSeconds) {
+        console.log("[GroundSpawnGate] terrain ref", this.terrain, "id", this.terrain?._debugId);
         if (dtSeconds <= 0 || this.entries.size === 0) return;
 
         let checksRemaining = DEFAULT_MAX_CHECKS_PER_TICK;
