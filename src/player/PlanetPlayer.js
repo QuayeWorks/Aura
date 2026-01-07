@@ -46,6 +46,7 @@ export class PlanetPlayer {
         this.flyDescentRatio = options.flyDescentRatio ?? 0.25;
         this.maxFlyDescentSpeed = options.maxFlyDescentSpeed ?? 50;
         this.flyDoubleTapWindowSeconds = options.flyDoubleTapWindowSeconds ?? 0.3;
+        this.pendingFlyLiftWindowMs = options.pendingFlyLiftWindowMs ?? 300;
         
         // Jump grace: prevents fall-safeguard/ground-snap from cancelling an intentional jump
         this.jumpGraceSeconds = options.jumpGraceSeconds ?? 3;
@@ -126,7 +127,9 @@ this.groundFriction = options.groundFriction ?? 8;
         this.inputJumpHeld = false;
         this.inputDescend = false;
 
-        this._pendingFlyLiftDelay = 0;
+        this._pendingFlyLift = false;
+        this._pendingFlyLiftTimerMs = 0;
+        this._pendingFlyLiftTapImpulse = false;
         this._lastSpacePressMs = 0;
 
         this._registerInput();
@@ -165,7 +168,7 @@ this.groundFriction = options.groundFriction ?? 8;
 
         this.flyMode = next;
         this.isGrounded = false;
-        this._pendingFlyLiftDelay = 0;
+        this._clearPendingFlyLift();
         this.inputDescend = false;
         this.inputJumpHeld = false;
 
@@ -221,7 +224,7 @@ this.groundFriction = options.groundFriction ?? 8;
             this.inputJumpRequested = false;
             this.inputJumpHeld = false;
             this.inputDescend = false;
-            this._pendingFlyLiftDelay = 0;
+            this._clearPendingFlyLift();
         }
     }
 
@@ -492,8 +495,9 @@ this.groundFriction = options.groundFriction ?? 8;
             targetVelocity.addInPlace(desiredDir.scale(this.flySpeed));
         }
 
-        const liftActive = this.inputJumpHeld && this._pendingFlyLiftDelay <= 0;
-        if (liftActive) {
+        const liftActive = this.inputJumpHeld && !this._pendingFlyLift;
+        const liftTap = this._pendingFlyLiftTapImpulse;
+        if (liftActive || liftTap) {
             targetVelocity.addInPlace(up.scale(this.flyLiftSpeed));
         }
 
@@ -511,6 +515,9 @@ this.groundFriction = options.groundFriction ?? 8;
             targetVelocity,
             lerpFactor
         );
+        if (this._pendingFlyLiftTapImpulse) {
+            this._pendingFlyLiftTapImpulse = false;
+        }
 
         const delta = this.velocity.scale(safeDt);
         this.mesh.position.addInPlace(delta);
@@ -762,7 +769,9 @@ this.groundFriction = options.groundFriction ?? 8;
                     break;
                 case "Space":
                     this.inputJumpHeld = false;
-                    this._pendingFlyLiftDelay = 0;
+                    if (!this.flyMode) {
+                        this._clearPendingFlyLift();
+                    }
                     break;
                 case "ControlLeft":
                     this.inputDescend = false;
@@ -781,11 +790,12 @@ this.groundFriction = options.groundFriction ?? 8;
         this._lastSpacePressMs = now;
 
         if (this.flyMode) {
-            if (doubleTap) {
-                this.setFlyMode(false);
+            if (this._pendingFlyLift && this._pendingFlyLiftTimerMs > 0) {
+                this._dropFromFlight();
                 return;
             }
-            this._pendingFlyLiftDelay = this.flyDoubleTapWindowSeconds;
+            this._pendingFlyLift = true;
+            this._pendingFlyLiftTimerMs = this.pendingFlyLiftWindowMs;
             return;
         }
 
@@ -799,16 +809,34 @@ this.groundFriction = options.groundFriction ?? 8;
 
     _updateFlyInputTimers(dtSeconds) {
         if (!this.flyMode) {
-            this._pendingFlyLiftDelay = 0;
+            this._clearPendingFlyLift();
             return;
         }
 
-        if (this._pendingFlyLiftDelay > 0) {
-            this._pendingFlyLiftDelay = Math.max(
+        if (this._pendingFlyLift) {
+            this._pendingFlyLiftTimerMs = Math.max(
                 0,
-                this._pendingFlyLiftDelay - dtSeconds
+                this._pendingFlyLiftTimerMs - dtSeconds * 1000
             );
+            if (this._pendingFlyLiftTimerMs <= 0) {
+                this._pendingFlyLift = false;
+                if (!this.inputJumpHeld) {
+                    this._pendingFlyLiftTapImpulse = true;
+                }
+            }
         }
+    }
+
+    _clearPendingFlyLift() {
+        this._pendingFlyLift = false;
+        this._pendingFlyLiftTimerMs = 0;
+        this._pendingFlyLiftTapImpulse = false;
+    }
+
+    _dropFromFlight() {
+        this._clearPendingFlyLift();
+        this.inputJumpHeld = false;
+        this.setFlyMode(false);
     }
 
     setDebugLogRecoveries(isEnabled) {
@@ -987,5 +1015,3 @@ this.groundFriction = options.groundFriction ?? 8;
         );
     }
 }
-
-
