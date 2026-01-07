@@ -129,7 +129,10 @@ export class SettlementSystem {
         });
 
         if (this.groundGate) {
-            this.groundGate.registerActor(npc, { planetRadius: this.terrain?.radius });
+            this.groundGate.registerActor(npc, {
+                planetRadius: this.terrain?.radius,
+                fallbackUp: plan.up
+            });
         }
 
         this.settlements.set(plan.id, { plan, mesh, npc });

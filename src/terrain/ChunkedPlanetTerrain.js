@@ -921,4 +921,15 @@ _collectCarvesForNode(node) {
             visibleLod: node.lastBuiltLod ?? node.level
         }));
     }
+
+    getActiveCollisionMeshes() {
+        const meshes = [];
+        for (const node of this.activeLeaves || []) {
+            const mesh = node?.terrain?.mesh;
+            if (!mesh || !mesh.isEnabled()) continue;
+            if (!mesh.checkCollisions) continue;
+            meshes.push(mesh);
+        }
+        return meshes;
+    }
 }
