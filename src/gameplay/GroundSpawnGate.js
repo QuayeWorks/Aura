@@ -49,11 +49,15 @@ function getActiveCollisionMeshes(terrain) {
 
 function findTerrainHit(ray, terrain) {
     const meshes = getActiveCollisionMeshes(terrain);
-    if (!meshes || meshes.length === 0) return null;
+    const hasActiveMeshes = Array.isArray(meshes) && meshes.length > 0;
+    console.log("[GroundSpawnGate] Placement terrain meshes active:", hasActiveMeshes);
+    if (!hasActiveMeshes) return null;
 
     let bestHit = null;
+    let testedMeshes = 0;
     for (const mesh of meshes) {
         if (!mesh || !mesh.isEnabled?.() || !mesh.checkCollisions) continue;
+        testedMeshes += 1;
         const hit = ray.intersectsMesh(mesh, true);
         if (!hit?.hit) continue;
 
@@ -62,6 +66,7 @@ function findTerrainHit(ray, terrain) {
         }
     }
 
+    console.log("[GroundSpawnGate] Placement terrain mesh tests:", testedMeshes, "closest hit found:", !!bestHit);
     if (!bestHit) return null;
     const pickedPoint = bestHit.pickedPoint
         ?? ray.origin.add(ray.direction.scale(bestHit.distance));
