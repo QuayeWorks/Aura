@@ -6,6 +6,15 @@ const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
 const DEFAULT_MAX_CHECKS_PER_TICK = 3;
 
+const logOnce = (() => {
+    const seen = new Set();
+    return (key, ...args) => {
+        if (seen.has(key)) return;
+        seen.add(key);
+        console.log(...args);
+    };
+})();
+
 function getActorPosition(actor) {
     return actor?.mesh?.position || actor?.position || null;
 }
@@ -40,8 +49,6 @@ function resetActorVelocity(actor) {
     }
 }
 
-let loggedCollisionMeshes = false;
-
 function getCollisionMeshes(terrain) {
     if (terrain?.getCollisionMeshes) {
         return terrain.getCollisionMeshes();
@@ -51,12 +58,18 @@ function getCollisionMeshes(terrain) {
 
 function findTerrainHit(ray, terrain) {
     const meshes = getCollisionMeshes(terrain);
+    const terrainId = terrain?._debugId ?? "unknown";
     const hasActiveMeshes = Array.isArray(meshes)
         && meshes.length > 0
         && meshes.some((mesh) => mesh?.checkCollisions && mesh?.isEnabled?.());
-    console.log("[GroundSpawnGate] Placement terrain meshes active:", hasActiveMeshes);
-    if (!loggedCollisionMeshes && Array.isArray(meshes) && meshes.length > 0) {
-        console.log(
+    logOnce(
+        `ground-spawn-meshes-active-${terrainId}-${hasActiveMeshes}`,
+        "[GroundSpawnGate] Placement terrain meshes active:",
+        hasActiveMeshes
+    );
+    if (Array.isArray(meshes) && meshes.length > 0) {
+        logOnce(
+            `ground-spawn-collision-meshes-${terrainId}`,
             "[GroundSpawnGate] Collision meshes:",
             meshes.map((mesh) => ({
                 name: mesh?.name,
@@ -64,7 +77,6 @@ function findTerrainHit(ray, terrain) {
                 enabled: mesh?.isEnabled?.()
             }))
         );
-        loggedCollisionMeshes = true;
     }
     if (!hasActiveMeshes) {
         const scene = terrain?.scene;
@@ -72,7 +84,8 @@ function findTerrainHit(ray, terrain) {
             const all = scene.meshes;
             const enabled = all.filter((mesh) => mesh?.isEnabled?.());
             const coll = enabled.filter((mesh) => mesh?.checkCollisions);
-            console.log(
+            logOnce(
+                `ground-spawn-scene-meshes-${terrainId}`,
                 "[GroundSpawnGate] scene meshes:",
                 all.length,
                 "enabled:",
@@ -97,7 +110,13 @@ function findTerrainHit(ray, terrain) {
         }
     }
 
-    console.log("[GroundSpawnGate] Placement terrain mesh tests:", testedMeshes, "closest hit found:", !!bestHit);
+    logOnce(
+        `ground-spawn-mesh-tests-${terrainId}-${!!bestHit}`,
+        "[GroundSpawnGate] Placement terrain mesh tests:",
+        testedMeshes,
+        "closest hit found:",
+        !!bestHit
+    );
     if (!bestHit) return null;
     const pickedPoint = bestHit.pickedPoint
         ?? ray.origin.add(ray.direction.scale(bestHit.distance));
@@ -166,7 +185,13 @@ export class GroundSpawnGate {
         this.unitsPerMeter = unitsPerMeter;
 
         this.entries = new Map();
-        console.log("[GroundSpawnGate] terrain ref", terrain, "id", terrain?._debugId);
+        logOnce(
+            `ground-spawn-terrain-ref-${terrain?._debugId ?? "unknown"}`,
+            "[GroundSpawnGate] terrain ref",
+            terrain,
+            "id",
+            terrain?._debugId
+        );
     }
 
     registerActor(actor, { planetRadius, fallbackUp, safeAltitudeMeters } = {}) {
@@ -195,7 +220,6 @@ export class GroundSpawnGate {
     }
 
     update(dtSeconds) {
-        console.log("[GroundSpawnGate] terrain ref", this.terrain, "id", this.terrain?._debugId);
         if (dtSeconds <= 0 || this.entries.size === 0) return;
 
         let checksRemaining = DEFAULT_MAX_CHECKS_PER_TICK;
