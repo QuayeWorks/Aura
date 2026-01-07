@@ -87,6 +87,7 @@ export class ChunkedPlanetTerrain {
         this.lodUpdateCounter = 0;
         this.lodChangeCooldownFrames =
             options.lodChangeCooldownFrames ?? 30;
+        this.horizonCullMargin = options.horizonCullMargin ?? 0.02;
 
         // Quadtree state
         this.rootNode = null;
@@ -391,28 +392,72 @@ export class ChunkedPlanetTerrain {
     }
 
 
-    _isChunkOnNearHemisphere(chunkCenter, focusPos) {
+    _getNodeSurfaceDirection(node) {
+        if (!node) return null;
+
+        const b = node.bounds;
+        if (!b) return null;
+
+        const corners = [
+            [b.minX, b.minY, b.minZ],
+            [b.minX, b.minY, b.maxZ],
+            [b.minX, b.maxY, b.minZ],
+            [b.minX, b.maxY, b.maxZ],
+            [b.maxX, b.minY, b.minZ],
+            [b.maxX, b.minY, b.maxZ],
+            [b.maxX, b.maxY, b.minZ],
+            [b.maxX, b.maxY, b.maxZ]
+        ];
+
+        const sum = new BABYLON.Vector3(0, 0, 0);
+        let count = 0;
+
+        for (const [x, y, z] of corners) {
+            const v = new BABYLON.Vector3(x, y, z);
+            const lenSq = v.lengthSquared();
+            if (lenSq < 1e-6) continue;
+            const invLen = 1 / Math.sqrt(lenSq);
+            sum.addInPlace(v.scale(invLen));
+            count++;
+        }
+
+        if (count === 0) {
+            const fallback = node.getCenterWorldPosition();
+            const lenSq = fallback.lengthSquared();
+            if (lenSq < 1e-6) return null;
+            return fallback.scale(1 / Math.sqrt(lenSq));
+        }
+
+        const sumLenSq = sum.lengthSquared();
+        if (sumLenSq < 1e-6) return null;
+        return sum.scale(1 / Math.sqrt(sumLenSq));
+    }
+
+    _isChunkAboveHorizon(node, focusPos) {
         if (!focusPos) return true;
 
         const planetCenter = BABYLON.Vector3.Zero();
-        const toChunk = chunkCenter.subtract(planetCenter);
         const toFocus = focusPos.subtract(planetCenter);
 
-        const lenSqChunk = toChunk.lengthSquared();
         const lenSqFocus = toFocus.lengthSquared();
-        if (lenSqChunk < 1e-6 || lenSqFocus < 1e-6) {
+        if (lenSqFocus < 1e-6) {
             return true;
         }
 
-        const invLenChunk = 1 / Math.sqrt(lenSqChunk);
-        const invLenFocus = 1 / Math.sqrt(lenSqFocus);
-
-        const nChunk = toChunk.scale(invLenChunk);
+        const lenFocus = Math.sqrt(lenSqFocus);
+        if (lenFocus <= this.radius) {
+            return true;
+        }
+        const invLenFocus = 1 / lenFocus;
         const nFocus = toFocus.scale(invLenFocus);
+        const nSurface = this._getNodeSurfaceDirection(node);
 
-        const dot = BABYLON.Vector3.Dot(nChunk, nFocus);
+        if (!nSurface) return true;
 
-        return dot >= 0;
+        const dot = BABYLON.Vector3.Dot(nSurface, nFocus);
+        const horizonDot = (this.radius / lenFocus) - this.horizonCullMargin;
+
+        return dot >= horizonDot;
     }
 
     _ensureTerrainForNode(node) {
@@ -494,8 +539,8 @@ export class ChunkedPlanetTerrain {
 
             // Straight-line distance (for view culling)
             const centerDist = BABYLON.Vector3.Distance(focusPosition, center);
-            const onNearSide = this._isChunkOnNearHemisphere(
-                center,
+            const onNearSide = this._isChunkAboveHorizon(
+                node,
                 focusPosition
             );
             const withinView = this._isWithinViewDistance(centerDist);
