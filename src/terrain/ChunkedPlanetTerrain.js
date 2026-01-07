@@ -92,6 +92,7 @@ export class ChunkedPlanetTerrain {
         this.rootNode = null;
         this.activeLeaves = [];
         this.activeTerrainMeshes = new Set();
+        this._collisionMeshes = new Set();
         this._loggedTerrainMeshes = new WeakSet();
 
         // Build the initial quadtree (replaces the old fixed grid)
@@ -252,6 +253,7 @@ export class ChunkedPlanetTerrain {
         mesh.checkCollisions = true;
 
         this.activeTerrainMeshes.add(mesh);
+        this._collisionMeshes.add(mesh);
         if (!this._loggedTerrainMeshes.has(mesh)) {
             console.log(
                 "[Terrain] chunk mesh created:",
@@ -268,6 +270,7 @@ export class ChunkedPlanetTerrain {
     _unregisterActiveTerrainMesh(mesh) {
         if (!mesh) return;
         this.activeTerrainMeshes.delete(mesh);
+        this._collisionMeshes.delete(mesh);
     }
 
     _releaseNodeTerrain(node) {
@@ -969,5 +972,9 @@ _collectCarvesForNode(node) {
             meshes.push(mesh);
         }
         return meshes;
+    }
+
+    getCollisionMeshes() {
+        return Array.from(this._collisionMeshes);
     }
 }

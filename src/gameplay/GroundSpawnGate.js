@@ -40,35 +40,45 @@ function resetActorVelocity(actor) {
     }
 }
 
-function getActiveCollisionMeshes(terrain) {
-    if (terrain?.getActiveCollisionMeshes) {
-        return terrain.getActiveCollisionMeshes();
+let loggedCollisionMeshes = false;
+
+function getCollisionMeshes(terrain) {
+    if (terrain?.getCollisionMeshes) {
+        return terrain.getCollisionMeshes();
     }
     return [];
 }
 
 function findTerrainHit(ray, terrain) {
-    const meshes = getActiveCollisionMeshes(terrain);
-    const hasActiveMeshes = Array.isArray(meshes) && meshes.length > 0;
+    const meshes = getCollisionMeshes(terrain);
+    const hasActiveMeshes = Array.isArray(meshes)
+        && meshes.length > 0
+        && meshes.some((mesh) => mesh?.checkCollisions && mesh?.isEnabled?.());
     console.log("[GroundSpawnGate] Placement terrain meshes active:", hasActiveMeshes);
+    if (!loggedCollisionMeshes && Array.isArray(meshes) && meshes.length > 0) {
+        console.log(
+            "[GroundSpawnGate] Collision meshes:",
+            meshes.map((mesh) => ({
+                name: mesh?.name,
+                checkCollisions: mesh?.checkCollisions,
+                enabled: mesh?.isEnabled?.()
+            }))
+        );
+        loggedCollisionMeshes = true;
+    }
     if (!hasActiveMeshes) {
         const scene = terrain?.scene;
         if (scene?.meshes) {
             const all = scene.meshes;
             const enabled = all.filter((mesh) => mesh?.isEnabled?.());
             const coll = enabled.filter((mesh) => mesh?.checkCollisions);
-            const terrainish = enabled.filter((mesh) => /chunk|terrain|planet/i.test(mesh?.name || ""));
             console.log(
                 "[GroundSpawnGate] scene meshes:",
                 all.length,
                 "enabled:",
                 enabled.length,
                 "collidable:",
-                coll.length,
-                "terrainish:",
-                terrainish.length,
-                "examples:",
-                terrainish.slice(0, 10).map((mesh) => mesh.name)
+                coll.length
             );
         }
         return null;
@@ -77,7 +87,7 @@ function findTerrainHit(ray, terrain) {
     let bestHit = null;
     let testedMeshes = 0;
     for (const mesh of meshes) {
-        if (!mesh || !mesh.isEnabled?.()) continue;
+        if (!mesh || !mesh.checkCollisions || !mesh.isEnabled?.()) continue;
         testedMeshes += 1;
         const hit = ray.intersectsMesh(mesh, true);
         if (!hit?.hit) continue;
