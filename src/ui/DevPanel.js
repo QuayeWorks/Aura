@@ -77,6 +77,23 @@ export class DevPanel {
             }
         }
 
+        if (data.streamingStats) {
+            const s = data.streamingStats;
+            lines.push(
+                `Stream2  focus:${s.focusMode ?? "-"}  renderSet:${s.renderSetCount ?? 0}  culled:${s.culledCount ?? 0}  depth:${s.depthCulledCount ?? 0}`
+            );
+            lines.push(
+                `Meshes   enabled:${s.enabledMeshes ?? 0}  collidable:${s.enabledCollidableMeshes ?? 0}  maxLOD:${s.maxLodInUse ?? 0}`
+            );
+            if (Array.isArray(s.perLodCounts)) {
+                const lodParts = s.perLodCounts.map((val, idx) => `${idx}:${val ?? 0}`);
+                lines.push(`LOD set  [${lodParts.join("  ")}]`);
+            }
+            lines.push(
+                `Builds   queue:${s.buildQueueLength ?? 0}  active:${s.activeBuilds ?? 0}  avg:${(s.avgBuildMsLastSecond ?? 0).toFixed(1)}ms`
+            );
+        }
+
         if (data.time) {
             lines.push(`Time     ${data.time}`);
         }

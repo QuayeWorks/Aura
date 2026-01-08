@@ -7,6 +7,7 @@ const defaultFlags = {
     showCompass: true,
     showPOIDebug: false,
     showCullDebug: false,
+    showStreamingRings: false,
     biomeDebug: false,
     cameraColliderDebug: false,
     logCollisionRecovery: false,

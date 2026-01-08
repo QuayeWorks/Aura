@@ -80,6 +80,13 @@ let domHud = null;
 let abilityTreePanel = null;
 let debugMenu = null;
 let debugSubscription = null;
+let streamingDebugRoot = null;
+let streamingDebugRings = null;
+let streamingDebugSurfaceLines = null;
+let streamingDebugVisible = false;
+let lastStreamingStats = null;
+let lastStreamingFocusPos = null;
+let lastStreamingFocusMode = "activeCamera";
 
 function applyDebugFlags(state = {}) {
     const flags = state.flags ?? DebugSettings.getAllFlags();
@@ -127,6 +134,114 @@ function applyDebugFlags(state = {}) {
     if (player?.setFlySpeed && typeof values?.flySpeed === "number") {
         player.setFlySpeed(values.flySpeed);
     }
+
+    streamingDebugVisible = !!flags.showStreamingRings;
+    if (!streamingDebugVisible && streamingDebugRoot) {
+        streamingDebugRoot.setEnabled(false);
+    }
+    if (!streamingDebugVisible && streamingDebugSurfaceLines) {
+        streamingDebugSurfaceLines.setEnabled(false);
+    }
+}
+
+function createCirclePoints(radius, segments = 96) {
+    const pts = [];
+    const step = (Math.PI * 2) / segments;
+    for (let i = 0; i <= segments; i++) {
+        const angle = i * step;
+        pts.push(new BABYLON.Vector3(
+            Math.cos(angle) * radius,
+            0,
+            Math.sin(angle) * radius
+        ));
+    }
+    return pts;
+}
+
+function ensureStreamingDebugMeshes() {
+    if (streamingDebugRoot || !scene) return;
+
+    streamingDebugRoot = new BABYLON.TransformNode("streaming-debug-root", scene);
+    streamingDebugRings = new Map();
+
+    const ringSpecs = [
+        { key: "r0", color: new BABYLON.Color3(0.1, 0.9, 0.3) },
+        { key: "r1", color: new BABYLON.Color3(0.3, 0.8, 0.9) },
+        { key: "r2", color: new BABYLON.Color3(0.9, 0.8, 0.3) },
+        { key: "r3", color: new BABYLON.Color3(0.9, 0.4, 0.3) },
+        { key: "rcull", color: new BABYLON.Color3(1.0, 0.0, 0.6) }
+    ];
+
+    ringSpecs.forEach((spec) => {
+        const ring = BABYLON.MeshBuilder.CreateLines(
+            `streaming-ring-${spec.key}`,
+            { points: createCirclePoints(1) },
+            scene
+        );
+        ring.color = spec.color;
+        ring.isPickable = false;
+        ring.parent = streamingDebugRoot;
+        streamingDebugRings.set(spec.key, ring);
+    });
+
+    streamingDebugSurfaceLines = BABYLON.MeshBuilder.CreateLineSystem(
+        "streaming-surface-lines",
+        { lines: [] },
+        scene
+    );
+    streamingDebugSurfaceLines.color = new BABYLON.Color3(0.8, 0.9, 1.0);
+    streamingDebugSurfaceLines.isPickable = false;
+}
+
+function updateStreamingDebugMeshes(focusPos) {
+    if (!streamingDebugVisible || !terrain || !focusPos) return;
+    ensureStreamingDebugMeshes();
+
+    if (!streamingDebugRoot || !streamingDebugRings) return;
+
+    const up = focusPos.clone();
+    if (up.lengthSquared() < 1e-6) {
+        streamingDebugRoot.setEnabled(false);
+        return;
+    }
+    up.normalize();
+    const ringCenter = up.scale(PLANET_RADIUS_UNITS);
+    streamingDebugRoot.position.copyFrom(ringCenter);
+
+    let tangent = BABYLON.Vector3.Cross(BABYLON.Axis.Y, up);
+    if (tangent.lengthSquared() < 1e-6) {
+        tangent = BABYLON.Vector3.Cross(BABYLON.Axis.X, up);
+    }
+    tangent.normalize();
+    const bitangent = BABYLON.Vector3.Cross(up, tangent);
+    bitangent.normalize();
+    const rotMat = BABYLON.Matrix.FromXYZAxes(tangent, up, bitangent);
+    streamingDebugRoot.rotationQuaternion = BABYLON.Quaternion.FromRotationMatrix(rotMat);
+    streamingDebugRoot.setEnabled(true);
+    if (streamingDebugSurfaceLines) streamingDebugSurfaceLines.setEnabled(true);
+
+    const radii = terrain?.lodRingRadii;
+    if (radii) {
+        streamingDebugRings.forEach((mesh, key) => {
+            const radius = radii[key];
+            if (!Number.isFinite(radius) || radius <= 0) return;
+            BABYLON.MeshBuilder.CreateLines(
+                mesh.name,
+                { points: createCirclePoints(radius), instance: mesh },
+                scene
+            );
+        });
+    }
+
+    if (streamingDebugSurfaceLines && terrain?.getSurfaceDirectionSamples) {
+        const samples = terrain.getSurfaceDirectionSamples(6);
+        const lines = samples.map((sample) => [sample.start, sample.end]);
+        BABYLON.MeshBuilder.CreateLineSystem(
+            streamingDebugSurfaceLines.name,
+            { lines, instance: streamingDebugSurfaceLines },
+            scene
+        );
+    }
 }
 
 function ensureDebugMenu() {
@@ -139,6 +254,7 @@ function ensureDebugMenu() {
         { key: "showCompass", label: "Compass" },
         { key: "showPOIDebug", label: "POI Debug" },
         { key: "cameraColliderDebug", label: "Camera Collider" },
+        { key: "showStreamingRings", label: "Streaming Rings" },
         { key: "biomeDebug", label: "Biome Debug" },
         { key: "localSimulation", label: "Local Simulation" },
         { key: "flyMode", label: "Fly Mode" },
@@ -171,6 +287,20 @@ function ensureDebugMenu() {
         flags: DebugSettings.getAllFlags(),
         values: DebugSettings.getAllValues(),
     });
+}
+
+function startStreamingStatsInterval() {
+    if (window._streamingStatsInterval) return;
+    window._streamingStatsInterval = window.setInterval(() => {
+        if (!terrain || !lastStreamingFocusPos || !terrain.getStreamingStats) return;
+        const stats = terrain.getStreamingStats();
+        const report = {
+            focusMode: lastStreamingFocusMode,
+            ...stats
+        };
+        lastStreamingStats = report;
+        console.log("[STREAM]", report);
+    }, 1000);
 }
 
 
@@ -1005,6 +1135,7 @@ function enterGameplayFromLoading() {
 // Bootstrap + loop
 // --------------------
 createScene();
+startStreamingStatsInterval();
 
 engine.runRenderLoop(() => {
     if (!scene) return;
@@ -1028,12 +1159,23 @@ engine.runRenderLoop(() => {
         focusPos = scene.activeCamera.position;
     }
 
+    if (focusPos) {
+        lastStreamingFocusPos = focusPos.clone
+            ? focusPos.clone()
+            : new BABYLON.Vector3(focusPos.x, focusPos.y, focusPos.z);
+        lastStreamingFocusMode = useStreamingFocus ? "streamingFocus" : "activeCamera";
+    }
+
     if (terrain && (gameState === GameState.LOADING || gameState === GameState.PLAYING)) {
         terrain.updateStreaming(focusPos);
     }
 
     if (gameState === GameState.LOADING) {
         updateLoadingGate(simDtSeconds);
+    }
+
+    if (focusPos) {
+        updateStreamingDebugMeshes(focusPos);
     }
 
 
@@ -1113,6 +1255,10 @@ engine.runRenderLoop(() => {
                     }
                 };
             }
+        }
+
+        if (devData && lastStreamingStats) {
+            devData.streamingStats = lastStreamingStats;
         }
 
         // Sun/Moon + time-of-day HUD
