@@ -26,7 +26,7 @@ const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
 // Planet radius in world units (meters, conceptually)
-const PLANET_RADIUS_UNITS = 36000;
+const PLANET_RADIUS_UNITS = 32400;
 const SPAWN_ALTITUDE_UNITS = 3300;
 const SPAWN_RADIUS_UNITS = PLANET_RADIUS_UNITS + SPAWN_ALTITUDE_UNITS;
 
@@ -1164,5 +1164,4 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
 
