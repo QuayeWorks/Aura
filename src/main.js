@@ -18,7 +18,6 @@ import { CompassHUD } from "./ui/CompassHUD.js";
 import { AudioSystem } from "./audio/AudioSystem.js";
 import { createAbilityTreePanel } from "./ui/AbilityTreePanel.js";
 import { createLoadingOverlay as createDomLoadingOverlay } from "./ui/LoadingOverlay.js";
-import { GroundSpawnGate } from "./gameplay/GroundSpawnGate.js";
 import { DebugMenu } from "./ui/DebugMenu.js";
 import { DebugSettings } from "./systems/DebugSettings.js";
 
@@ -27,8 +26,9 @@ const engine = new BABYLON.Engine(canvas, true);
 
 // Planet radius in world units (meters, conceptually)
 const PLANET_RADIUS_UNITS = 32400;
-const SPAWN_ALTITUDE_UNITS = 3300;
-const SPAWN_RADIUS_UNITS = PLANET_RADIUS_UNITS + SPAWN_ALTITUDE_UNITS;
+const SPAWN_OFFSET_UNITS = 600;
+const SPAWN_RADIUS_UNITS = PLANET_RADIUS_UNITS + SPAWN_OFFSET_UNITS;
+const SPAWN_DIR = new BABYLON.Vector3(0, 0, 1).normalize();
 
 // Game state machine
 const GameState = {
@@ -52,8 +52,9 @@ let audioSystem = null;
 const saveSystem = new SaveSystem();
 let pendingLoadSnapshot = null;
 let loadingGate = null;
-let groundSpawnGate = null;
 let playerSpawned = false;
+const streamingFocus = { globalPosition: new BABYLON.Vector3() };
+let useStreamingFocus = false;
 
 
 // Camera + environment
@@ -482,6 +483,12 @@ function beginLoadingGate() {
     }
 }
 
+function setStreamingFocusToSpawn() {
+    streamingFocus.globalPosition.copyFrom(SPAWN_DIR);
+    streamingFocus.globalPosition.scaleInPlace(SPAWN_RADIUS_UNITS);
+    useStreamingFocus = true;
+}
+
 function freezePlayerForLoading() {
     if (!player) return;
     if (player.setInputEnabled) player.setInputEnabled(false);
@@ -490,25 +497,31 @@ function freezePlayerForLoading() {
     }
 }
 
-function ensureGroundSpawnGate() {
-    if (groundSpawnGate || !terrain) return;
-    groundSpawnGate = new GroundSpawnGate({
-        scene,
-        terrain,
-        planetRadius: PLANET_RADIUS_UNITS,
-        unitsPerMeter: terrain?.biomeSettings?.unitsPerMeter ?? 1
-    });
+function spawnAreaReady() {
+    const meshes = terrain?.getCollisionMeshes?.() ?? [];
+    if (meshes.length === 0) return false;
+
+    const up = SPAWN_DIR.clone();
+    const origin = up.scale(SPAWN_RADIUS_UNITS).add(up.scale(200));
+    const ray = new BABYLON.Ray(origin, up.scale(-1), PLANET_RADIUS_UNITS * 4);
+
+    let best = null;
+    for (const mesh of meshes) {
+        if (!mesh || !mesh.checkCollisions) continue;
+        const hit = ray.intersectsMesh(mesh, true);
+        if (hit?.hit && (!best || hit.distance < best.distance)) {
+            best = hit;
+        }
+    }
+
+    return !!best;
 }
 
 function trySpawnPlayer() {
     if (playerSpawned || !terrain) return;
-    ensureGroundSpawnGate();
-    if (!groundSpawnGate) return;
+    if (!spawnAreaReady()) return;
 
-    const count = groundSpawnGate.getCollisionMeshCount();
-    if (count < 8) return;
-
-    console.log("[Spawn] Terrain ready with", count, "collision meshes. Spawning player.");
+    console.log("[Spawn] Terrain ready under spawn focus. Spawning player.");
 
     player = new PlanetPlayer(scene, terrain, {
         planetRadius: PLANET_RADIUS_UNITS,
@@ -518,11 +531,11 @@ function trySpawnPlayer() {
         radius: 0.35,
         jumpGraceSeconds: 40,
         inputEnabled: false,
-        deferSpawn: true
+        deferSpawn: true,
+        spawnDirection: SPAWN_DIR
     });
 
-    const dir = (player.spawnDirection ?? new BABYLON.Vector3(0, 0, 1)).clone().normalize();
-    const spawnPos = dir.scale(SPAWN_RADIUS_UNITS);
+    const spawnPos = SPAWN_DIR.scale(SPAWN_RADIUS_UNITS);
     if (player.mesh?.position?.copyFrom) {
         player.mesh.position.copyFrom(spawnPos);
     } else if (player.mesh) {
@@ -544,6 +557,7 @@ function trySpawnPlayer() {
 
     enterGameplayFromLoading();
     loadingGate = null;
+    useStreamingFocus = false;
     playerSpawned = true;
 }
 
@@ -854,6 +868,7 @@ function startGame() {
     if (lodInfoText) lodInfoText.isVisible = false;
 
     beginLoadingGate();
+    setStreamingFocusToSpawn();
     setFirefliesVisible(true);
     applyMenuVisuals();
 
@@ -878,8 +893,6 @@ function startGame() {
         terrain.setOnInitialBuildDone(() => {
             console.log("Initial planet build complete.");
         });
-    } else {
-        ensureGroundSpawnGate();
     }
 }
 
@@ -1005,7 +1018,9 @@ engine.runRenderLoop(() => {
 
     // Focus position for LOD & hemisphere
     let focusPos = null;
-    if (cameraCollider) {
+    if (useStreamingFocus) {
+        focusPos = streamingFocus.globalPosition;
+    } else if (cameraCollider) {
         focusPos = cameraCollider.position;
     } else if (player && player.mesh) {
         focusPos = player.mesh.position;
@@ -1164,4 +1179,3 @@ engine.runRenderLoop(() => {
 window.addEventListener("resize", () => {
     engine.resize();
 });
-
