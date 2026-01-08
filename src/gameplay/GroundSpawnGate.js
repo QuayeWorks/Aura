@@ -183,6 +183,11 @@ export class GroundSpawnGate {
         );
     }
 
+    getCollisionMeshCount() {
+        if (!this.terrain || !this.terrain.getCollisionMeshes) return 0;
+        return this.terrain.getCollisionMeshes().length;
+    }
+
     registerActor(actor, { planetRadius, fallbackUp, safeAltitudeMeters } = {}) {
         if (!actor?.mesh) return;
 
