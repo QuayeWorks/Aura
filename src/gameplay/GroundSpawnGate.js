@@ -51,7 +51,9 @@ function resetActorVelocity(actor) {
 
 function getPlacementMeshes(terrain, scene) {
     let meshes = [];
-    if (terrain && typeof terrain.getCollisionMeshes === "function") {
+    if (terrain && typeof terrain.getKnownCollisionMeshes === "function") {
+        meshes = terrain.getKnownCollisionMeshes();
+    } else if (terrain && typeof terrain.getCollisionMeshes === "function") {
         meshes = terrain.getCollisionMeshes();
     }
 
@@ -184,8 +186,14 @@ export class GroundSpawnGate {
     }
 
     getCollisionMeshCount() {
-        if (!this.terrain || !this.terrain.getCollisionMeshes) return 0;
-        return this.terrain.getCollisionMeshes().length;
+        if (!this.terrain) return 0;
+        if (this.terrain.getKnownCollisionMeshes) {
+            return this.terrain.getKnownCollisionMeshes().length;
+        }
+        if (this.terrain.getCollisionMeshes) {
+            return this.terrain.getCollisionMeshes().length;
+        }
+        return 0;
     }
 
     registerActor(actor, { planetRadius, fallbackUp, safeAltitudeMeters } = {}) {

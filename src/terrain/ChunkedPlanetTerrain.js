@@ -112,6 +112,7 @@ export class ChunkedPlanetTerrain {
             samples: 0
         };
         this._buildDurationSamples = [];
+        this._buildDropSamples = [];
 
         this.lodUpdateCounter = 0;
         this.lodChangeCooldownFrames =
@@ -273,10 +274,13 @@ export class ChunkedPlanetTerrain {
         }
     }
 
-    _registerActiveTerrainMesh(mesh) {
+    _registerActiveTerrainMesh(mesh, node = null) {
         if (!mesh) return;
         mesh.metadata = mesh.metadata || {};
         mesh.metadata.isTerrain = true;
+        if (node) {
+            mesh.metadata.terrainNode = node;
+        }
 
         this.activeTerrainMeshes.add(mesh);
         this._collisionMeshes.add(mesh);
@@ -584,6 +588,50 @@ export class ChunkedPlanetTerrain {
         return !node.isDepthCulled;
     }
 
+    _wouldBeDepthCulled(node, maxDepth) {
+        if (!node) return false;
+        const margin = this.depthCullHysteresis;
+        const allowedMin = this.radius - maxDepth;
+        const { maxR } = this._nodeRadialRange(node);
+        let depthCulled = !!node.isDepthCulled;
+        if (depthCulled) {
+            if (maxR > allowedMin + margin) {
+                depthCulled = false;
+            }
+        } else {
+            if (maxR < allowedMin - margin) {
+                depthCulled = true;
+            }
+        }
+        return depthCulled;
+    }
+
+    _wouldBeCulledByDistance(node, surfaceDist) {
+        if (!node) return false;
+        const { rcull } = this.lodRingRadii;
+        const margin = this.cullHysteresis;
+        let culled = !!node.isCulled;
+        if (culled) {
+            if (surfaceDist < rcull - margin) {
+                culled = false;
+            }
+        } else {
+            if (surfaceDist > rcull + margin) {
+                culled = true;
+            }
+        }
+        return culled;
+    }
+
+    _recordDroppedBuild(reason) {
+        const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        this._buildDropSamples.push({ t: now, reason });
+        const cutoff = now - 5000;
+        while (this._buildDropSamples.length > 0 && this._buildDropSamples[0].t < cutoff) {
+            this._buildDropSamples.shift();
+        }
+    }
+
     _withinCullRing(node, surfaceDist) {
         const { rcull } = this.lodRingRadii;
         const margin = this.cullHysteresis;
@@ -721,6 +769,7 @@ export class ChunkedPlanetTerrain {
                 isDepthCulled: node.isDepthCulled,
                 isHorizonCulled: node.isHorizonCulled
             });
+            this._recordDroppedBuild("culled");
             return;
         }
 
@@ -735,6 +784,7 @@ export class ChunkedPlanetTerrain {
                     lodLevel,
                     surfaceDist
                 });
+                this._recordDroppedBuild("rcull");
                 return;
             }
         }
@@ -756,6 +806,8 @@ export class ChunkedPlanetTerrain {
 
         const stats = {
             totalVisible: 0,
+            totalLeafCandidates: 0,
+            totalLeafVisible: 0,
             culledByDistance: 0,
             culledByDepth: 0,
             culledByHorizon: 0,
@@ -779,6 +831,9 @@ export class ChunkedPlanetTerrain {
             if (!node) continue;
 
             const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
+            if (node.isLeaf()) {
+                stats.totalLeafCandidates++;
+            }
 
             if (!this._withinDepthCap(node, maxDepth)) {
                 stats.culledByDepth++;
@@ -824,6 +879,7 @@ export class ChunkedPlanetTerrain {
             // Leaf that should be visible
             newLeaves.push(node);
             stats.totalVisible++;
+            stats.totalLeafVisible++;
             if (node.level >= 0 && node.level < stats.perLod.length) {
                 stats.perLod[node.level]++;
                 if (node.level > stats.maxLodInUse) {
@@ -835,7 +891,7 @@ export class ChunkedPlanetTerrain {
             if (node.terrain && node.terrain.mesh) {
                 node.terrain.mesh.setEnabled(true);
                 this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level);
-                this._registerActiveTerrainMesh(node.terrain.mesh);
+                this._registerActiveTerrainMesh(node.terrain.mesh, node);
             }
         }
 
@@ -915,6 +971,7 @@ export class ChunkedPlanetTerrain {
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
                 const key = this._jobKey(node, job.lodLevel, revisionKey);
                 this.queuedJobKeys.delete(key);
+                this._recordDroppedBuild("culled");
                 continue;
             }
             if (!this._withinDepthCap(node, maxDepth)) {
@@ -922,6 +979,7 @@ export class ChunkedPlanetTerrain {
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
                 const key = this._jobKey(node, job.lodLevel, revisionKey);
                 this.queuedJobKeys.delete(key);
+                this._recordDroppedBuild("depth");
                 continue;
             }
             if (this.lastCameraPosition && !this._isChunkAboveHorizon(node, this.lastCameraPosition)) {
@@ -930,6 +988,7 @@ export class ChunkedPlanetTerrain {
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
                 const key = this._jobKey(node, job.lodLevel, revisionKey);
                 this.queuedJobKeys.delete(key);
+                this._recordDroppedBuild("horizon");
                 continue;
             }
             if (this.lastCameraPosition) {
@@ -941,6 +1000,7 @@ export class ChunkedPlanetTerrain {
                     const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
                     const key = this._jobKey(node, job.lodLevel, revisionKey);
                     this.queuedJobKeys.delete(key);
+                    this._recordDroppedBuild("rcull");
                     continue;
                 }
             }
@@ -970,7 +1030,7 @@ export class ChunkedPlanetTerrain {
                 node.lastBuiltRevision = revisionKey;
 
                 this._tagColliderForTerrain(node.terrain, job.lodLevel);
-                this._registerActiveTerrainMesh(node.terrain?.mesh);
+                this._registerActiveTerrainMesh(node.terrain?.mesh, node);
                 this._onChunkBuilt();
                 this._recordBuildDuration(nowMs() - jobStartMs);
 
@@ -1228,6 +1288,130 @@ export class ChunkedPlanetTerrain {
             if (mesh && mesh.isEnabled?.()) enabledCollidable++;
         }
 
+        const focusPos = this.lastCameraPosition;
+        const focusDir = focusPos ? focusPos.clone() : null;
+        if (focusDir && focusDir.lengthSquared() > 0) {
+            focusDir.normalize();
+        }
+
+        const rcull = this.lodRingRadii.rcull;
+        const maxDepth = this.lodRingRadii.r3 * 0.5;
+        const allowedMin = this.radius - maxDepth;
+        const depthMargin = this.depthCullHysteresis;
+
+        const getMeshCenter = (mesh) => {
+            const boundingCenter = mesh?.getBoundingInfo?.().boundingSphere?.centerWorld;
+            return boundingCenter ?? mesh?.position ?? null;
+        };
+
+        const surfaceDistanceForMesh = (mesh) => {
+            if (!focusDir) return Infinity;
+            const node = mesh?.metadata?.terrainNode;
+            if (node) {
+                return this._surfaceDistanceForNode(focusDir, node);
+            }
+            const center = getMeshCenter(mesh);
+            if (!center) return Infinity;
+            const dir = center.clone();
+            if (dir.lengthSquared() < 1e-6) return Infinity;
+            dir.normalize();
+            const dot = BABYLON.Vector3.Dot(dir, focusDir);
+            const clamped = Math.max(-1, Math.min(1, dot));
+            const angle = Math.acos(clamped);
+            return this.radius * angle;
+        };
+
+        const meshBelowHorizon = (mesh) => {
+            if (!focusPos) return false;
+            const node = mesh?.metadata?.terrainNode;
+            if (node) {
+                return !this._isChunkAboveHorizon(node, focusPos);
+            }
+            const center = getMeshCenter(mesh);
+            if (!center) return false;
+            const toFocus = focusPos.clone();
+            const lenFocusSq = toFocus.lengthSquared();
+            if (lenFocusSq < 1e-6) return false;
+            const lenFocus = Math.sqrt(lenFocusSq);
+            if (lenFocus <= this.radius) return false;
+            toFocus.scaleInPlace(1 / lenFocus);
+            const nSurface = center.clone();
+            if (nSurface.lengthSquared() < 1e-6) return false;
+            nSurface.normalize();
+            const dot = BABYLON.Vector3.Dot(nSurface, toFocus);
+            const horizonDot = (this.radius / lenFocus) - this.horizonCullMargin;
+            return dot < horizonDot;
+        };
+
+        const meshTooDeep = (mesh) => {
+            const node = mesh?.metadata?.terrainNode;
+            if (node) {
+                return this._wouldBeDepthCulled(node, maxDepth);
+            }
+            const center = getMeshCenter(mesh);
+            if (!center) return false;
+            const radiusWorld = mesh?.getBoundingInfo?.().boundingSphere?.radiusWorld ?? 0;
+            const maxR = center.length() + radiusWorld;
+            return maxR < allowedMin - depthMargin;
+        };
+
+        let enabledOutsideRcull = 0;
+        let collidableOutsideRcull = 0;
+        let enabledBelowHorizon = 0;
+        let enabledTooDeep = 0;
+        let perLodOutsideRcull = 0;
+
+        for (const mesh of enabledMeshes) {
+            const surfaceDist = surfaceDistanceForMesh(mesh);
+            if (surfaceDist > rcull) {
+                enabledOutsideRcull++;
+            }
+            if (meshBelowHorizon(mesh)) {
+                enabledBelowHorizon++;
+            }
+            if (meshTooDeep(mesh)) {
+                enabledTooDeep++;
+            }
+        }
+
+        for (const mesh of this._activeCollisionMeshes) {
+            if (!mesh || !mesh.isEnabled?.()) continue;
+            const surfaceDist = surfaceDistanceForMesh(mesh);
+            if (surfaceDist > rcull) {
+                collidableOutsideRcull++;
+            }
+        }
+
+        if (focusDir) {
+            for (const node of this.activeLeaves || []) {
+                if (!node) continue;
+                const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
+                if (surfaceDist > rcull) {
+                    perLodOutsideRcull++;
+                }
+            }
+        }
+
+        let buildJobsQueuedOutsideRcull = 0;
+        let buildJobsQueuedBelowHorizon = 0;
+        let buildJobsQueuedTooDeep = 0;
+        if (focusDir && focusPos) {
+            for (const job of this.buildQueue) {
+                const node = job?.node;
+                if (!node) continue;
+                const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
+                if (surfaceDist > rcull) {
+                    buildJobsQueuedOutsideRcull++;
+                }
+                if (!this._isChunkAboveHorizon(node, focusPos)) {
+                    buildJobsQueuedBelowHorizon++;
+                }
+                if (this._wouldBeDepthCulled(node, maxDepth)) {
+                    buildJobsQueuedTooDeep++;
+                }
+            }
+        }
+
         const now = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
         const cutoff = now - 1000;
         let sum = 0;
@@ -1239,10 +1423,36 @@ export class ChunkedPlanetTerrain {
             }
         }
 
+        let buildJobsDroppedOutsideRcull = 0;
+        let buildJobsDroppedBelowHorizon = 0;
+        let buildJobsDroppedTooDeep = 0;
+        let buildJobsDroppedCulled = 0;
+        for (const sample of this._buildDropSamples) {
+            if (sample.t < cutoff) continue;
+            if (sample.reason === "rcull") buildJobsDroppedOutsideRcull++;
+            if (sample.reason === "horizon") buildJobsDroppedBelowHorizon++;
+            if (sample.reason === "depth") buildJobsDroppedTooDeep++;
+            if (sample.reason === "culled") buildJobsDroppedCulled++;
+        }
+
         return {
             enabledMeshes: enabledMeshes.length,
             enabledCollidableMeshes: enabledCollidable,
+            enabledOutsideRcull,
+            collidableOutsideRcull,
+            enabledBelowHorizon,
+            enabledTooDeep,
+            perLodOutsideRcull,
+            buildJobsQueuedOutsideRcull,
+            buildJobsQueuedBelowHorizon,
+            buildJobsQueuedTooDeep,
+            buildJobsDroppedOutsideRcull,
+            buildJobsDroppedBelowHorizon,
+            buildJobsDroppedTooDeep,
+            buildJobsDroppedCulled,
             renderSetCount: this.lastLodStats.totalVisible ?? 0,
+            totalLeafCandidates: this.lastLodStats.totalLeafCandidates ?? 0,
+            totalLeafVisible: this.lastLodStats.totalLeafVisible ?? 0,
             culledCount: this.lastLodStats.culledByDistance ?? 0,
             depthCulledCount: this.lastLodStats.culledByDepth ?? 0,
             horizonCulledCount: this.lastLodStats.culledByHorizon ?? 0,
@@ -1348,6 +1558,15 @@ export class ChunkedPlanetTerrain {
         const meshes = [];
         for (const mesh of this._activeCollisionMeshes) {
             if (!mesh || !mesh.isEnabled?.()) continue;
+            meshes.push(mesh);
+        }
+        return meshes;
+    }
+
+    getKnownCollisionMeshes() {
+        const meshes = [];
+        for (const mesh of this._collisionMeshes) {
+            if (!mesh || mesh.isDisposed?.()) continue;
             meshes.push(mesh);
         }
         return meshes;
