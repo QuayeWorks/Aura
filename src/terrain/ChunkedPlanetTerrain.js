@@ -1017,8 +1017,9 @@ _collectCarvesForNode(node) {
     }
 
     getCollisionMeshes() {
+        // Return all known collision meshes; placement can test them even if temporarily disabled.
         return Array.from(this._collisionMeshes).filter(
-            (mesh) => mesh && !mesh.isDisposed?.() && mesh.isEnabled?.()
+            (mesh) => mesh && !mesh.isDisposed?.()
         );
     }
 }
