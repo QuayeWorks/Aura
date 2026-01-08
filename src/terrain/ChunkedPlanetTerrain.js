@@ -14,7 +14,7 @@ export class ChunkedPlanetTerrain {
         }
 
         this.scene = scene;
-        this.maxBuildDistance = 33400;
+        this.maxBuildDistance = options.maxBuildDistance ?? 33400;
         this.seed = options.seed ?? 1337;
 
         // Legacy grid options kept for compatibility with callers / HUD
@@ -78,10 +78,37 @@ export class ChunkedPlanetTerrain {
         
         this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
 
+        const baseStreamingDistance =
+            options.streamingBaseDistance ??
+            this.maxBuildDistance ??
+            (this.radius ? this.radius * 1.0 : 10000);
+
+        this.lodRingRadii = {
+            r0: options.lodRingRadii?.r0 ?? baseStreamingDistance * 0.05,
+            r1: options.lodRingRadii?.r1 ?? baseStreamingDistance * 0.15,
+            r2: options.lodRingRadii?.r2 ?? baseStreamingDistance * 0.45,
+            r3: options.lodRingRadii?.r3 ?? baseStreamingDistance * 0.9,
+            rcull: options.lodRingRadii?.rcull ?? baseStreamingDistance * 1.0
+        };
+
+        this.lodRingHysteresis =
+            options.lodRingHysteresis ?? baseStreamingDistance * 0.01;
+        this.cullHysteresis =
+            options.cullHysteresis ?? baseStreamingDistance * 0.02;
+        this.depthCullHysteresis =
+            options.depthCullHysteresis ?? baseStreamingDistance * 0.01;
+
         this.lastLodStats = {
             totalVisible: 0,
+            culledByDistance: 0,
+            culledByDepth: 0,
             perLod: [0, 0, 0, 0, 0, 0],
             maxLodInUse: 0
+        };
+
+        this.lastBuildStats = {
+            avgBuildMs: 0,
+            samples: 0
         };
 
         this.lodUpdateCounter = 0;
@@ -94,6 +121,7 @@ export class ChunkedPlanetTerrain {
         this.activeLeaves = [];
         this.activeTerrainMeshes = new Set();
         this._collisionMeshes = new Set();
+        this._activeCollisionMeshes = new Set();
         this._loggedTerrainMeshes = new WeakSet();
 
         // Build the initial quadtree (replaces the old fixed grid)
@@ -111,32 +139,22 @@ export class ChunkedPlanetTerrain {
             default: return 32;
         }
     }
-        // dist here is *surface distance along the planet*, in world units.
     _lodForDistance(dist) {
-        // Approximate size of a base chunk at the equator.
-        // For your settings this is ~23,700 units.
-        const baseSize =
-            this.maxBuildDistance ||
-            (this.radius ? this.radius * 2.0 : 10000);
+        const { r0, r1, r2, r3 } = this.lodRingRadii;
 
         let desiredLevel;
-
-        // Tight high-detail ring around the player.
-        if (dist < baseSize * 0.05) {          // closest area
+        if (dist < r0) {
             desiredLevel = 5;
-        } else if (dist < baseSize * 0.15) {    // still quite near
+        } else if (dist < r1) {
             desiredLevel = 4;
-        } else if (dist < baseSize * 0.45) {    // within ~one base chunk
+        } else if (dist < r2) {
             desiredLevel = 3;
-        } else if (dist < baseSize * 0.9) {    // mid-distance
+        } else if (dist < r3) {
             desiredLevel = 2;
-        } else if (dist < baseSize * 1.0) {    // far but still on-screen
-            desiredLevel = 1;
         } else {
-            desiredLevel = 0;                  // horizon / far side
+            desiredLevel = 1;
         }
 
-        // Never request more detail than the global max LOD.
         return Math.min(desiredLevel, this.lodLevel);
     }
 
@@ -243,18 +261,25 @@ export class ChunkedPlanetTerrain {
 
         mesh.metadata.isTerrainCollider = isCollider;
         mesh.isPickable = true;
-        mesh.checkCollisions = true;
+        mesh.checkCollisions = isCollider;
+
+        if (isCollider) {
+            this._activeCollisionMeshes.add(mesh);
+        } else {
+            this._activeCollisionMeshes.delete(mesh);
+        }
     }
 
     _registerActiveTerrainMesh(mesh) {
         if (!mesh) return;
         mesh.metadata = mesh.metadata || {};
         mesh.metadata.isTerrain = true;
-        // GroundSpawnGate requires terrain chunk meshes to register as collidable.
-        mesh.checkCollisions = true;
 
         this.activeTerrainMeshes.add(mesh);
         this._collisionMeshes.add(mesh);
+        if (mesh.checkCollisions) {
+            this._activeCollisionMeshes.add(mesh);
+        }
         if (!this._loggedTerrainMeshes.has(mesh)) {
             console.log(
                 "[Terrain] chunk mesh created:",
@@ -271,6 +296,17 @@ export class ChunkedPlanetTerrain {
     _unregisterActiveTerrainMesh(mesh) {
         if (!mesh) return;
         this.activeTerrainMeshes.delete(mesh);
+        this._activeCollisionMeshes.delete(mesh);
+    }
+
+    _setMeshCollisionActive(mesh, isActive) {
+        if (!mesh) return;
+        mesh.checkCollisions = !!isActive;
+        if (isActive) {
+            this._activeCollisionMeshes.add(mesh);
+        } else {
+            this._activeCollisionMeshes.delete(mesh);
+        }
     }
 
     _releaseNodeTerrain(node) {
@@ -279,6 +315,7 @@ export class ChunkedPlanetTerrain {
         if (terrain.mesh) {
             this._unregisterActiveTerrainMesh(terrain.mesh);
             terrain.mesh.setEnabled(false);
+            this._setMeshCollisionActive(terrain.mesh, false);
             this.meshPool.push(terrain.mesh);
         }
         this.terrainPool.push(terrain);
@@ -459,6 +496,147 @@ export class ChunkedPlanetTerrain {
         return dot >= horizonDot;
     }
 
+    _surfaceDistanceForNode(focusDirection, node) {
+        let surfaceDir = this._getNodeSurfaceDirection(node);
+        if (!surfaceDir || !focusDirection || focusDirection.lengthSquared() < 1e-6) {
+            if (!focusDirection || focusDirection.lengthSquared() < 1e-6) {
+                return Infinity;
+            }
+            surfaceDir = focusDirection.clone();
+        }
+
+        const dot = BABYLON.Vector3.Dot(surfaceDir, focusDirection);
+        const clampedDot = Math.max(-1, Math.min(1, dot));
+        const angle = Math.acos(clampedDot);
+        return this.radius * angle;
+    }
+
+    _nodeProjectionRange(node, direction) {
+        const b = node.bounds;
+        const corners = [
+            [b.minX, b.minY, b.minZ],
+            [b.minX, b.minY, b.maxZ],
+            [b.minX, b.maxY, b.minZ],
+            [b.minX, b.maxY, b.maxZ],
+            [b.maxX, b.minY, b.minZ],
+            [b.maxX, b.minY, b.maxZ],
+            [b.maxX, b.maxY, b.minZ],
+            [b.maxX, b.maxY, b.maxZ]
+        ];
+
+        let minProj = Infinity;
+        let maxProj = -Infinity;
+        for (const [x, y, z] of corners) {
+            const proj = x * direction.x + y * direction.y + z * direction.z;
+            if (proj < minProj) minProj = proj;
+            if (proj > maxProj) maxProj = proj;
+        }
+
+        return { minProj, maxProj };
+    }
+
+    _withinDepthCap(node, focusDirection, maxDepth) {
+        if (!node || !focusDirection || focusDirection.lengthSquared() < 1e-6) return true;
+
+        const margin = this.depthCullHysteresis;
+        const allowedMin = this.radius - maxDepth;
+        const { maxProj } = this._nodeProjectionRange(node, focusDirection);
+
+        if (node.isDepthCulled) {
+            if (maxProj > allowedMin + margin) {
+                node.isDepthCulled = false;
+            }
+        } else {
+            if (maxProj < allowedMin - margin) {
+                node.isDepthCulled = true;
+            }
+        }
+
+        return !node.isDepthCulled;
+    }
+
+    _withinCullRing(node, surfaceDist) {
+        const { rcull } = this.lodRingRadii;
+        const margin = this.cullHysteresis;
+
+        if (node.isCulled) {
+            if (surfaceDist < rcull - margin) {
+                node.isCulled = false;
+            }
+        } else {
+            if (surfaceDist > rcull + margin) {
+                node.isCulled = true;
+            }
+        }
+
+        return !node.isCulled;
+    }
+
+    _updateStableLod(node, surfaceDist) {
+        const desired = this._lodForDistance(surfaceDist);
+        if (node.stableLod == null) {
+            node.stableLod = desired;
+            node.lastStableSurfaceDist = surfaceDist;
+            return node.stableLod;
+        }
+
+        if (desired === node.stableLod) {
+            node.lastStableSurfaceDist = surfaceDist;
+            return node.stableLod;
+        }
+
+        const { r0, r1, r2, r3 } = this.lodRingRadii;
+        const hysteresis = this.lodRingHysteresis;
+        const boundaries = {
+            5: r0,
+            4: r1,
+            3: r2,
+            2: r3,
+            1: r3,
+            0: r3
+        };
+
+        const framesSinceChange =
+            this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
+        const canChangeLod =
+            framesSinceChange >= this.lodChangeCooldownFrames;
+
+        if (!canChangeLod) {
+            return node.stableLod;
+        }
+
+        if (desired > node.stableLod) {
+            const boundary = boundaries[node.stableLod + 1] ?? r0;
+            if (surfaceDist < boundary - hysteresis) {
+                node.stableLod = desired;
+                node.lastLodChangeFrame = this.lodUpdateCounter;
+            }
+        } else {
+            const boundary = boundaries[node.stableLod] ?? r3;
+            if (surfaceDist > boundary + hysteresis) {
+                node.stableLod = desired;
+                node.lastLodChangeFrame = this.lodUpdateCounter;
+            }
+        }
+
+        node.lastStableSurfaceDist = surfaceDist;
+        return node.stableLod;
+    }
+
+    _deactivateNode(node) {
+        if (!node) return;
+
+        if (node.terrain && node.terrain.mesh) {
+            node.terrain.mesh.setEnabled(false);
+            this._setMeshCollisionActive(node.terrain.mesh, false);
+            this._unregisterActiveTerrainMesh(node.terrain.mesh);
+        }
+
+        if (!node.isLeaf()) {
+            node.mergeChildren(this._releaseNodeTerrain.bind(this));
+        }
+    }
+
     _ensureTerrainForNode(node) {
         if (node.terrain) return;
 
@@ -496,36 +674,46 @@ export class ChunkedPlanetTerrain {
     }
 
     _jobKey(node, lodLevel, revisionKey = "0:0") {
-    const id = (node && node.id != null) ? node.id : "noid";
-    return `${id}|lod:${lodLevel}|rev:${revisionKey}`;
-}
+        const id = (node && node.id != null) ? node.id : "noid";
+        return `${id}|lod:${lodLevel}|rev:${revisionKey}`;
+    }
 
     _scheduleNodeRebuild(node, lodLevel, options = {}) {
-    if (!node) return;
+        if (!node) return;
 
-    const force = !!options.force;
-    const revisionKey = `${this.carveRevision}:${this.biomeRevision}`;
+        const force = !!options.force;
+        const revisionKey = `${this.carveRevision}:${this.biomeRevision}`;
 
-    // Skip if already built for this revision & LOD (unless forced)
-    if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revisionKey) return;
+        // Skip if already built for this revision & LOD (unless forced)
+        if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revisionKey) return;
 
-    const key = this._jobKey(node, lodLevel, revisionKey);
+        const key = this._jobKey(node, lodLevel, revisionKey);
 
-    // If queued or currently building, skip.
-    if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
+        // If queued or currently building, skip.
+        if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
 
-    this.queuedJobKeys.add(key);
-    this.buildQueue.push({ node, lodLevel, revisionKey, force });
-}
+        this.queuedJobKeys.add(key);
+        this.buildQueue.push({ node, lodLevel, revisionKey, force });
+    }
 
     _updateQuadtree(focusPosition) {
         if (!this.rootNode) return;
 
         const stats = {
             totalVisible: 0,
+            culledByDistance: 0,
+            culledByDepth: 0,
             perLod: [0, 0, 0, 0, 0, 0],
             maxLodInUse: 0
         };
+
+        const focusDir = focusPosition.clone();
+        if (focusDir.lengthSquared() > 0) {
+            focusDir.normalize();
+        }
+
+        const maxSurfaceLodDist = this.lodRingRadii.r3;
+        const maxDepth = maxSurfaceLodDist * 0.5;
 
         const stack = [this.rootNode];
         const newLeaves = [];
@@ -534,61 +722,34 @@ export class ChunkedPlanetTerrain {
             const node = stack.pop();
             if (!node) continue;
 
-            const center = node.getCenterWorldPosition();
+            const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
 
-            // Straight-line distance (for view culling)
-            const centerDist = BABYLON.Vector3.Distance(focusPosition, center);
-            // TEMP: disable onNearSide until proper horizon test uses surface direction
-            const onNearSide = true;
-            const withinView = this._isWithinViewDistance(centerDist);
-
-            if (!onNearSide || !withinView) {
-                if (node.terrain && node.terrain.mesh) {
-                    node.terrain.mesh.setEnabled(false);
-                    this._unregisterActiveTerrainMesh(node.terrain.mesh);
-                }
-                // No further refinement when not visible
+            if (!this._withinDepthCap(node, focusDir, maxDepth)) {
+                stats.culledByDepth++;
+                this._deactivateNode(node);
                 continue;
             }
 
-            // --- Surface distance along the sphere (arc length) ---
-            let surfaceDist = centerDist;
-            const planetCenter = BABYLON.Vector3.Zero();
-            const toChunk = center.subtract(planetCenter);
-            const toFocus = focusPosition.subtract(planetCenter);
-            const lenChunk = toChunk.length();
-            const lenFocus = toFocus.length();
-
-            if (lenChunk > 1e-3 && lenFocus > 1e-3) {
-                const dot =
-                    BABYLON.Vector3.Dot(toChunk, toFocus) /
-                    (lenChunk * lenFocus);
-                const clampedDot = Math.max(-1, Math.min(1, dot));
-                const angle = Math.acos(clampedDot); // radians
-                surfaceDist = this.radius * angle;
+            if (!this._withinCullRing(node, surfaceDist)) {
+                stats.culledByDistance++;
+                this._deactivateNode(node);
+                continue;
             }
 
-            const desiredLod = this._lodForDistance(surfaceDist);
-            const framesSinceChange =
-                this.lodUpdateCounter - (node.lastLodChangeFrame ?? 0);
-            const canChangeLod =
-                framesSinceChange >= this.lodChangeCooldownFrames;
+            const desiredLod = this._updateStableLod(node, surfaceDist);
 
             const belowDesired =
                 node.level < desiredLod && node.level < this.lodLevel;
-            if (belowDesired && node.isLeaf() && canChangeLod) {
-                // Subdivide and reuse the parent terrain later if possible
+            if (belowDesired && node.isLeaf()) {
                 this._releaseNodeTerrain(node);
                 node.subdivide();
-                node.lastLodChangeFrame = this.lodUpdateCounter;
                 stack.push(...node.children);
                 continue;
             }
 
             const aboveDesired = node.level > desiredLod && !node.isLeaf();
-            if (aboveDesired && canChangeLod) {
+            if (aboveDesired) {
                 node.mergeChildren(this._releaseNodeTerrain.bind(this));
-                node.lastLodChangeFrame = this.lodUpdateCounter;
             }
 
             if (!node.isLeaf()) {
@@ -609,6 +770,7 @@ export class ChunkedPlanetTerrain {
             // Ensure mesh is enabled if already built
             if (node.terrain && node.terrain.mesh) {
                 node.terrain.mesh.setEnabled(true);
+                this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level);
                 this._registerActiveTerrainMesh(node.terrain.mesh);
             }
         }
@@ -664,120 +826,139 @@ export class ChunkedPlanetTerrain {
 
 
     _processBuildQueue(maxPerFrame = 1) {
-    // Legacy signature kept; internally we use a time budget.
-    this._processBuildQueueBudgeted(this.buildBudgetMs);
-}
+        // Legacy signature kept; internally we use a time budget.
+        this._processBuildQueueBudgeted(this.buildBudgetMs);
+    }
 
-_processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
-    const start = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+    _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
+        const start = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
 
-    // Respect async concurrency limit
-    if (this.activeBuilds >= this.maxConcurrentBuilds) return;
-
-    while (this.buildQueue.length > 0) {
-        if (nowMs() - start >= budgetMs) return;
+        // Respect async concurrency limit
         if (this.activeBuilds >= this.maxConcurrentBuilds) return;
 
-        const job = this.buildQueue.shift();
-        if (!job || !job.node) continue;
+        while (this.buildQueue.length > 0) {
+            if (nowMs() - start >= budgetMs) return;
+            if (this.activeBuilds >= this.maxConcurrentBuilds) return;
 
-        const node = job.node;
-        const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
-        const key = this._jobKey(node, job.lodLevel, revisionKey);
+            const job = this.buildQueue.shift();
+            if (!job || !job.node) continue;
 
-        // This job is no longer queued
-        this.queuedJobKeys.delete(key);
+            const node = job.node;
+            if (node.isCulled || node.isDepthCulled) {
+                const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
+                const key = this._jobKey(node, job.lodLevel, revisionKey);
+                this.queuedJobKeys.delete(key);
+                continue;
+            }
+            const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
+            const key = this._jobKey(node, job.lodLevel, revisionKey);
 
-        // Ensure terrain instance exists
-        this._ensureTerrainForNode(node);
+            // This job is no longer queued
+            this.queuedJobKeys.delete(key);
 
-        // If already built for this revision & LOD (unless forced), skip
-        if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revisionKey) {
-            continue;
+            // Ensure terrain instance exists
+            this._ensureTerrainForNode(node);
+
+            // If already built for this revision & LOD (unless forced), skip
+            if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revisionKey) {
+                continue;
+            }
+
+            // Prevent duplicates while in-flight
+            if (this.inFlightJobKeys.has(key)) continue;
+            this.inFlightJobKeys.add(key);
+
+            this.activeBuilds++;
+
+            const jobStartMs = nowMs();
+            const finishOk = () => {
+                node.lastBuiltLod = job.lodLevel;
+                node.lastBuiltRevision = revisionKey;
+
+                this._tagColliderForTerrain(node.terrain, job.lodLevel);
+                this._registerActiveTerrainMesh(node.terrain?.mesh);
+                this._onChunkBuilt();
+                this._recordBuildDuration(nowMs() - jobStartMs);
+
+                this.inFlightJobKeys.delete(key);
+                this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+            };
+
+            const finishErr = (err) => {
+                console.error("Chunk rebuild failed:", err);
+                this.inFlightJobKeys.delete(key);
+                this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+            };
+
+            const lodDims = this._computeLodDimensions(job.lodLevel, node);
+
+            let maybePromise;
+            try {
+                maybePromise = node.terrain.rebuildWithSettings({
+                    origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
+                    dimX: lodDims.dimX,
+                    dimY: lodDims.dimY,
+                    dimZ: lodDims.dimZ,
+                    cellSize: lodDims.cellSize,
+                    carves: this._collectCarvesForNode(node),
+                    biomeSettings: this.biomeSettings
+                });
+            } catch (e) {
+                finishErr(e);
+                continue;
+            }
+
+            if (maybePromise && typeof maybePromise.then === "function") {
+                maybePromise.then(finishOk).catch(finishErr);
+            } else {
+                finishOk();
+            }
         }
+    }
 
-        // Prevent duplicates while in-flight
-        if (this.inFlightJobKeys.has(key)) continue;
-        this.inFlightJobKeys.add(key);
-
-        this.activeBuilds++;
-
-        const finishOk = () => {
-            node.lastBuiltLod = job.lodLevel;
-            node.lastBuiltRevision = revisionKey;
-
-            this._tagColliderForTerrain(node.terrain, job.lodLevel);
-            this._registerActiveTerrainMesh(node.terrain?.mesh);
-            this._onChunkBuilt();
-
-            this.inFlightJobKeys.delete(key);
-            this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+    _recordBuildDuration(ms) {
+        if (!Number.isFinite(ms)) return;
+        const nextSamples = Math.min(120, (this.lastBuildStats.samples ?? 0) + 1);
+        const prevAvg = this.lastBuildStats.avgBuildMs ?? 0;
+        const nextAvg = prevAvg + (ms - prevAvg) / nextSamples;
+        this.lastBuildStats = {
+            avgBuildMs: nextAvg,
+            samples: nextSamples
         };
+    }
 
-        const finishErr = (err) => {
-            console.error("Chunk rebuild failed:", err);
-            this.inFlightJobKeys.delete(key);
-            this.activeBuilds = Math.max(0, this.activeBuilds - 1);
-        };
 
-        const lodDims = this._computeLodDimensions(job.lodLevel, node);
+    _collectCarvesForNode(node) {
+        if (!this.carveHistory || this.carveHistory.length === 0 || !node) return [];
 
-        let maybePromise;
-        try {
-            maybePromise = node.terrain.rebuildWithSettings({
-                origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
-                dimX: lodDims.dimX,
-                dimY: lodDims.dimY,
-                dimZ: lodDims.dimZ,
-                cellSize: lodDims.cellSize,
-                carves: this._collectCarvesForNode(node),
-                biomeSettings: this.biomeSettings
+        const out = [];
+        const b = node.bounds;
+
+        for (const op of this.carveHistory) {
+            const px = op.position.x;
+            const py = op.position.y;
+            const pz = op.position.z;
+            const r = op.radius;
+
+            const cx = Math.max(b.minX, Math.min(px, b.maxX));
+            const cy = Math.max(b.minY, Math.min(py, b.maxY));
+            const cz = Math.max(b.minZ, Math.min(pz, b.maxZ));
+
+            const dx = px - cx;
+            const dy = py - cy;
+            const dz = pz - cz;
+
+            if ((dx * dx + dy * dy + dz * dz) > (r * r)) continue;
+
+            out.push({
+                position: { x: px, y: py, z: pz },
+                radius: r
             });
-        } catch (e) {
-            finishErr(e);
-            continue;
         }
 
-        if (maybePromise && typeof maybePromise.then === "function") {
-            maybePromise.then(finishOk).catch(finishErr);
-        } else {
-            finishOk();
-        }
+        return out;
     }
-}
-
-
-_collectCarvesForNode(node) {
-    if (!this.carveHistory || this.carveHistory.length === 0 || !node) return [];
-
-    const out = [];
-    const b = node.bounds;
-
-    for (const op of this.carveHistory) {
-        const px = op.position.x;
-        const py = op.position.y;
-        const pz = op.position.z;
-        const r = op.radius;
-
-        const cx = Math.max(b.minX, Math.min(px, b.maxX));
-        const cy = Math.max(b.minY, Math.min(py, b.maxY));
-        const cz = Math.max(b.minZ, Math.min(pz, b.maxZ));
-
-        const dx = px - cx;
-        const dy = py - cy;
-        const dz = pz - cz;
-
-        if ((dx * dx + dy * dy + dz * dz) > (r * r)) continue;
-
-        out.push({
-            position: { x: px, y: py, z: pz },
-            radius: r
-        });
-    }
-
-    return out;
-}
 
 
     _nodeIntersectsSphere(node, center, radius) {
@@ -947,7 +1128,10 @@ _collectCarvesForNode(node) {
             maxLodInUse: this.lastLodStats.maxLodInUse,
             chunkWorldSizeX: this.chunkWorldSizeX,
             chunkWorldSizeZ: this.chunkWorldSizeZ,
-            worldSpan: this.worldSpan
+            worldSpan: this.worldSpan,
+            buildQueueLength: this.buildQueue.length,
+            avgBuildMs: this.lastBuildStats.avgBuildMs,
+            streamingRadii: { ...this.lodRingRadii }
         };
 
         if (!focusPosition || !this.activeLeaves.length) {
@@ -1009,7 +1193,7 @@ _collectCarvesForNode(node) {
 
     getActiveCollisionMeshes() {
         const meshes = [];
-        for (const mesh of this.activeTerrainMeshes) {
+        for (const mesh of this._activeCollisionMeshes) {
             if (!mesh || !mesh.isEnabled?.()) continue;
             meshes.push(mesh);
         }
