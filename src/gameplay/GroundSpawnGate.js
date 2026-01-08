@@ -61,7 +61,6 @@ function getPlacementMeshes(terrain, scene) {
             meshes = scanScene.meshes.filter((mesh) =>
                 mesh
                 && !mesh.isDisposed?.()
-                && mesh.isEnabled?.()
                 && mesh.checkCollisions === true
             );
         }
@@ -90,7 +89,7 @@ function findTerrainHit(ray, terrain, scene) {
     let bestHit = null;
     let testedMeshes = 0;
     for (const mesh of meshes) {
-        if (!mesh || !mesh.checkCollisions || !mesh.isEnabled?.()) continue;
+        if (!mesh || !mesh.checkCollisions) continue;
         testedMeshes += 1;
         const hit = ray.intersectsMesh(mesh, true);
         if (!hit?.hit) continue;
