@@ -1101,7 +1101,16 @@ engine.runRenderLoop(() => {
                     baseRes: dbg.baseChunkResolution,
                     sizeX: chunkSizeX,
                     perLod: per.map((v, idx) => `${idx}:${v || 0}`),
-                    nearStr
+                    nearStr,
+                    streaming: {
+                        visible: stats.totalVisible ?? 0,
+                        culled: stats.culledByDistance ?? 0,
+                        culledDepth: stats.culledByDepth ?? 0,
+                        queue: dbg.buildQueueLength ?? 0,
+                        avgBuildMs: dbg.avgBuildMs ?? 0,
+                        rcull: dbg.streamingRadii?.rcull ?? 0,
+                        r3: dbg.streamingRadii?.r3 ?? 0
+                    }
                 };
             }
         }

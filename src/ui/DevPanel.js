@@ -66,6 +66,15 @@ export class DevPanel {
             if (c.perLod) {
                 lines.push(`LOD load [${c.perLod.join("  ")}]${c.nearStr ? "  " + c.nearStr : ""}`);
             }
+            if (c.streaming) {
+                const s = c.streaming;
+                lines.push(
+                    `Stream   vis:${s.visible}  culled:${s.culled}  depth:${s.culledDepth}`
+                );
+                lines.push(
+                    `Rings    Rcull:${s.rcull.toFixed(0)}  Rmax:${s.r3.toFixed(0)}  queue:${s.queue}  avgBuild:${s.avgBuildMs.toFixed(1)}ms`
+                );
+            }
         }
 
         if (data.time) {

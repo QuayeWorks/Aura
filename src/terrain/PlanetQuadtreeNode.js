@@ -25,6 +25,8 @@ export class PlanetQuadtreeNode {
         this.lastLodChangeFrame = 0;
         this.lastStableSurfaceDist = Infinity;
         this.stableLod = null;
+        this.isCulled = false;
+        this.isDepthCulled = false;
 
         // Lifetime tracking (LRU / residency)
         this.lastTouchedFrame = 0;
@@ -108,6 +110,8 @@ export class PlanetQuadtreeNode {
             child.currentLod = null;
             child.targetLod = null;
             child.stableLod = null;
+            child.isCulled = false;
+            child.isDepthCulled = false;
         }
 
         this.children = [];
