@@ -80,8 +80,10 @@ this.groundFriction = options.groundFriction ?? 8;
             : new BABYLON.Vector3(0, 0, 1)
         ).normalize();
 
-        // Start just above the actual terrain surface along spawnDirection.
-        this._spawnOnSurface(this.spawnDirection);
+        if (!options.deferSpawn) {
+            // Start just above the actual terrain surface along spawnDirection.
+            this._spawnOnSurface(this.spawnDirection);
+        }
 
         this.velocity = new BABYLON.Vector3(0, 0, 0);
         this.isGrounded = false;
