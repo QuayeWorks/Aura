@@ -865,6 +865,15 @@ function updateLoadingGate(dtSeconds) {
             bestHit: !!bestHit?.hit,
             bestHitDistance: bestHit?.hit ? bestHit.distance : null
         });
+        console.log(
+            "[MESHREG]",
+            "known:",
+            known,
+            "active:",
+            active,
+            "sceneCollidable:",
+            collidableScene
+        );
     }
 
     if (shouldCheckSpawn && diagnostics.ready) {
