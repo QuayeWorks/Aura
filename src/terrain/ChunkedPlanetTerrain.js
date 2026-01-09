@@ -274,17 +274,22 @@ export class ChunkedPlanetTerrain {
         }
     }
 
-    _registerActiveTerrainMesh(mesh, node = null) {
+    _registerKnownTerrainMesh(mesh, node = null) {
         if (!mesh) return;
         mesh.metadata = mesh.metadata || {};
         mesh.metadata.isTerrain = true;
         if (node) {
             mesh.metadata.terrainNode = node;
         }
+        this._collisionMeshes.add(mesh);
+    }
+
+    _registerActiveTerrainMesh(mesh, node = null) {
+        if (!mesh) return;
+        this._registerKnownTerrainMesh(mesh, node);
 
         this.activeTerrainMeshes.add(mesh);
         mesh.checkCollisions = true;
-        this._collisionMeshes.add(mesh);
         if (mesh.checkCollisions && mesh.isEnabled?.()) {
             this._activeCollisionMeshes.add(mesh);
         } else {
@@ -751,6 +756,7 @@ export class ChunkedPlanetTerrain {
             });
         }
 
+        this._registerKnownTerrainMesh(node.terrain?.mesh, node);
         node.lastBuiltLod = null;
     }
 
