@@ -790,47 +790,56 @@ _applyMeshBuffers(positions, normals, indices, colors) {
         if (typeof settings.radius === "number") this.radius = settings.radius;
         if (settings.biomeSettings) this.biomeSettings = resolveBiomeSettings(settings.biomeSettings);
 
-    if (settings.origin) {
-        this.origin = settings.origin.clone
-            ? settings.origin.clone()
-            : new BABYLON.Vector3(settings.origin.x, settings.origin.y, settings.origin.z);
+        if (settings.origin) {
+            this.origin = settings.origin.clone
+                ? settings.origin.clone()
+                : new BABYLON.Vector3(settings.origin.x, settings.origin.y, settings.origin.z);
+        }
+
+        // Carves passed from ChunkedPlanetTerrain as plain objects: [{position:{x,y,z}, radius}]
+        this.carves = settings.carves || [];
+
+        const buildKey = settings.buildKey ?? null;
+        const shouldApplyResult = settings.shouldApplyResult;
+
+        // Version gate: if multiple rebuilds are requested quickly, only apply the latest
+        this._buildVersion = (this._buildVersion || 0) + 1;
+        const myVersion = this._buildVersion;
+
+        if (this.useWorker && typeof Worker !== "undefined") {
+            return buildMeshAsync({
+                version: myVersion,
+                buildKey,
+                dimX: this.dimX,
+                dimY: this.dimY,
+                dimZ: this.dimZ,
+                cellSize: this.cellSize,
+                radius: this.radius,
+                isoLevel: this.isoLevel,
+                origin: { x: this.origin.x, y: this.origin.y, z: this.origin.z },
+                carves: this.carves,
+                wantColors: true,
+                biomeSettings: this.biomeSettings
+            }).then((msg) => {
+                if (msg.version !== this._buildVersion) return { applied: false, skipped: "version" };
+                if (typeof shouldApplyResult === "function" && !shouldApplyResult(msg)) {
+                    return { applied: false, skipped: "stale" };
+                }
+                this._applyMeshBuffers(msg.positions, msg.normals, msg.indices, msg.colors);
+                return { applied: true };
+            }).catch((err) => {
+                console.error("Mesh worker rebuild failed, falling back:", err);
+                this._buildInitialField();
+                this._buildMesh();
+                return { applied: true };
+            });
+        }
+
+        // Fallback (no worker)
+        this._buildInitialField();
+        this._buildMesh();
+        return { applied: true };
     }
-
-    // Carves passed from ChunkedPlanetTerrain as plain objects: [{position:{x,y,z}, radius}]
-    this.carves = settings.carves || [];
-
-    // Version gate: if multiple rebuilds are requested quickly, only apply the latest
-    this._buildVersion = (this._buildVersion || 0) + 1;
-    const myVersion = this._buildVersion;
-
-    if (this.useWorker && typeof Worker !== "undefined") {
-        return buildMeshAsync({
-            version: myVersion,
-            dimX: this.dimX,
-            dimY: this.dimY,
-            dimZ: this.dimZ,
-            cellSize: this.cellSize,
-            radius: this.radius,
-            isoLevel: this.isoLevel,
-            origin: { x: this.origin.x, y: this.origin.y, z: this.origin.z },
-            carves: this.carves,
-            wantColors: true,
-            biomeSettings: this.biomeSettings
-        }).then((msg) => {
-            if (msg.version !== this._buildVersion) return;
-            this._applyMeshBuffers(msg.positions, msg.normals, msg.indices, msg.colors);
-        }).catch((err) => {
-            console.error("Mesh worker rebuild failed, falling back:", err);
-            this._buildInitialField();
-            this._buildMesh();
-        });
-    }
-
-    // Fallback (no worker)
-    this._buildInitialField();
-    this._buildMesh();
-    return null;
-}
 
 
 

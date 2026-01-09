@@ -255,6 +255,16 @@
     white-space: pre-wrap;
 }
 
+.dev-panel-go {
+    color: #6dff8a;
+    font-weight: 700;
+}
+
+.dev-panel-no-go {
+    color: #ff6b6b;
+    font-weight: 700;
+}
+
 .hud-interaction {
     position: absolute;
     bottom: 22px;
