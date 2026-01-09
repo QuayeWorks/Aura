@@ -85,6 +85,7 @@ let streamingDebugRings = null;
 let streamingDebugSurfaceLines = null;
 let streamingDebugVisible = false;
 let lastStreamingStats = null;
+const STREAMING_MAX_LEAF_BUDGET = 64;
 let lastStreamingFocusPos = null;
 let lastStreamingFocusMode = "activeCamera";
 let lastStreamingHighLodCount = null;
@@ -270,7 +271,20 @@ function ensureDebugMenu() {
             precision: 0,
             format: (val) => `${Math.round(val)} m/s`,
         },
-        { key: "logCollisionRecovery", label: "Log Collision Recovery" }
+        { key: "logCollisionRecovery", label: "Log Collision Recovery" },
+        {
+            key: "printStreamSummary",
+            label: "Print STREAM summary",
+            type: "button",
+            buttonLabel: "Print",
+            onClick: () => {
+                if (!lastStreamingStats) {
+                    console.log("[STREAM] No streaming stats available yet.");
+                    return;
+                }
+                console.log(formatStreamSummary(lastStreamingStats));
+            }
+        }
     ];
 
     debugMenu = new DebugMenu({
@@ -330,6 +344,17 @@ function startStreamingStatsInterval() {
                 && (!movedRecently || highLodIncreased)
         };
 
+        const streamingGoNoGo = {
+            maxLeafBudget: STREAMING_MAX_LEAF_BUDGET,
+            staleDropsLastSecond: stats.buildJobsDroppedStaleResult ?? 0,
+            go:
+                (stats.enabledOutsideRcull ?? 0) === 0
+                && (stats.collidableOutsideRcull ?? 0) === 0
+                && (stats.enabledBelowHorizon ?? 0) === 0
+                && (stats.enabledTooDeep ?? 0) === 0
+                && (stats.totalLeafVisible ?? 0) <= STREAMING_MAX_LEAF_BUDGET
+        };
+
         const report = {
             focusMode: lastStreamingFocusMode,
             ringRadii: {
@@ -343,6 +368,7 @@ function startStreamingStatsInterval() {
             highLodCount,
             highLodIncreased,
             streamingAcceptance,
+            streamingGoNoGo,
             ...stats
         };
         lastStreamingStats = report;
@@ -355,6 +381,23 @@ function startStreamingStatsInterval() {
             );
         console.log("[STREAM]", report);
     }, 1000);
+}
+
+function formatStreamSummary(stats) {
+    const goStatus = stats.streamingGoNoGo?.go ? "GO" : "NO-GO";
+    const maxLeafBudget = stats.streamingGoNoGo?.maxLeafBudget ?? STREAMING_MAX_LEAF_BUDGET;
+    const staleDrops = stats.streamingGoNoGo?.staleDropsLastSecond ?? stats.buildJobsDroppedStaleResult ?? 0;
+    return [
+        "[STREAM SUMMARY]",
+        `Status: ${goStatus}`,
+        `enabledOutsideRcull: ${stats.enabledOutsideRcull ?? 0}`,
+        `collidableOutsideRcull: ${stats.collidableOutsideRcull ?? 0}`,
+        `enabledBelowHorizon: ${stats.enabledBelowHorizon ?? 0}`,
+        `enabledTooDeep: ${stats.enabledTooDeep ?? 0}`,
+        `totalLeafVisible: ${stats.totalLeafVisible ?? 0}`,
+        `maxLeafBudget: ${maxLeafBudget}`,
+        `staleResultDropsLastSecond: ${staleDrops}`
+    ].join("\n");
 }
 
 

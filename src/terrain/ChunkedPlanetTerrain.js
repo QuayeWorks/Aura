@@ -702,6 +702,7 @@ export class ChunkedPlanetTerrain {
 
     _deactivateNode(node) {
         if (!node) return;
+        node._wantedBuildKey = null;
 
         if (node.terrain && node.terrain.mesh) {
             node.terrain.mesh.setEnabled(false);
@@ -797,8 +798,12 @@ export class ChunkedPlanetTerrain {
         // If queued or currently building, skip.
         if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
 
+        const streamRevision = this._streamRevision ?? 0;
+        const buildKey = `${node.id}|lod:${lodLevel}|rev:${streamRevision}`;
+        node._wantedBuildKey = buildKey;
+
         this.queuedJobKeys.add(key);
-        this.buildQueue.push({ node, lodLevel, revisionKey, force, surfaceDist });
+        this.buildQueue.push({ node, lodLevel, revisionKey, buildKey, force, surfaceDist });
     }
 
     _updateQuadtree(focusPosition) {
@@ -892,6 +897,15 @@ export class ChunkedPlanetTerrain {
                 node.terrain.mesh.setEnabled(true);
                 this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level);
                 this._registerActiveTerrainMesh(node.terrain.mesh, node);
+            }
+
+            if (node.terrain?.mesh) {
+                const mesh = node.terrain.mesh;
+                const collisionCullDist = this.lodRingRadii.rcull + this.cullHysteresis;
+                if (surfaceDist > collisionCullDist) {
+                    mesh.checkCollisions = false;
+                    this._activeCollisionMeshes.delete(mesh);
+                }
             }
         }
 
@@ -1025,7 +1039,13 @@ export class ChunkedPlanetTerrain {
             this.activeBuilds++;
 
             const jobStartMs = nowMs();
-            const finishOk = () => {
+            const finishOk = (result) => {
+                if (result?.applied === false) {
+                    this.inFlightJobKeys.delete(key);
+                    this.activeBuilds = Math.max(0, this.activeBuilds - 1);
+                    return;
+                }
+
                 node.lastBuiltLod = job.lodLevel;
                 node.lastBuiltRevision = revisionKey;
 
@@ -1055,7 +1075,15 @@ export class ChunkedPlanetTerrain {
                     dimZ: lodDims.dimZ,
                     cellSize: lodDims.cellSize,
                     carves: this._collectCarvesForNode(node),
-                    biomeSettings: this.biomeSettings
+                    biomeSettings: this.biomeSettings,
+                    buildKey: job.buildKey ?? null,
+                    shouldApplyResult: (result) => {
+                        if (node._wantedBuildKey !== result.buildKey) {
+                            this._recordDroppedBuild("staleResult");
+                            return false;
+                        }
+                        return true;
+                    }
                 });
             } catch (e) {
                 finishErr(e);
@@ -1065,7 +1093,7 @@ export class ChunkedPlanetTerrain {
             if (maybePromise && typeof maybePromise.then === "function") {
                 maybePromise.then(finishOk).catch(finishErr);
             } else {
-                finishOk();
+                finishOk(maybePromise);
             }
         }
     }
@@ -1168,6 +1196,7 @@ export class ChunkedPlanetTerrain {
 
     updateStreaming(focusPosition) {
         this.lodUpdateCounter++;
+        this._streamRevision = (this._streamRevision ?? 0) + 1;
         if (focusPosition) {
             this.lastCameraPosition = focusPosition.clone
                 ? focusPosition.clone()
@@ -1427,12 +1456,14 @@ export class ChunkedPlanetTerrain {
         let buildJobsDroppedBelowHorizon = 0;
         let buildJobsDroppedTooDeep = 0;
         let buildJobsDroppedCulled = 0;
+        let buildJobsDroppedStaleResult = 0;
         for (const sample of this._buildDropSamples) {
             if (sample.t < cutoff) continue;
             if (sample.reason === "rcull") buildJobsDroppedOutsideRcull++;
             if (sample.reason === "horizon") buildJobsDroppedBelowHorizon++;
             if (sample.reason === "depth") buildJobsDroppedTooDeep++;
             if (sample.reason === "culled") buildJobsDroppedCulled++;
+            if (sample.reason === "staleResult") buildJobsDroppedStaleResult++;
         }
 
         return {
@@ -1450,6 +1481,7 @@ export class ChunkedPlanetTerrain {
             buildJobsDroppedBelowHorizon,
             buildJobsDroppedTooDeep,
             buildJobsDroppedCulled,
+            buildJobsDroppedStaleResult,
             renderSetCount: this.lastLodStats.totalVisible ?? 0,
             totalLeafCandidates: this.lastLodStats.totalLeafCandidates ?? 0,
             totalLeafVisible: this.lastLodStats.totalLeafVisible ?? 0,

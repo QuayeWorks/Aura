@@ -25,6 +25,7 @@ self.onmessage = (e) => {
   const {
     id,
     version,
+    buildKey,
     dimX, dimY, dimZ,
     cellSize,
     radius,
@@ -55,7 +56,7 @@ self.onmessage = (e) => {
     );
 
     self.postMessage(
-      { type: "meshDone", id, version, ...result },
+      { type: "meshDone", id, version, buildKey, ...result },
       [
         result.positions.buffer,
         result.normals.buffer,
