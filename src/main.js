@@ -407,6 +407,7 @@ let autosaveTimer = 0;
 const AUTOSAVE_INTERVAL = 30;
 const LOADING_PROGRESS_RAMP_SECONDS = 12;
 const LOADING_SPAWN_CHECK_INTERVAL_SECONDS = 0.5;
+const LOADING_SPAWN_DEBUG_INTERVAL_SECONDS = 1;
 const LOADING_PROGRESS_CAP = 0.9;
 const LOADING_STREAMING_MESSAGE_AFTER_SECONDS = 6;
 
@@ -699,6 +700,8 @@ function beginLoadingGate() {
         elapsed: 0,
         released: false,
         spawnCheckTimer: 0,
+        spawnDebugTimer: 0,
+        forceSpawnPatchDone: false,
         streamingNoticeShown: false
     };
 
@@ -725,28 +728,44 @@ function freezePlayerForLoading() {
 }
 
 function spawnAreaReady() {
-    const meshes = terrain?.getKnownCollisionMeshes?.() ?? terrain?.getCollisionMeshes?.() ?? [];
-    if (meshes.length === 0) return false;
+    const diagnostics = getSpawnRayDiagnostics();
+    return diagnostics.ready;
+}
 
-    const up = SPAWN_DIR.clone();
-    const origin = up.scale(SPAWN_RADIUS_UNITS).add(up.scale(200));
-    const ray = new BABYLON.Ray(origin, up.scale(-1), PLANET_RADIUS_UNITS * 4);
+function getSpawnRayDiagnostics() {
+    const meshes = terrain?.getKnownCollisionMeshes?.() ?? terrain?.getCollisionMeshes?.() ?? [];
+    const up = SPAWN_DIR.clone().normalize();
+    const origin = up.scale(SPAWN_RADIUS_UNITS + 500);
+    const dir = up.scale(-1);
+    const rayLength = PLANET_RADIUS_UNITS * 8;
+    const ray = new BABYLON.Ray(origin, dir, rayLength);
 
     let best = null;
+    let testedMeshes = 0;
     for (const mesh of meshes) {
-        if (!mesh || !mesh.checkCollisions) continue;
+        if (!mesh) continue;
+        if (typeof mesh.isDisposed === "function" && mesh.isDisposed()) continue;
+        testedMeshes += 1;
         const hit = ray.intersectsMesh(mesh, true);
         if (hit?.hit && (!best || hit.distance < best.distance)) {
             best = hit;
         }
     }
 
-    return !!best;
+    return {
+        ready: !!best?.hit,
+        origin,
+        dir,
+        rayLength,
+        testedMeshes,
+        bestHit: best
+    };
 }
 
-function trySpawnPlayer() {
+function trySpawnPlayer(diagnostics = null) {
     if (playerSpawned || !terrain) return;
-    if (!spawnAreaReady()) return;
+    const ready = diagnostics ? diagnostics.ready : spawnAreaReady();
+    if (!ready) return;
 
     console.log("[Spawn] Terrain ready under spawn focus. Spawning player.");
 
@@ -808,10 +827,44 @@ function updateLoadingGate(dtSeconds) {
     }
 
     loadingGate.spawnCheckTimer += dtSeconds;
-    if (loadingGate.spawnCheckTimer < LOADING_SPAWN_CHECK_INTERVAL_SECONDS) return;
-    loadingGate.spawnCheckTimer = 0;
+    loadingGate.spawnDebugTimer += dtSeconds;
 
-    trySpawnPlayer();
+    const shouldCheckSpawn = loadingGate.spawnCheckTimer >= LOADING_SPAWN_CHECK_INTERVAL_SECONDS;
+    const shouldLogDebug = loadingGate.spawnDebugTimer >= LOADING_SPAWN_DEBUG_INTERVAL_SECONDS;
+    if (!shouldCheckSpawn && !shouldLogDebug) return;
+
+    if (shouldCheckSpawn) loadingGate.spawnCheckTimer = 0;
+    if (shouldLogDebug) loadingGate.spawnDebugTimer = 0;
+
+    const diagnostics = getSpawnRayDiagnostics();
+
+    if (shouldLogDebug) {
+        const known = terrain?.getKnownCollisionMeshes?.()?.length ?? 0;
+        const active = terrain?.getActiveCollisionMeshes?.()?.length ?? 0;
+        const collidableScene = scene?.meshes?.filter((m) => m.checkCollisions).length ?? 0;
+        const rFocus = streamingFocus?.globalPosition?.length?.() ?? 0;
+        const rOrigin = diagnostics.origin?.length?.() ?? 0;
+        const spawnDir = { x: SPAWN_DIR.x, y: SPAWN_DIR.y, z: SPAWN_DIR.z };
+        const bestHit = diagnostics.bestHit;
+
+        console.log("[SPAWNDBG]", {
+            useStreamingFocus,
+            rFocus,
+            spawnDir,
+            rOrigin,
+            rayLength: diagnostics.rayLength,
+            knownMeshes: known,
+            activeMeshes: active,
+            collidableScene,
+            testedMeshes: diagnostics.testedMeshes,
+            bestHit: !!bestHit?.hit,
+            bestHitDistance: bestHit?.hit ? bestHit.distance : null
+        });
+    }
+
+    if (shouldCheckSpawn && diagnostics.ready) {
+        trySpawnPlayer(diagnostics);
+    }
 }
 
 function getCameraOrbitBasis(up) {
@@ -1120,6 +1173,11 @@ function startGame() {
         terrain.setOnInitialBuildDone(() => {
             console.log("Initial planet build complete.");
         });
+    }
+
+    if (terrain?.forceSpawnPatch && loadingGate && !loadingGate.forceSpawnPatchDone) {
+        terrain.forceSpawnPatch(streamingFocus.globalPosition, 8);
+        loadingGate.forceSpawnPatchDone = true;
     }
 }
 
