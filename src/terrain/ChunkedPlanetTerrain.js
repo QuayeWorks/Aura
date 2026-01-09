@@ -267,7 +267,7 @@ export class ChunkedPlanetTerrain {
         mesh.isPickable = true;
         mesh.checkCollisions = isCollider;
 
-        if (isCollider) {
+        if (isCollider && mesh.isEnabled?.()) {
             this._activeCollisionMeshes.add(mesh);
         } else {
             this._activeCollisionMeshes.delete(mesh);
@@ -283,9 +283,12 @@ export class ChunkedPlanetTerrain {
         }
 
         this.activeTerrainMeshes.add(mesh);
+        mesh.checkCollisions = true;
         this._collisionMeshes.add(mesh);
-        if (mesh.checkCollisions) {
+        if (mesh.checkCollisions && mesh.isEnabled?.()) {
             this._activeCollisionMeshes.add(mesh);
+        } else {
+            this._activeCollisionMeshes.delete(mesh);
         }
         if (!this._loggedTerrainMeshes.has(mesh)) {
             console.log(
@@ -309,7 +312,7 @@ export class ChunkedPlanetTerrain {
     _setMeshCollisionActive(mesh, isActive) {
         if (!mesh) return;
         mesh.checkCollisions = !!isActive;
-        if (isActive) {
+        if (isActive && mesh.isEnabled?.()) {
             this._activeCollisionMeshes.add(mesh);
         } else {
             this._activeCollisionMeshes.delete(mesh);
@@ -895,8 +898,8 @@ export class ChunkedPlanetTerrain {
             // Ensure mesh is enabled if already built
             if (node.terrain && node.terrain.mesh) {
                 node.terrain.mesh.setEnabled(true);
-                this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level);
                 this._registerActiveTerrainMesh(node.terrain.mesh, node);
+                this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level);
             }
 
             if (node.terrain?.mesh) {
@@ -1049,8 +1052,8 @@ export class ChunkedPlanetTerrain {
                 node.lastBuiltLod = job.lodLevel;
                 node.lastBuiltRevision = revisionKey;
 
-                this._tagColliderForTerrain(node.terrain, job.lodLevel);
                 this._registerActiveTerrainMesh(node.terrain?.mesh, node);
+                this._tagColliderForTerrain(node.terrain, job.lodLevel);
                 this._onChunkBuilt();
                 this._recordBuildDuration(nowMs() - jobStartMs);
 
@@ -1587,21 +1590,15 @@ export class ChunkedPlanetTerrain {
     }
 
     getActiveCollisionMeshes() {
-        const meshes = [];
-        for (const mesh of this._activeCollisionMeshes) {
-            if (!mesh || !mesh.isEnabled?.()) continue;
-            meshes.push(mesh);
-        }
-        return meshes;
+        return Array.from(this._activeCollisionMeshes).filter(
+            (mesh) => mesh && !mesh.isDisposed?.() && mesh.isEnabled?.() && mesh.checkCollisions
+        );
     }
 
     getKnownCollisionMeshes() {
-        const meshes = [];
-        for (const mesh of this._collisionMeshes) {
-            if (!mesh || mesh.isDisposed?.()) continue;
-            meshes.push(mesh);
-        }
-        return meshes;
+        return Array.from(this._collisionMeshes).filter(
+            (mesh) => mesh && !mesh.isDisposed?.()
+        );
     }
 
     getCollisionMeshes() {

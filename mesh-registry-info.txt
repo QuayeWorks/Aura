@@ -1,0 +1,19 @@
+ChunkedPlanetTerrain mesh registry notes
+
+Required registries:
+- _collisionMeshes (KNOWN): all terrain meshes created that are not disposed.
+- _activeCollisionMeshes (ACTIVE): enabled + collision-enabled meshes that are within rcull/horizon/depth.
+
+Relevant methods:
+- _registerActiveTerrainMesh(mesh, node): ensures mesh.checkCollisions is true at creation/update, adds to known registry, and adds to active registry only when enabled.
+- _tagColliderForTerrain(terrain, lodLevel): sets collision-enabled state and synchronizes the active registry for visible meshes.
+- _setMeshCollisionActive(mesh, isActive): toggles mesh collision state and keeps active registry in sync.
+- _unregisterActiveTerrainMesh(mesh): removes a mesh from the active registry (known registry retains it unless disposed).
+
+Public APIs:
+- getKnownCollisionMeshes(): returns the KNOWN registry filtered for non-disposed meshes.
+- getActiveCollisionMeshes(): returns the ACTIVE registry filtered for enabled, collision-enabled, non-disposed meshes.
+- getCollisionMeshes(): alias for active collision meshes used by physics.
+
+Spawn readiness:
+- Spawn checks should use getKnownCollisionMeshes() (fallback to collidable scene meshes only if registry is broken).
