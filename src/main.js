@@ -87,6 +87,8 @@ let streamingDebugVisible = false;
 let lastStreamingStats = null;
 let lastStreamingFocusPos = null;
 let lastStreamingFocusMode = "activeCamera";
+let lastStreamingHighLodCount = null;
+let lastStreamingFocusSamplePos = null;
 
 function applyDebugFlags(state = {}) {
     const flags = state.flags ?? DebugSettings.getAllFlags();
@@ -293,12 +295,64 @@ function startStreamingStatsInterval() {
     if (window._streamingStatsInterval) return;
     window._streamingStatsInterval = window.setInterval(() => {
         if (!terrain || !lastStreamingFocusPos || !terrain.getStreamingStats) return;
+        if (gameState !== GameState.PLAYING) return;
         const stats = terrain.getStreamingStats();
+        const radii = terrain?.lodRingRadii ?? {};
+        const maxLod = stats.maxLodInUse ?? 0;
+        const highLodCount = Array.isArray(stats.perLodCounts)
+            ? (stats.perLodCounts[maxLod] ?? 0)
+            : 0;
+        let movedDistance = 0;
+        if (lastStreamingFocusSamplePos && lastStreamingFocusPos) {
+            movedDistance = BABYLON.Vector3.Distance(
+                lastStreamingFocusSamplePos,
+                lastStreamingFocusPos
+            );
+        }
+        const movedRecently = movedDistance > 1.0;
+        const highLodIncreased =
+            lastStreamingHighLodCount != null
+                ? highLodCount > lastStreamingHighLodCount
+                : false;
+
+        const streamingAcceptance = {
+            hardCull:
+                (stats.enabledOutsideRcull ?? 0) === 0
+                && (stats.collidableOutsideRcull ?? 0) === 0,
+            horizon:
+                (stats.enabledBelowHorizon ?? 0) === 0
+                && (stats.buildJobsQueuedBelowHorizon ?? 0) === 0,
+            depth:
+                (stats.enabledTooDeep ?? 0) === 0
+                && (stats.buildJobsQueuedTooDeep ?? 0) === 0,
+            ringLod:
+                (stats.perLodOutsideRcull ?? 0) === 0
+                && (!movedRecently || highLodIncreased)
+        };
+
         const report = {
             focusMode: lastStreamingFocusMode,
+            ringRadii: {
+                r0: radii.r0 ?? 0,
+                r1: radii.r1 ?? 0,
+                r2: radii.r2 ?? 0,
+                r3: radii.r3 ?? 0,
+                rcull: radii.rcull ?? 0
+            },
+            movedDistance,
+            highLodCount,
+            highLodIncreased,
+            streamingAcceptance,
             ...stats
         };
         lastStreamingStats = report;
+        lastStreamingHighLodCount = highLodCount;
+        lastStreamingFocusSamplePos = lastStreamingFocusPos?.clone?.()
+            ?? new BABYLON.Vector3(
+                lastStreamingFocusPos.x,
+                lastStreamingFocusPos.y,
+                lastStreamingFocusPos.z
+            );
         console.log("[STREAM]", report);
     }, 1000);
 }
@@ -628,7 +682,7 @@ function freezePlayerForLoading() {
 }
 
 function spawnAreaReady() {
-    const meshes = terrain?.getCollisionMeshes?.() ?? [];
+    const meshes = terrain?.getKnownCollisionMeshes?.() ?? terrain?.getCollisionMeshes?.() ?? [];
     if (meshes.length === 0) return false;
 
     const up = SPAWN_DIR.clone();

@@ -82,6 +82,11 @@ export class DevPanel {
             lines.push(
                 `Stream2  focus:${s.focusMode ?? "-"}  renderSet:${s.renderSetCount ?? 0}  culled:${s.culledCount ?? 0}  depth:${s.depthCulledCount ?? 0}`
             );
+            if (s.totalLeafCandidates != null || s.totalLeafVisible != null) {
+                lines.push(
+                    `Leaves   candidates:${s.totalLeafCandidates ?? 0}  visible:${s.totalLeafVisible ?? 0}`
+                );
+            }
             lines.push(
                 `Meshes   enabled:${s.enabledMeshes ?? 0}  collidable:${s.enabledCollidableMeshes ?? 0}  maxLOD:${s.maxLodInUse ?? 0}`
             );
@@ -89,9 +94,31 @@ export class DevPanel {
                 const lodParts = s.perLodCounts.map((val, idx) => `${idx}:${val ?? 0}`);
                 lines.push(`LOD set  [${lodParts.join("  ")}]`);
             }
+            if (s.ringRadii) {
+                const r = s.ringRadii;
+                lines.push(
+                    `Rings    r0:${(r.r0 ?? 0).toFixed(0)}  r1:${(r.r1 ?? 0).toFixed(0)}  r2:${(r.r2 ?? 0).toFixed(0)}  r3:${(r.r3 ?? 0).toFixed(0)}  rcull:${(r.rcull ?? 0).toFixed(0)}`
+                );
+            }
             lines.push(
                 `Builds   queue:${s.buildQueueLength ?? 0}  active:${s.activeBuilds ?? 0}  avg:${(s.avgBuildMsLastSecond ?? 0).toFixed(1)}ms`
             );
+            if (s.streamingAcceptance) {
+                const pass = (value) => (value ? "PASS" : "FAIL");
+                lines.push("STREAMING ACCEPTANCE");
+                lines.push(
+                    `HardCull ${pass(s.streamingAcceptance.hardCull)}  enabledOutside:${s.enabledOutsideRcull ?? 0}  collidableOutside:${s.collidableOutsideRcull ?? 0}`
+                );
+                lines.push(
+                    `Horizon  ${pass(s.streamingAcceptance.horizon)}  enabledBelow:${s.enabledBelowHorizon ?? 0}  jobsBelow:${s.buildJobsQueuedBelowHorizon ?? 0}`
+                );
+                lines.push(
+                    `Depth    ${pass(s.streamingAcceptance.depth)}  enabledTooDeep:${s.enabledTooDeep ?? 0}  jobsTooDeep:${s.buildJobsQueuedTooDeep ?? 0}`
+                );
+                lines.push(
+                    `RingLOD  ${pass(s.streamingAcceptance.ringLod)}  perLodOutside:${s.perLodOutsideRcull ?? 0}  moved:${(s.movedDistance ?? 0).toFixed(1)}  highLod:${s.highLodCount ?? 0}  +:${s.highLodIncreased ? "yes" : "no"}`
+                );
+            }
         }
 
         if (data.time) {
