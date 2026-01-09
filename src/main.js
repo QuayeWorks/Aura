@@ -733,7 +733,12 @@ function spawnAreaReady() {
 }
 
 function getSpawnRayDiagnostics() {
-    const meshes = terrain?.getKnownCollisionMeshes?.() ?? terrain?.getCollisionMeshes?.() ?? [];
+    let meshes = terrain?.getKnownCollisionMeshes?.() ?? terrain?.getCollisionMeshes?.() ?? [];
+    if (!meshes || meshes.length === 0) {
+      // fallback: if the registry is broken, still use actual collidable meshes in scene
+      meshes = scene.meshes.filter(m => m && !m.isDisposed?.() && m.checkCollisions === true);
+    }
+
     const up = SPAWN_DIR.clone().normalize();
     const origin = up.scale(SPAWN_RADIUS_UNITS + 500);
     const dir = up.scale(-1);
