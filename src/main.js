@@ -734,10 +734,14 @@ function spawnAreaReady() {
 
 function getSpawnRayDiagnostics() {
     let meshes = terrain?.getKnownCollisionMeshes?.() ?? terrain?.getCollisionMeshes?.() ?? [];
-    if (!meshes || meshes.length === 0) {
-      // fallback: if the registry is broken, still use actual collidable meshes in scene
-      meshes = scene.meshes.filter(m => m && !m.isDisposed?.() && m.checkCollisions === true);
+    if (!meshes.length) {
+        meshes = scene.meshes.filter((m) =>
+            m && !m.isDisposed?.() &&
+            m.checkCollisions === true &&
+            m.metadata?.isTerrainChunk === true
+        );
     }
+    console.log("[SPAWNDBG] testing meshes:", meshes.map((mesh) => mesh?.name));
 
     const up = SPAWN_DIR.clone().normalize();
     const origin = up.scale(SPAWN_RADIUS_UNITS + 500);
@@ -872,8 +876,18 @@ function updateLoadingGate(dtSeconds) {
             "active:",
             active,
             "sceneCollidable:",
-            collidableScene
+            collidableScene,
+            "rawKnownSize:",
+            terrain?._collisionMeshes?.size,
+            "rawActiveSize:",
+            terrain?._activeCollisionMeshes?.size
         );
+        if (!diagnostics.ready) {
+            console.log(
+                "collidable scene meshes:",
+                scene.meshes.filter((m) => m.checkCollisions).map((m) => m.name)
+            );
+        }
     }
 
     if (shouldCheckSpawn && diagnostics.ready) {

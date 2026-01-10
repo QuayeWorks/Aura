@@ -598,6 +598,7 @@ _applyMeshBuffers(positions, normals, indices, colors) {
     this.mesh.metadata = this.mesh.metadata || {};
     this.mesh.metadata.isVoxelTerrain = true;
     this.mesh.metadata.isTerrain = true;
+    this.mesh.metadata.isTerrainChunk = true;
 	this.mesh.layerMask = 0x1 | 0x2;
 
     vertexData.applyToMesh(this.mesh, true);
@@ -769,6 +770,7 @@ _applyMeshBuffers(positions, normals, indices, colors) {
 		this.mesh.metadata.isVoxelTerrain = true; // <-- voxel chunk tag
 
 		this.mesh.metadata.isTerrain = true;
+		this.mesh.metadata.isTerrainChunk = true;
 
 
         vertexData.applyToMesh(this.mesh, true);
