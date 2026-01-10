@@ -91,7 +91,7 @@ let lastStreamingFocusMode = "activeCamera";
 let lastStreamingHighLodCount = null;
 let lastStreamingFocusSamplePos = null;
 let forceSpawnToastTimer = null;
-let forceSpawnFlyTimer = null;
+let forceSpawnSafety = { active: false };
 
 function applyDebugFlags(state = {}) {
     const flags = state.flags ?? DebugSettings.getAllFlags();
@@ -406,12 +406,14 @@ function formatStreamSummary(stats) {
 // Timing
 let lastFrameTime = performance.now();
 let autosaveTimer = 0;
+let playStartMs = null;
 const AUTOSAVE_INTERVAL = 30;
 const LOADING_PROGRESS_RAMP_SECONDS = 12;
 const LOADING_SPAWN_CHECK_INTERVAL_SECONDS = 0.5;
 const LOADING_SPAWN_DEBUG_INTERVAL_SECONDS = 1;
 const LOADING_PROGRESS_CAP = 0.9;
 const LOADING_STREAMING_MESSAGE_AFTER_SECONDS = 6;
+const COLLISION_WARMUP_MS = 8000;
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
@@ -860,12 +862,12 @@ function forceSpawnNow() {
 
     setupPlayerAndSystems();
 
-    const shouldRestoreFly = player?.setFlyMode && !player.flyMode;
     if (player?.setFlyMode) {
         player.setFlyMode(true, { syncDebug: false });
     } else if (player) {
         player.flyMode = true;
     }
+    forceSpawnSafety = { active: true };
 
     if (domHud?.setInteractionPrompt) {
         domHud.setInteractionPrompt("Fly enabled temporarily (terrain not ready)");
@@ -874,15 +876,6 @@ function forceSpawnNow() {
             domHud?.setInteractionPrompt("");
         }, 5000);
     }
-
-    if (forceSpawnFlyTimer) clearTimeout(forceSpawnFlyTimer);
-    forceSpawnFlyTimer = setTimeout(() => {
-        if (shouldRestoreFly && player?.setFlyMode) {
-            player.setFlyMode(false, { syncDebug: false });
-        } else if (shouldRestoreFly && player) {
-            player.flyMode = false;
-        }
-    }, 5000);
 
     if (loadingOverlay) {
         loadingOverlay.setProgress(1);
@@ -895,6 +888,68 @@ function forceSpawnNow() {
     loadingGate = null;
     playerSpawned = true;
     enterGameplayFromLoading();
+}
+
+function resolveCollisionWarmupState(nowMs) {
+    const timeSincePlayStartMs = playStartMs != null ? nowMs - playStartMs : null;
+    const warmupActive = gameState === GameState.LOADING
+        || (
+            gameState === GameState.PLAYING
+            && (
+                (timeSincePlayStartMs != null && timeSincePlayStartMs < COLLISION_WARMUP_MS)
+                || (player && !player.isGrounded)
+            )
+        );
+    return { warmupActive, timeSincePlayStartMs };
+}
+
+function hasGroundCollisionBelowPlayer() {
+    if (!player?.mesh || !terrain) return false;
+    const pos = player.mesh.position;
+    const up = pos.clone();
+    if (up.lengthSquared() < 1e-6) return false;
+    up.normalize();
+    const down = up.scale(-1);
+    const rayOrigin = pos.add(up.scale((player.height ?? 1) * 0.5));
+    const maxRay = Math.max(terrain.radius ?? PLANET_RADIUS_UNITS, 1) * 2;
+    const ray = new BABYLON.Ray(rayOrigin, down, maxRay);
+
+    if (player._terrainRaycast) {
+        const pick = player._terrainRaycast(ray);
+        return !!pick?.hit;
+    }
+
+    const pick = scene?.pickWithRay?.(
+        ray,
+        (mesh) => mesh?.metadata?.isTerrainCollider || mesh?.metadata?.isTerrain
+    );
+    return !!pick?.hit;
+}
+
+function updateForceSpawnSafety() {
+    if (!forceSpawnSafety?.active || !player || !terrain) return;
+    const focusPos = player.mesh?.position;
+    if (!focusPos) return;
+    const nearCount = terrain.getActiveCollisionMeshCountNear?.(
+        focusPos,
+        terrain.lodRingRadii?.r1 ?? 0
+    ) ?? 0;
+    const hasHit = hasGroundCollisionBelowPlayer();
+    if (nearCount >= 1 && hasHit) {
+        if (player?.setFlyMode) {
+            player.setFlyMode(false, { syncDebug: false });
+        } else {
+            player.flyMode = false;
+        }
+        forceSpawnSafety = { active: false };
+        if (domHud?.setInteractionPrompt) domHud.setInteractionPrompt("");
+        return;
+    }
+    if (player?.setFlyMode) {
+        player.setFlyMode(true, { syncDebug: false });
+    } else {
+        player.flyMode = true;
+    }
 }
 
 function updateLoadingGate(dtSeconds) {
@@ -1193,6 +1248,8 @@ function showMainMenu() {
         performSave();
     }
     gameState = GameState.MENU;
+    playStartMs = null;
+    forceSpawnSafety = { active: false };
     refreshContinueButton();
     if (uiState && uiState.showMainMenu) {
         uiState.showMainMenu();
@@ -1249,6 +1306,8 @@ function startGame() {
     }
 
     gameState = GameState.LOADING;
+    forceSpawnSafety = { active: false };
+    playStartMs = null;
 
     if (mainMenuPanel) mainMenuPanel.isVisible = false;
     if (settingsPanel) settingsPanel.isVisible = false;
@@ -1391,6 +1450,10 @@ function enterGameplayFromLoading() {
 
     if (dayNightSystem && dayNightSystem.setEnabled) dayNightSystem.setEnabled(true);
     if (mainCamera && player && player.mesh) mainCamera.setTarget(player.mesh.position);
+    playStartMs = performance.now();
+    if (!forceSpawnSafety?.active) {
+        forceSpawnSafety = { active: false };
+    }
     gameState = GameState.PLAYING;
     autosaveTimer = 0;
 }
@@ -1430,7 +1493,15 @@ engine.runRenderLoop(() => {
         lastStreamingFocusMode = useStreamingFocus ? "streamingFocus" : "activeCamera";
     }
 
+    const { warmupActive, timeSincePlayStartMs } = resolveCollisionWarmupState(now);
+
     if (terrain && (gameState === GameState.LOADING || gameState === GameState.PLAYING)) {
+        if (terrain.setCollisionWarmupState) {
+            terrain.setCollisionWarmupState({
+                enabled: warmupActive,
+                timeSincePlayStartMs
+            });
+        }
         terrain.updateStreaming(focusPos);
     }
 
@@ -1451,6 +1522,7 @@ engine.runRenderLoop(() => {
             autosaveTimer = 0;
         }
         if (simDtSeconds > 0) {
+            updateForceSpawnSafety();
             if (gameRuntime) gameRuntime.update(simDtSeconds);
             player.update(simDtSeconds);
             updateCameraRig();
