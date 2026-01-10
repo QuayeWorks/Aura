@@ -35,7 +35,7 @@ export class ChunkedPlanetTerrain {
 
         this.lodLevel = options.lodLevel ?? 5;
 
-        this.colliderLodThreshold = options.colliderLodThreshold ?? 5;
+        this.colliderLodThreshold = options.colliderLodThreshold ?? 4;
         this.colliderEnableDistance =
             options.colliderEnableDistance ?? this.radius * 0.12;
 
@@ -127,6 +127,11 @@ export class ChunkedPlanetTerrain {
         this._activeCollisionMeshes = new Set();
         this._loggedTerrainMeshes = new WeakSet();
         this._activeLeafSet = new Set();
+        this._collisionWarmup = {
+            enabled: false,
+            forcedCount: 0,
+            timeSincePlayStartMs: null
+        };
 
         // Build the initial quadtree (replaces the old fixed grid)
         this._initializeQuadtree();
@@ -236,15 +241,19 @@ export class ChunkedPlanetTerrain {
         };
     }
 
-    _tagColliderForTerrain(terrain, lodLevel) {
+    _tagColliderForTerrain(terrain, lodLevel, options = {}) {
         if (!terrain || !terrain.mesh) return;
 
         const mesh = terrain.mesh;
         mesh.metadata = mesh.metadata || {};
         mesh.metadata.isTerrain = true;
 
+        const focusPos = this.lastCameraPosition;
+        let surfaceDist = options.surfaceDist ?? null;
+        const warmupEnabled = options.warmupEnabled ?? this._collisionWarmup?.enabled;
+
         let nearEnough = true;
-        if (this.lastCameraPosition) {
+        if (focusPos) {
             const center = terrain.origin
                 ? terrain.origin.add(new BABYLON.Vector3(
                     (terrain.dimX - 1) * terrain.cellSize * 0.5,
@@ -253,28 +262,34 @@ export class ChunkedPlanetTerrain {
                 ))
                 : BABYLON.Vector3.Zero();
 
-            const distToFocus = BABYLON.Vector3.Distance(
-                center,
-                this.lastCameraPosition
-            );
-
+            const distToFocus = BABYLON.Vector3.Distance(center, focusPos);
             nearEnough = distToFocus <= this.colliderEnableDistance;
+
+            if (surfaceDist == null && distToFocus < Infinity) {
+                surfaceDist = this._surfaceDistanceForMesh(mesh, focusPos);
+            }
         }
+
+        const nearRing = Number.isFinite(surfaceDist)
+            ? surfaceDist <= this.lodRingRadii.r1
+            : false;
+        const warmupRing = warmupEnabled && Number.isFinite(surfaceDist)
+            ? surfaceDist <= this.lodRingRadii.r2
+            : false;
 
         const allowCollider = this.initialBuildDone
             ? lodLevel >= this.colliderLodThreshold
             : true;
-        const isCollider = nearEnough && allowCollider;
+        const isCollider = nearRing || warmupRing || (nearEnough && allowCollider);
+
+        const forcedByWarmup = warmupRing && !nearRing && !(nearEnough && allowCollider);
+        if (forcedByWarmup) {
+            this._collisionWarmup.forcedCount += 1;
+        }
 
         mesh.metadata.isTerrainCollider = isCollider;
         mesh.isPickable = true;
-        mesh.checkCollisions = isCollider;
-
-        if (isCollider && mesh.isEnabled?.()) {
-            this._activeCollisionMeshes.add(mesh);
-        } else {
-            this._activeCollisionMeshes.delete(mesh);
-        }
+        this._setMeshCollisionActive(mesh, isCollider);
     }
 
     _registerKnownTerrainMesh(mesh, node = null) {
@@ -293,7 +308,6 @@ export class ChunkedPlanetTerrain {
     _registerActiveTerrainMesh(mesh, node = null) {
         if (!mesh) return;
         this._registerKnownTerrainMesh(mesh, node);
-        mesh.checkCollisions = true;
         mesh.metadata = mesh.metadata || {};
         mesh.metadata.isTerrainChunk = true;
         this._collisionMeshes ??= new Set();
@@ -923,18 +937,17 @@ export class ChunkedPlanetTerrain {
 
             // Ensure mesh is enabled if already built
             if (node.terrain && node.terrain.mesh) {
-                node.terrain.mesh.setEnabled(true);
-                this._registerActiveTerrainMesh(node.terrain.mesh, node);
-                this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level);
-            }
-
-            if (node.terrain?.mesh) {
                 const mesh = node.terrain.mesh;
-                const collisionCullDist = this.lodRingRadii.rcull + this.cullHysteresis;
-                if (this.initialBuildDone && surfaceDist > collisionCullDist) {
-                    mesh.checkCollisions = false;
-                    this._activeCollisionMeshes.delete(mesh);
+                const inRenderSet = true;
+                if (inRenderSet && node.terrain?.mesh && !mesh.isEnabled?.()) {
+                    console.warn("RenderSet mesh disabled leak", node.id);
                 }
+                mesh.setEnabled(true);
+                this._registerActiveTerrainMesh(mesh, node);
+                this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level, {
+                    surfaceDist,
+                    warmupEnabled: this._collisionWarmup?.enabled
+                });
             }
         }
 
@@ -1079,7 +1092,19 @@ export class ChunkedPlanetTerrain {
                 node.lastBuiltRevision = revisionKey;
 
                 this._registerActiveTerrainMesh(node.terrain?.mesh, node);
-                this._tagColliderForTerrain(node.terrain, job.lodLevel);
+                const focusPos = this.lastCameraPosition;
+                let surfaceDist = null;
+                if (focusPos) {
+                    const focusDir = focusPos.clone();
+                    if (focusDir.lengthSquared() > 0) {
+                        focusDir.normalize();
+                    }
+                    surfaceDist = this._surfaceDistanceForNode(focusDir, node);
+                }
+                this._tagColliderForTerrain(node.terrain, job.lodLevel, {
+                    surfaceDist,
+                    warmupEnabled: this._collisionWarmup?.enabled
+                });
                 this._onChunkBuilt();
                 this._recordBuildDuration(nowMs() - jobStartMs);
 
@@ -1226,6 +1251,9 @@ export class ChunkedPlanetTerrain {
     updateStreaming(focusPosition) {
         this.lodUpdateCounter++;
         this._streamRevision = (this._streamRevision ?? 0) + 1;
+        if (this._collisionWarmup) {
+            this._collisionWarmup.forcedCount = 0;
+        }
         if (focusPosition) {
             this.lastCameraPosition = focusPosition.clone
                 ? focusPosition.clone()
@@ -1336,6 +1364,51 @@ export class ChunkedPlanetTerrain {
         return this.lastLodStats;
     }
 
+    setCollisionWarmupState({ enabled, timeSincePlayStartMs } = {}) {
+        if (!this._collisionWarmup) {
+            this._collisionWarmup = {
+                enabled: !!enabled,
+                forcedCount: 0,
+                timeSincePlayStartMs: timeSincePlayStartMs ?? null
+            };
+            return;
+        }
+        this._collisionWarmup.enabled = !!enabled;
+        this._collisionWarmup.timeSincePlayStartMs = timeSincePlayStartMs ?? null;
+    }
+
+    _surfaceDistanceForMesh(mesh, focusPos) {
+        if (!focusPos) return Infinity;
+        const focusDir = focusPos.clone();
+        if (focusDir.lengthSquared() <= 0) return Infinity;
+        focusDir.normalize();
+        const node = mesh?.metadata?.terrainNode;
+        if (node) {
+            return this._surfaceDistanceForNode(focusDir, node);
+        }
+        const boundingCenter = mesh?.getBoundingInfo?.().boundingSphere?.centerWorld;
+        const center = boundingCenter ?? mesh?.position ?? null;
+        if (!center) return Infinity;
+        const dir = center.clone();
+        if (dir.lengthSquared() < 1e-6) return Infinity;
+        dir.normalize();
+        const dot = BABYLON.Vector3.Dot(dir, focusDir);
+        const clamped = Math.max(-1, Math.min(1, dot));
+        const angle = Math.acos(clamped);
+        return this.radius * angle;
+    }
+
+    getActiveCollisionMeshCountNear(focusPos, maxSurfaceDist) {
+        if (!focusPos || !Number.isFinite(maxSurfaceDist)) return 0;
+        let count = 0;
+        for (const mesh of this._activeCollisionMeshes) {
+            if (!mesh || !mesh.isEnabled?.() || !mesh.checkCollisions) continue;
+            const surfaceDist = this._surfaceDistanceForMesh(mesh, focusPos);
+            if (surfaceDist <= maxSurfaceDist) count += 1;
+        }
+        return count;
+    }
+
     getStreamingStats() {
         const enabledMeshes = [];
         for (const mesh of this.activeTerrainMeshes) {
@@ -1347,10 +1420,6 @@ export class ChunkedPlanetTerrain {
         }
 
         const focusPos = this.lastCameraPosition;
-        const focusDir = focusPos ? focusPos.clone() : null;
-        if (focusDir && focusDir.lengthSquared() > 0) {
-            focusDir.normalize();
-        }
 
         const rcull = this.lodRingRadii.rcull;
         const maxDepth = this.lodRingRadii.r3 * 0.5;
@@ -1362,22 +1431,7 @@ export class ChunkedPlanetTerrain {
             return boundingCenter ?? mesh?.position ?? null;
         };
 
-        const surfaceDistanceForMesh = (mesh) => {
-            if (!focusDir) return Infinity;
-            const node = mesh?.metadata?.terrainNode;
-            if (node) {
-                return this._surfaceDistanceForNode(focusDir, node);
-            }
-            const center = getMeshCenter(mesh);
-            if (!center) return Infinity;
-            const dir = center.clone();
-            if (dir.lengthSquared() < 1e-6) return Infinity;
-            dir.normalize();
-            const dot = BABYLON.Vector3.Dot(dir, focusDir);
-            const clamped = Math.max(-1, Math.min(1, dot));
-            const angle = Math.acos(clamped);
-            return this.radius * angle;
-        };
+        const surfaceDistanceForMesh = (mesh) => this._surfaceDistanceForMesh(mesh, focusPos);
 
         const meshBelowHorizon = (mesh) => {
             if (!focusPos) return false;
@@ -1440,7 +1494,11 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        if (focusDir) {
+        if (focusPos) {
+            const focusDir = focusPos.clone();
+            if (focusDir.lengthSquared() > 0) {
+                focusDir.normalize();
+            }
             for (const node of this.activeLeaves || []) {
                 if (!node) continue;
                 const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
@@ -1453,7 +1511,11 @@ export class ChunkedPlanetTerrain {
         let buildJobsQueuedOutsideRcull = 0;
         let buildJobsQueuedBelowHorizon = 0;
         let buildJobsQueuedTooDeep = 0;
-        if (focusDir && focusPos) {
+        if (focusPos) {
+            const focusDir = focusPos.clone();
+            if (focusDir.lengthSquared() > 0) {
+                focusDir.normalize();
+            }
             for (const job of this.buildQueue) {
                 const node = job?.node;
                 if (!node) continue;
@@ -1498,6 +1560,9 @@ export class ChunkedPlanetTerrain {
         return {
             enabledMeshes: enabledMeshes.length,
             enabledCollidableMeshes: enabledCollidable,
+            collisionsWarmupEnabled: this._collisionWarmup?.enabled ?? false,
+            collidersForcedCount: this._collisionWarmup?.forcedCount ?? 0,
+            timeSincePlayStart: this._collisionWarmup?.timeSincePlayStartMs ?? null,
             enabledOutsideRcull,
             collidableOutsideRcull,
             enabledBelowHorizon,
