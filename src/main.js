@@ -90,6 +90,8 @@ let lastStreamingFocusPos = null;
 let lastStreamingFocusMode = "activeCamera";
 let lastStreamingHighLodCount = null;
 let lastStreamingFocusSamplePos = null;
+let forceSpawnToastTimer = null;
+let forceSpawnFlyTimer = null;
 
 function applyDebugFlags(state = {}) {
     const flags = state.flags ?? DebugSettings.getAllFlags();
@@ -571,6 +573,8 @@ function createScene() {
 
     if (!loadingOverlay) {
         loadingOverlay = createDomLoadingOverlay();
+        loadingOverlay.onForceSpawn = () => forceSpawnNow();
+        loadingOverlay.onRetrySpawnCheck = () => retrySpawnCheck();
     }
 
     ensureDebugMenu();
@@ -815,6 +819,82 @@ function trySpawnPlayer(diagnostics = null) {
     loadingGate = null;
     useStreamingFocus = false;
     playerSpawned = true;
+}
+
+function retrySpawnCheck() {
+    const ready = spawnAreaReady();
+    console.log("[LOADING] Retry spawn check requested. Ready:", ready);
+}
+
+function forceSpawnNow() {
+    if (gameState !== GameState.LOADING) return;
+    console.warn("[LOADING] Force Spawn used.");
+
+    if (!terrain) return;
+
+    if (!player) {
+        player = new PlanetPlayer(scene, terrain, {
+            planetRadius: PLANET_RADIUS_UNITS,
+            walkSpeed: 2.2,
+            runSpeed: 11,
+            height: 1.8,
+            radius: 0.35,
+            jumpGraceSeconds: 40,
+            inputEnabled: false,
+            deferSpawn: true,
+            spawnDirection: SPAWN_DIR
+        });
+    }
+
+    const spawnDir = SPAWN_DIR.clone().normalize();
+    const spawnPos = spawnDir.scale(SPAWN_RADIUS_UNITS);
+    if (player.mesh?.position?.copyFrom) {
+        player.mesh.position.copyFrom(spawnPos);
+    } else if (player.mesh) {
+        player.mesh.position = spawnPos.clone();
+    }
+
+    if (player.velocity?.set) player.velocity.set(0, 0, 0);
+    if (player.lastSafePosition) player.lastSafePosition = spawnPos.clone();
+    if (player._previousPosition?.copyFrom) player._previousPosition.copyFrom(spawnPos);
+
+    setupPlayerAndSystems();
+
+    const shouldRestoreFly = player?.setFlyMode && !player.flyMode;
+    if (player?.setFlyMode) {
+        player.setFlyMode(true, { syncDebug: false });
+    } else if (player) {
+        player.flyMode = true;
+    }
+
+    if (domHud?.setInteractionPrompt) {
+        domHud.setInteractionPrompt("Fly enabled temporarily (terrain not ready)");
+        if (forceSpawnToastTimer) clearTimeout(forceSpawnToastTimer);
+        forceSpawnToastTimer = setTimeout(() => {
+            domHud?.setInteractionPrompt("");
+        }, 5000);
+    }
+
+    if (forceSpawnFlyTimer) clearTimeout(forceSpawnFlyTimer);
+    forceSpawnFlyTimer = setTimeout(() => {
+        if (shouldRestoreFly && player?.setFlyMode) {
+            player.setFlyMode(false, { syncDebug: false });
+        } else if (shouldRestoreFly && player) {
+            player.flyMode = false;
+        }
+    }, 5000);
+
+    if (loadingOverlay) {
+        loadingOverlay.setProgress(1);
+        loadingOverlay.setMessage("Loading world… 100%");
+        loadingOverlay.setStreamingMessage("");
+        loadingOverlay.hide();
+    }
+
+    useStreamingFocus = false;
+    loadingGate = null;
+    playerSpawned = true;
+    enterGameplayFromLoading();
 }
 
 function updateLoadingGate(dtSeconds) {

@@ -29,9 +29,32 @@ export function createLoadingOverlay() {
         subtext.className = "loading-subtext";
         subtext.textContent = "";
 
+        const forceSpawnWrap = document.createElement("div");
+        forceSpawnWrap.className = "force-spawn-wrap";
+        forceSpawnWrap.style.display = "none";
+
+        const forceBtn = document.createElement("button");
+        forceBtn.className = "force-spawn-btn";
+        forceBtn.type = "button";
+        forceBtn.textContent = "Force Spawn";
+
+        const forceSubtext = document.createElement("div");
+        forceSubtext.className = "force-spawn-subtext";
+        forceSubtext.textContent = "Use if terrain streaming stalls";
+
+        const retryBtn = document.createElement("button");
+        retryBtn.className = "retry-spawn-btn";
+        retryBtn.type = "button";
+        retryBtn.textContent = "Retry Spawn Check";
+
+        forceSpawnWrap.appendChild(forceBtn);
+        forceSpawnWrap.appendChild(forceSubtext);
+        forceSpawnWrap.appendChild(retryBtn);
+
         panel.appendChild(text);
         panel.appendChild(bar);
         panel.appendChild(subtext);
+        panel.appendChild(forceSpawnWrap);
         root.appendChild(panel);
         document.body.appendChild(root);
     }
@@ -39,6 +62,30 @@ export function createLoadingOverlay() {
     const textEl = root.querySelector(".loading-text");
     const fillEl = root.querySelector(".loading-bar .fill");
     const subTextEl = root.querySelector(".loading-subtext");
+    const forceWrapEl = root.querySelector(".force-spawn-wrap");
+    const forceBtnEl = root.querySelector(".force-spawn-btn");
+    const retryBtnEl = root.querySelector(".retry-spawn-btn");
+
+    const overlayState = {
+        onForceSpawn: null,
+        onRetrySpawnCheck: null
+    };
+
+    if (forceBtnEl) {
+        forceBtnEl.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            overlayState.onForceSpawn?.();
+        });
+    }
+
+    if (retryBtnEl) {
+        retryBtnEl.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            overlayState.onRetrySpawnCheck?.();
+        });
+    }
 
     function show() {
         root.classList.remove("hidden", "fade-out");
@@ -51,12 +98,16 @@ export function createLoadingOverlay() {
     }
 
     function setProgress(value) {
-        const pct = Math.round(clamp01(value) * 100);
+        const clamped = clamp01(value);
+        const pct = Math.round(clamped * 100);
         if (fillEl) {
             fillEl.style.width = `${pct}%`;
         }
         if (textEl) {
             textEl.textContent = `Loading world… ${pct}%`;
+        }
+        if (forceWrapEl) {
+            forceWrapEl.style.display = clamped >= 0.9 ? "flex" : "none";
         }
     }
 
@@ -75,12 +126,12 @@ export function createLoadingOverlay() {
         setTimeout(() => hide(), 450);
     }
 
-    return {
+    return Object.assign(overlayState, {
         show,
         hide,
         setProgress,
         setMessage,
         setStreamingMessage,
         fadeOut
-    };
+    });
 }
