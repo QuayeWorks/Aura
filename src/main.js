@@ -754,6 +754,7 @@ function getSpawnRayDiagnostics() {
     for (const mesh of meshes) {
         if (!mesh) continue;
         if (typeof mesh.isDisposed === "function" && mesh.isDisposed()) continue;
+        if (mesh.name === "cameraCollider") continue;
         testedMeshes += 1;
         const hit = ray.intersectsMesh(mesh, true);
         if (hit?.hit && (!best || hit.distance < best.distance)) {

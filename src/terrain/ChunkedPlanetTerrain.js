@@ -261,7 +261,10 @@ export class ChunkedPlanetTerrain {
             nearEnough = distToFocus <= this.colliderEnableDistance;
         }
 
-        const isCollider = nearEnough && lodLevel >= this.colliderLodThreshold;
+        const allowCollider = this.initialBuildDone
+            ? lodLevel >= this.colliderLodThreshold
+            : true;
+        const isCollider = nearEnough && allowCollider;
 
         mesh.metadata.isTerrainCollider = isCollider;
         mesh.isPickable = true;
@@ -290,9 +293,23 @@ export class ChunkedPlanetTerrain {
     _registerActiveTerrainMesh(mesh, node = null) {
         if (!mesh) return;
         this._registerKnownTerrainMesh(mesh, node);
+        mesh.checkCollisions = true;
+        mesh.metadata = mesh.metadata || {};
+        mesh.metadata.isTerrainChunk = true;
+        this._collisionMeshes ??= new Set();
+        this._collisionMeshes.add(mesh);
+        console.log(
+            "[TERRAIN-MESH]",
+            mesh.name,
+            "enabled:",
+            mesh.isEnabled?.(),
+            "collisions:",
+            mesh.checkCollisions,
+            "metadata:",
+            mesh.metadata
+        );
 
         this.activeTerrainMeshes.add(mesh);
-        mesh.checkCollisions = true;
         if (mesh.checkCollisions && mesh.isEnabled?.()) {
             this._activeCollisionMeshes.add(mesh);
         } else {
@@ -914,7 +931,7 @@ export class ChunkedPlanetTerrain {
             if (node.terrain?.mesh) {
                 const mesh = node.terrain.mesh;
                 const collisionCullDist = this.lodRingRadii.rcull + this.cullHysteresis;
-                if (surfaceDist > collisionCullDist) {
+                if (this.initialBuildDone && surfaceDist > collisionCullDist) {
                     mesh.checkCollisions = false;
                     this._activeCollisionMeshes.delete(mesh);
                 }
