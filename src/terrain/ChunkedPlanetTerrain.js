@@ -276,12 +276,15 @@ export class ChunkedPlanetTerrain {
 
     _registerKnownTerrainMesh(mesh, node = null) {
         if (!mesh) return;
+        this._collisionMeshes ??= new Set();
+        this._collisionMeshes.add(mesh);
         mesh.metadata = mesh.metadata || {};
         mesh.metadata.isTerrain = true;
+        mesh.metadata.isTerrainChunk = true;
         if (node) {
             mesh.metadata.terrainNode = node;
         }
-        this._collisionMeshes.add(mesh);
+        console.log("[MESHREG-ADD] added", mesh.name, "known size:", this._collisionMeshes.size);
     }
 
     _registerActiveTerrainMesh(mesh, node = null) {
