@@ -26,7 +26,7 @@ const engine = new BABYLON.Engine(canvas, true);
 
 // Planet radius in world units (meters, conceptually)
 const PLANET_RADIUS_UNITS = 32400;
-const SPAWN_OFFSET_UNITS = 100;
+const SPAWN_OFFSET_UNITS = 300;
 const SPAWN_RADIUS_UNITS = PLANET_RADIUS_UNITS + SPAWN_OFFSET_UNITS;
 const SPAWN_DIR = new BABYLON.Vector3(0, 0, 1).normalize();
 
