@@ -75,6 +75,7 @@ export class ChunkedPlanetTerrain {
         this.onInitialBuildDone = null;
 
         this.lastCameraPosition = null;
+        this._lastFocusData = null;
         
         this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
 
@@ -266,7 +267,11 @@ export class ChunkedPlanetTerrain {
             nearEnough = distToFocus <= this.colliderEnableDistance;
 
             if (surfaceDist == null && distToFocus < Infinity) {
-                surfaceDist = this._surfaceDistanceForMesh(mesh, focusPos);
+                surfaceDist = this._surfaceDistanceForMesh(
+                    mesh,
+                    focusPos,
+                    this._lastFocusData?.focusDir ?? null
+                );
             }
         }
 
@@ -523,20 +528,13 @@ export class ChunkedPlanetTerrain {
     _isChunkAboveHorizon(node, focusPos) {
         if (!focusPos) return true;
 
-        const planetCenter = BABYLON.Vector3.Zero();
-        const toFocus = focusPos.subtract(planetCenter);
-
-        const lenSqFocus = toFocus.lengthSquared();
-        if (lenSqFocus < 1e-6) {
+        const lenFocus = focusPos.focusRadius ?? 0;
+        if (lenFocus <= this.radius || !Number.isFinite(lenFocus)) {
             return true;
         }
 
-        const lenFocus = Math.sqrt(lenSqFocus);
-        if (lenFocus <= this.radius) {
-            return true;
-        }
-        const invLenFocus = 1 / lenFocus;
-        const nFocus = toFocus.scale(invLenFocus);
+        const nFocus = focusPos.focusDir;
+        if (!nFocus) return true;
         const nSurface = this._getNodeSurfaceDirection(node);
 
         if (!nSurface) return true;
@@ -560,6 +558,19 @@ export class ChunkedPlanetTerrain {
         const clampedDot = Math.max(-1, Math.min(1, dot));
         const angle = Math.acos(clampedDot);
         return this.radius * angle;
+    }
+
+    _computeFocusData(focusPosition) {
+        if (!focusPosition) return null;
+        const focusRadius = focusPosition.length();
+        if (focusRadius < 1e-6 || !Number.isFinite(focusRadius)) return null;
+        const focusDir = focusPosition.scale(1 / focusRadius);
+        const surfaceFocusPos = focusDir.scale(this.radius);
+        return {
+            focusDir,
+            surfaceFocusPos,
+            focusRadius
+        };
     }
 
     _nodeProjectionRange(node, direction) {
@@ -818,9 +829,8 @@ export class ChunkedPlanetTerrain {
         }
 
         let surfaceDist = null;
-        if (this.lastCameraPosition) {
-            const focusDir = this.lastCameraPosition.clone();
-            if (focusDir.lengthSquared() > 0) focusDir.normalize();
+        if (this._lastFocusData?.focusDir) {
+            const focusDir = this._lastFocusData.focusDir;
             surfaceDist = this._surfaceDistanceForNode(focusDir, node);
             if (surfaceDist > this.lodRingRadii.rcull + 1) {
                 console.warn("LEAK build outside Rcull", {
@@ -849,8 +859,9 @@ export class ChunkedPlanetTerrain {
         this.buildQueue.push({ node, lodLevel, revisionKey, buildKey, force, surfaceDist });
     }
 
-    _updateQuadtree(focusPosition) {
+    _updateQuadtree(focusData) {
         if (!this.rootNode) return;
+        if (!focusData) return;
 
         const stats = {
             totalVisible: 0,
@@ -863,10 +874,8 @@ export class ChunkedPlanetTerrain {
             maxLodInUse: 0
         };
 
-        const focusDir = focusPosition.clone();
-        if (focusDir.lengthSquared() > 0) {
-            focusDir.normalize();
-        }
+        const focusDir = focusData.focusDir;
+        if (!focusDir) return;
 
         const maxSurfaceLodDist = this.lodRingRadii.r3;
         const maxDepth = maxSurfaceLodDist * 0.5;
@@ -889,7 +898,7 @@ export class ChunkedPlanetTerrain {
                 continue;
             }
 
-            if (!this._isChunkAboveHorizon(node, focusPosition)) {
+            if (!this._isChunkAboveHorizon(node, focusData)) {
                 node.isHorizonCulled = true;
                 stats.culledByHorizon++;
                 this._deactivateNode(node);
@@ -1038,7 +1047,7 @@ export class ChunkedPlanetTerrain {
                 this._recordDroppedBuild("depth");
                 continue;
             }
-            if (this.lastCameraPosition && !this._isChunkAboveHorizon(node, this.lastCameraPosition)) {
+            if (this._lastFocusData && !this._isChunkAboveHorizon(node, this._lastFocusData)) {
                 console.warn("LEAK build below horizon", { nodeId: node.id, lodLevel: job.lodLevel });
                 node.isHorizonCulled = true;
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
@@ -1047,9 +1056,8 @@ export class ChunkedPlanetTerrain {
                 this._recordDroppedBuild("horizon");
                 continue;
             }
-            if (this.lastCameraPosition) {
-                const focusDir = this.lastCameraPosition.clone();
-                if (focusDir.lengthSquared() > 0) focusDir.normalize();
+            if (this._lastFocusData?.focusDir) {
+                const focusDir = this._lastFocusData.focusDir;
                 const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
                 if (surfaceDist > this.lodRingRadii.rcull + 1) {
                     console.warn("LEAK build outside Rcull", { nodeId: node.id, lodLevel: job.lodLevel, surfaceDist });
@@ -1092,13 +1100,9 @@ export class ChunkedPlanetTerrain {
                 node.lastBuiltRevision = revisionKey;
 
                 this._registerActiveTerrainMesh(node.terrain?.mesh, node);
-                const focusPos = this.lastCameraPosition;
                 let surfaceDist = null;
-                if (focusPos) {
-                    const focusDir = focusPos.clone();
-                    if (focusDir.lengthSquared() > 0) {
-                        focusDir.normalize();
-                    }
+                if (this._lastFocusData?.focusDir) {
+                    const focusDir = this._lastFocusData.focusDir;
                     surfaceDist = this._surfaceDistanceForNode(focusDir, node);
                 }
                 this._tagColliderForTerrain(node.terrain, job.lodLevel, {
@@ -1262,10 +1266,21 @@ export class ChunkedPlanetTerrain {
                       focusPosition.y,
                       focusPosition.z
                   );
+            this._lastFocusData = this._computeFocusData(this.lastCameraPosition);
+        } else {
+            this._lastFocusData = null;
         }
 
-        if (this.lastCameraPosition) {
-            this._updateQuadtree(this.lastCameraPosition);
+        if (this._lastFocusData) {
+            this._updateQuadtree(this._lastFocusData);
+        }
+
+        if ((this.lastLodStats.totalVisible ?? 0) === 0) {
+            for (const mesh of this.activeTerrainMeshes) {
+                if (!mesh) continue;
+                mesh.setEnabled(false);
+                this._setMeshCollisionActive(mesh, false);
+            }
         }
 
         this._processBuildQueue();
@@ -1377,11 +1392,14 @@ export class ChunkedPlanetTerrain {
         this._collisionWarmup.timeSincePlayStartMs = timeSincePlayStartMs ?? null;
     }
 
-    _surfaceDistanceForMesh(mesh, focusPos) {
-        if (!focusPos) return Infinity;
-        const focusDir = focusPos.clone();
-        if (focusDir.lengthSquared() <= 0) return Infinity;
-        focusDir.normalize();
+    _surfaceDistanceForMesh(mesh, focusPos, focusDirOverride = null) {
+        const focusDir = focusDirOverride
+            ? focusDirOverride
+            : (focusPos ? focusPos.clone() : null);
+        if (!focusDir || focusDir.lengthSquared() <= 0) return Infinity;
+        if (!focusDirOverride) {
+            focusDir.normalize();
+        }
         const node = mesh?.metadata?.terrainNode;
         if (node) {
             return this._surfaceDistanceForNode(focusDir, node);
@@ -1420,6 +1438,7 @@ export class ChunkedPlanetTerrain {
         }
 
         const focusPos = this.lastCameraPosition;
+        const focusData = this._lastFocusData;
 
         const rcull = this.lodRingRadii.rcull;
         const maxDepth = this.lodRingRadii.r3 * 0.5;
@@ -1431,22 +1450,24 @@ export class ChunkedPlanetTerrain {
             return boundingCenter ?? mesh?.position ?? null;
         };
 
-        const surfaceDistanceForMesh = (mesh) => this._surfaceDistanceForMesh(mesh, focusPos);
+        const surfaceDistanceForMesh = (mesh) => this._surfaceDistanceForMesh(
+            mesh,
+            focusPos,
+            focusData?.focusDir ?? null
+        );
 
         const meshBelowHorizon = (mesh) => {
-            if (!focusPos) return false;
+            if (!focusData) return false;
             const node = mesh?.metadata?.terrainNode;
             if (node) {
-                return !this._isChunkAboveHorizon(node, focusPos);
+                return !this._isChunkAboveHorizon(node, focusData);
             }
             const center = getMeshCenter(mesh);
             if (!center) return false;
-            const toFocus = focusPos.clone();
-            const lenFocusSq = toFocus.lengthSquared();
-            if (lenFocusSq < 1e-6) return false;
-            const lenFocus = Math.sqrt(lenFocusSq);
-            if (lenFocus <= this.radius) return false;
-            toFocus.scaleInPlace(1 / lenFocus);
+            const lenFocus = focusData.focusRadius ?? 0;
+            if (lenFocus <= this.radius || !Number.isFinite(lenFocus)) return false;
+            const toFocus = focusData.focusDir;
+            if (!toFocus) return false;
             const nSurface = center.clone();
             if (nSurface.lengthSquared() < 1e-6) return false;
             nSurface.normalize();
@@ -1494,11 +1515,8 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        if (focusPos) {
-            const focusDir = focusPos.clone();
-            if (focusDir.lengthSquared() > 0) {
-                focusDir.normalize();
-            }
+        if (focusData?.focusDir) {
+            const focusDir = focusData.focusDir;
             for (const node of this.activeLeaves || []) {
                 if (!node) continue;
                 const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
@@ -1511,11 +1529,8 @@ export class ChunkedPlanetTerrain {
         let buildJobsQueuedOutsideRcull = 0;
         let buildJobsQueuedBelowHorizon = 0;
         let buildJobsQueuedTooDeep = 0;
-        if (focusPos) {
-            const focusDir = focusPos.clone();
-            if (focusDir.lengthSquared() > 0) {
-                focusDir.normalize();
-            }
+        if (focusData?.focusDir) {
+            const focusDir = focusData.focusDir;
             for (const job of this.buildQueue) {
                 const node = job?.node;
                 if (!node) continue;
@@ -1523,7 +1538,7 @@ export class ChunkedPlanetTerrain {
                 if (surfaceDist > rcull) {
                     buildJobsQueuedOutsideRcull++;
                 }
-                if (!this._isChunkAboveHorizon(node, focusPos)) {
+                if (!this._isChunkAboveHorizon(node, focusData)) {
                     buildJobsQueuedBelowHorizon++;
                 }
                 if (this._wouldBeDepthCulled(node, maxDepth)) {
@@ -1557,9 +1572,24 @@ export class ChunkedPlanetTerrain {
             if (sample.reason === "staleResult") buildJobsDroppedStaleResult++;
         }
 
+        const dotSamples = [];
+        if (focusData?.focusDir) {
+            for (const node of (this.activeLeaves || []).slice(0, 6)) {
+                const nodeDir = this._getNodeSurfaceDirection(node);
+                if (!nodeDir) continue;
+                dotSamples.push(BABYLON.Vector3.Dot(focusData.focusDir, nodeDir));
+            }
+        }
+        const dotSampleMin = dotSamples.length ? Math.min(...dotSamples) : null;
+        const dotSampleMax = dotSamples.length ? Math.max(...dotSamples) : null;
+
         return {
             enabledMeshes: enabledMeshes.length,
             enabledCollidableMeshes: enabledCollidable,
+            focusRadius: focusData?.focusRadius ?? null,
+            focusSurfaceRadius: focusData?.surfaceFocusPos?.length() ?? null,
+            dotSampleMin,
+            dotSampleMax,
             collisionsWarmupEnabled: this._collisionWarmup?.enabled ?? false,
             collidersForcedCount: this._collisionWarmup?.forcedCount ?? 0,
             timeSincePlayStart: this._collisionWarmup?.timeSincePlayStartMs ?? null,
