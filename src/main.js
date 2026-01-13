@@ -26,7 +26,7 @@ const engine = new BABYLON.Engine(canvas, true);
 
 // Planet radius in world units (meters, conceptually)
 const PLANET_RADIUS_UNITS = 32400;
-const SPAWN_OFFSET_UNITS = 300;
+const SPAWN_OFFSET_UNITS = 600;
 const SPAWN_RADIUS_UNITS = PLANET_RADIUS_UNITS + SPAWN_OFFSET_UNITS;
 const SPAWN_DIR = new BABYLON.Vector3(0, 0, 1).normalize();
 
@@ -36,6 +36,11 @@ const GameState = {
     SETTINGS: "SETTINGS",
     LOADING: "LOADING",
     PLAYING: "PLAYING"
+};
+
+const LoadingStage = {
+    STAGE1: "LOADING_STAGE1",
+    STAGE2: "LOADING_STAGE2"
 };
 
 let gameState = GameState.MENU;
@@ -413,6 +418,11 @@ const LOADING_SPAWN_CHECK_INTERVAL_SECONDS = 0.5;
 const LOADING_SPAWN_DEBUG_INTERVAL_SECONDS = 1;
 const LOADING_PROGRESS_CAP = 0.9;
 const LOADING_STREAMING_MESSAGE_AFTER_SECONDS = 6;
+const LOADING_STAGE2_READY_SECONDS = 2;
+const LOADING_STAGE2_MIN_RENDERSET = 12;
+const LOADING_STAGE2_MIN_ENABLED = 8;
+const LOADING_STAGE2_MIN_COLLIDABLE = 2;
+const LOADING_STAGE2_MAX_QUEUE = 5;
 const COLLISION_WARMUP_MS = 8000;
 
 // Third-person camera distance (scaled to planet)
@@ -708,7 +718,9 @@ function beginLoadingGate() {
         spawnCheckTimer: 0,
         spawnDebugTimer: 0,
         forceSpawnPatchDone: false,
-        streamingNoticeShown: false
+        streamingNoticeShown: false,
+        stage: LoadingStage.STAGE1,
+        stage2ReadySeconds: 0
     };
 
     if (loadingOverlay?.show) {
@@ -725,12 +737,62 @@ function setStreamingFocusToSpawn() {
     useStreamingFocus = true;
 }
 
+function getSurfaceFocusPosition(pos) {
+    if (!pos) return null;
+    const dir = pos.clone();
+    if (dir.lengthSquared() < 1e-6) return null;
+    dir.normalize();
+    return dir.scale(PLANET_RADIUS_UNITS);
+}
+
+function setStreamingFocusToPlayerSurface() {
+    if (!player?.mesh) return false;
+    const focusPos = getSurfaceFocusPosition(player.mesh.position);
+    if (!focusPos) return false;
+    streamingFocus.globalPosition.copyFrom(focusPos);
+    useStreamingFocus = true;
+    return true;
+}
+
 function freezePlayerForLoading() {
     if (!player) return;
+    if (player.setHoldMode) player.setHoldMode(true);
     if (player.setInputEnabled) player.setInputEnabled(false);
     if (player.velocity?.set) {
         player.velocity.set(0, 0, 0);
     }
+}
+
+function computeStage2Readiness(stats) {
+    if (!stats) {
+        return { ready: false, score: 0 };
+    }
+
+    const renderScore = Math.min(
+        1,
+        (stats.renderSetCount ?? 0) / LOADING_STAGE2_MIN_RENDERSET
+    );
+    const enabledScore = Math.min(
+        1,
+        (stats.enabledMeshes ?? 0) / LOADING_STAGE2_MIN_ENABLED
+    );
+    const collidableScore = Math.min(
+        1,
+        (stats.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
+    );
+    const queueLength = stats.buildQueueLength ?? Number.POSITIVE_INFINITY;
+    const queueScore = queueLength <= LOADING_STAGE2_MAX_QUEUE
+        ? 1
+        : Math.min(1, LOADING_STAGE2_MAX_QUEUE / Math.max(queueLength, 1));
+
+    const score = (renderScore + enabledScore + collidableScore + queueScore) / 4;
+    const ready =
+        renderScore >= 1 &&
+        enabledScore >= 1 &&
+        collidableScore >= 1 &&
+        queueLength <= LOADING_STAGE2_MAX_QUEUE;
+
+    return { ready, score };
 }
 
 function spawnAreaReady() {
@@ -778,24 +840,24 @@ function getSpawnRayDiagnostics() {
     };
 }
 
-function trySpawnPlayer(diagnostics = null) {
-    if (playerSpawned || !terrain) return;
-    const ready = diagnostics ? diagnostics.ready : spawnAreaReady();
-    if (!ready) return;
+function spawnPlayerForStage2() {
+    if (!terrain) return;
 
-    console.log("[Spawn] Terrain ready under spawn focus. Spawning player.");
-
-    player = new PlanetPlayer(scene, terrain, {
-        planetRadius: PLANET_RADIUS_UNITS,
-        walkSpeed: 2.2,
-        runSpeed: 11,
-        height: 1.8,
-        radius: 0.35,
-        jumpGraceSeconds: 40,
-        inputEnabled: false,
-        deferSpawn: true,
-        spawnDirection: SPAWN_DIR
-    });
+    if (!player) {
+        player = new PlanetPlayer(scene, terrain, {
+            planetRadius: PLANET_RADIUS_UNITS,
+            walkSpeed: 2.2,
+            runSpeed: 11,
+            height: 1.8,
+            radius: 0.35,
+            jumpGraceSeconds: 40,
+            inputEnabled: false,
+            gravityEnabled: false,
+            holdMode: true,
+            deferSpawn: true,
+            spawnDirection: SPAWN_DIR
+        });
+    }
 
     const spawnPos = SPAWN_DIR.scale(SPAWN_RADIUS_UNITS);
     if (player.mesh?.position?.copyFrom) {
@@ -804,22 +866,13 @@ function trySpawnPlayer(diagnostics = null) {
         player.mesh.position = spawnPos.clone();
     }
 
+    if (player.setHoldMode) player.setHoldMode(true);
     if (player.velocity?.set) player.velocity.set(0, 0, 0);
     if (player.lastSafePosition) player.lastSafePosition = spawnPos.clone();
     if (player._previousPosition?.copyFrom) player._previousPosition.copyFrom(spawnPos);
 
     setupPlayerAndSystems();
-
-    if (loadingOverlay) {
-        loadingOverlay.setProgress(1);
-        loadingOverlay.setMessage("Loading world… 100%");
-        loadingOverlay.setStreamingMessage("");
-        loadingOverlay.hide();
-    }
-
-    enterGameplayFromLoading();
-    loadingGate = null;
-    useStreamingFocus = false;
+    setStreamingFocusToPlayerSurface();
     playerSpawned = true;
 }
 
@@ -867,6 +920,8 @@ function forceSpawnNow() {
     } else if (player) {
         player.flyMode = true;
     }
+    if (player?.setHoldMode) player.setHoldMode(false);
+    if (player?.setGravityEnabled) player.setGravityEnabled(true);
     forceSpawnSafety = { active: true };
 
     if (domHud?.setInteractionPrompt) {
@@ -958,7 +1013,34 @@ function updateLoadingGate(dtSeconds) {
     loadingGate.elapsed += dtSeconds;
     const terrainProgress = terrain?.getInitialBuildProgress?.() ?? 0;
     const rampProgress = Math.min(loadingGate.elapsed / LOADING_PROGRESS_RAMP_SECONDS, 1);
-    const progress = Math.min(LOADING_PROGRESS_CAP, Math.max(terrainProgress, rampProgress) * LOADING_PROGRESS_CAP);
+    let progress = Math.min(
+        LOADING_PROGRESS_CAP,
+        Math.max(terrainProgress, rampProgress) * LOADING_PROGRESS_CAP
+    );
+
+    if (loadingGate.stage === LoadingStage.STAGE1 && progress >= LOADING_PROGRESS_CAP) {
+        loadingGate.stage = LoadingStage.STAGE2;
+        loadingGate.stage2ReadySeconds = 0;
+        spawnPlayerForStage2();
+        setStreamingFocusToPlayerSurface();
+    }
+
+    if (loadingGate.stage === LoadingStage.STAGE2) {
+        const stats = terrain?.getStreamingStats?.() ?? null;
+        const readiness = computeStage2Readiness(stats);
+        if (readiness.ready) {
+            loadingGate.stage2ReadySeconds += dtSeconds;
+        } else {
+            loadingGate.stage2ReadySeconds = 0;
+        }
+
+        const stage2Progress = LOADING_PROGRESS_CAP + (1 - LOADING_PROGRESS_CAP) * readiness.score;
+        progress = Math.max(progress, stage2Progress);
+
+        if (loadingGate.stage2ReadySeconds >= LOADING_STAGE2_READY_SECONDS) {
+            progress = 1;
+        }
+    }
 
     if (loadingOverlay) {
         loadingOverlay.setProgress(progress);
@@ -967,12 +1049,27 @@ function updateLoadingGate(dtSeconds) {
     }
 
     if (loadingGate.elapsed >= LOADING_STREAMING_MESSAGE_AFTER_SECONDS && loadingOverlay) {
-        loadingOverlay.setStreamingMessage("Streaming terrain…");
+        const message = loadingGate.stage === LoadingStage.STAGE2
+            ? "Finalizing spawn area…"
+            : "Streaming terrain…";
+        loadingOverlay.setStreamingMessage(message);
         loadingGate.streamingNoticeShown = true;
     }
 
     loadingGate.spawnCheckTimer += dtSeconds;
     loadingGate.spawnDebugTimer += dtSeconds;
+
+    if (loadingGate.stage === LoadingStage.STAGE2 && progress >= 1) {
+        if (loadingOverlay) {
+            loadingOverlay.setProgress(1);
+            loadingOverlay.setMessage("Loading world… 100%");
+            loadingOverlay.setStreamingMessage("");
+            loadingOverlay.hide();
+        }
+        enterGameplayFromLoading();
+        loadingGate = null;
+        useStreamingFocus = false;
+    }
 
     const shouldCheckSpawn = loadingGate.spawnCheckTimer >= LOADING_SPAWN_CHECK_INTERVAL_SECONDS;
     const shouldLogDebug = loadingGate.spawnDebugTimer >= LOADING_SPAWN_DEBUG_INTERVAL_SECONDS;
@@ -1024,10 +1121,6 @@ function updateLoadingGate(dtSeconds) {
                 scene.meshes.filter((m) => m.checkCollisions).map((m) => m.name)
             );
         }
-    }
-
-    if (shouldCheckSpawn && diagnostics.ready) {
-        trySpawnPlayer(diagnostics);
     }
 }
 
@@ -1433,6 +1526,8 @@ function enterGameplayFromLoading() {
     if (gameRuntime) gameRuntime.setEnabled(true);
 
     if (player && player.setFrozen) player.setFrozen(false);
+    if (player && player.setHoldMode) player.setHoldMode(false);
+    if (player && player.setGravityEnabled) player.setGravityEnabled(true);
     if (player && player.setInputEnabled) player.setInputEnabled(true);
 
     if (orbitCamera && player?.mesh) {
@@ -1477,14 +1572,25 @@ engine.runRenderLoop(() => {
 
     // Focus position for LOD & hemisphere
     let focusPos = null;
-    if (useStreamingFocus) {
-        focusPos = streamingFocus.globalPosition;
-    } else if (cameraCollider) {
-        focusPos = cameraCollider.position;
-    } else if (player && player.mesh) {
-        focusPos = player.mesh.position;
-    } else if (scene.activeCamera) {
-        focusPos = scene.activeCamera.position;
+    if (loadingGate?.stage === LoadingStage.STAGE2 && player?.mesh) {
+        const surfaceFocus = getSurfaceFocusPosition(player.mesh.position);
+        if (surfaceFocus) {
+            streamingFocus.globalPosition.copyFrom(surfaceFocus);
+            useStreamingFocus = true;
+            focusPos = streamingFocus.globalPosition;
+        }
+    }
+
+    if (!focusPos) {
+        if (useStreamingFocus) {
+            focusPos = streamingFocus.globalPosition;
+        } else if (cameraCollider) {
+            focusPos = cameraCollider.position;
+        } else if (player && player.mesh) {
+            focusPos = player.mesh.position;
+        } else if (scene.activeCamera) {
+            focusPos = scene.activeCamera.position;
+        }
     }
 
     if (focusPos) {
