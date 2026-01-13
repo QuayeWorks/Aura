@@ -447,7 +447,7 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        const requiredLod = Math.min(0, this.lodLevel); // require at least LOD 0 (or max available)
+        const requiredLod = Math.min(4, this.lodLevel); // require at least LOD 4 (or max available)
         if (nearLod < requiredLod) {
             // We've finished the first batch, but detail isn't high enough yet.
             // More rebuild jobs will call _onChunkBuilt() again as LOD increases.
@@ -814,9 +814,10 @@ export class ChunkedPlanetTerrain {
         if (!node) return;
 
         const force = !!options.force;
+        const ignoreCulling = !!options.ignoreCulling;
         const revisionKey = `${this.carveRevision}:${this.biomeRevision}`;
 
-        if (node.isCulled || node.isDepthCulled || node.isHorizonCulled) {
+        if (!ignoreCulling && (node.isCulled || node.isDepthCulled || node.isHorizonCulled)) {
             console.warn("LEAK build scheduled for culled node", {
                 nodeId: node.id,
                 lodLevel,
@@ -829,7 +830,7 @@ export class ChunkedPlanetTerrain {
         }
 
         let surfaceDist = null;
-        if (this._lastFocusData?.focusDir) {
+        if (!ignoreCulling && this._lastFocusData?.focusDir) {
             const focusDir = this._lastFocusData.focusDir;
             surfaceDist = this._surfaceDistanceForNode(focusDir, node);
             if (surfaceDist > this.lodRingRadii.rcull + 1) {
@@ -856,7 +857,7 @@ export class ChunkedPlanetTerrain {
         node._wantedBuildKey = buildKey;
 
         this.queuedJobKeys.add(key);
-        this.buildQueue.push({ node, lodLevel, revisionKey, buildKey, force, surfaceDist });
+        this.buildQueue.push({ node, lodLevel, revisionKey, buildKey, force, surfaceDist, ignoreCulling });
     }
 
     _updateQuadtree(focusData) {
@@ -1032,14 +1033,14 @@ export class ChunkedPlanetTerrain {
             if (!job || !job.node) continue;
 
             const node = job.node;
-            if (node.isCulled || node.isDepthCulled || node.isHorizonCulled) {
+            if (!job.ignoreCulling && (node.isCulled || node.isDepthCulled || node.isHorizonCulled)) {
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
                 const key = this._jobKey(node, job.lodLevel, revisionKey);
                 this.queuedJobKeys.delete(key);
                 this._recordDroppedBuild("culled");
                 continue;
             }
-            if (!this._withinDepthCap(node, maxDepth)) {
+            if (!job.ignoreCulling && !this._withinDepthCap(node, maxDepth)) {
                 console.warn("LEAK build outside depth cap", { nodeId: node.id, lodLevel: job.lodLevel });
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
                 const key = this._jobKey(node, job.lodLevel, revisionKey);
@@ -1047,7 +1048,7 @@ export class ChunkedPlanetTerrain {
                 this._recordDroppedBuild("depth");
                 continue;
             }
-            if (this._lastFocusData && !this._isChunkAboveHorizon(node, this._lastFocusData)) {
+            if (!job.ignoreCulling && this._lastFocusData && !this._isChunkAboveHorizon(node, this._lastFocusData)) {
                 console.warn("LEAK build below horizon", { nodeId: node.id, lodLevel: job.lodLevel });
                 node.isHorizonCulled = true;
                 const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
@@ -1056,7 +1057,7 @@ export class ChunkedPlanetTerrain {
                 this._recordDroppedBuild("horizon");
                 continue;
             }
-            if (this._lastFocusData?.focusDir) {
+            if (!job.ignoreCulling && this._lastFocusData?.focusDir) {
                 const focusDir = this._lastFocusData.focusDir;
                 const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
                 if (surfaceDist > this.lodRingRadii.rcull + 1) {
@@ -1252,7 +1253,7 @@ export class ChunkedPlanetTerrain {
         this._initializeQuadtree();
     }
 
-    updateStreaming(focusPosition) {
+    updateAtPosition(focusPosition) {
         this.lodUpdateCounter++;
         this._streamRevision = (this._streamRevision ?? 0) + 1;
         if (this._collisionWarmup) {
@@ -1262,10 +1263,10 @@ export class ChunkedPlanetTerrain {
             this.lastCameraPosition = focusPosition.clone
                 ? focusPosition.clone()
                 : new BABYLON.Vector3(
-                      focusPosition.x,
-                      focusPosition.y,
-                      focusPosition.z
-                  );
+                    focusPosition.x,
+                    focusPosition.y,
+                    focusPosition.z
+                );
             this._lastFocusData = this._computeFocusData(this.lastCameraPosition);
         } else {
             this._lastFocusData = null;
@@ -1284,6 +1285,10 @@ export class ChunkedPlanetTerrain {
         }
 
         this._processBuildQueue();
+    }
+
+    updateStreaming(focusPosition) {
+        this.updateAtPosition(focusPosition);
     }
 
     carveSphere(worldPos, radius) {
@@ -1365,6 +1370,40 @@ export class ChunkedPlanetTerrain {
         for (const leaf of this.activeLeaves) {
             this._ensureTerrainForNode(leaf);
             this._scheduleNodeRebuild(leaf, leaf.level, { force: true });
+        }
+
+        if (!this.initialBuildDone && this.buildQueue.length > 0) {
+            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+            if (pendingJobs > this.initialBuildTotal) {
+                this.initialBuildTotal = pendingJobs;
+            }
+        }
+    }
+
+    _collectLeavesAtLevel(targetLevel, node, out) {
+        if (!node) return;
+        if (node.level === targetLevel) {
+            out.push(node);
+            return;
+        }
+        if (node.level < targetLevel) {
+            if (node.isLeaf()) node.subdivide();
+            for (const child of node.children) {
+                this._collectLeavesAtLevel(targetLevel, child, out);
+            }
+        }
+    }
+
+    buildGlobalCoarseLod1() {
+        if (!this.rootNode) return;
+        const leaves = [];
+        this._collectLeavesAtLevel(1, this.rootNode, leaves);
+        for (const node of leaves) {
+            node.isCulled = false;
+            node.isDepthCulled = false;
+            node.isHorizonCulled = false;
+            this._ensureTerrainForNode(node);
+            this._scheduleNodeRebuild(node, 1, { force: true, ignoreCulling: true });
         }
 
         if (!this.initialBuildDone && this.buildQueue.length > 0) {

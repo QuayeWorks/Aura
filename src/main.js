@@ -97,6 +97,7 @@ let lastStreamingHighLodCount = null;
 let lastStreamingFocusSamplePos = null;
 let forceSpawnToastTimer = null;
 let forceSpawnSafety = { active: false };
+let focusLogTimer = 0;
 
 function applyDebugFlags(state = {}) {
     const flags = state.flags ?? DebugSettings.getAllFlags();
@@ -423,6 +424,7 @@ const LOADING_STAGE2_MIN_RENDERSET = 12;
 const LOADING_STAGE2_MIN_ENABLED = 8;
 const LOADING_STAGE2_MIN_COLLIDABLE = 2;
 const LOADING_STAGE2_MAX_QUEUE = 5;
+const LOADING_STAGE2_FALLBACK_SECONDS = 15;
 const COLLISION_WARMUP_MS = 8000;
 
 // Third-person camera distance (scaled to planet)
@@ -438,6 +440,8 @@ const CAMERA_RECOVERY_STEP_SIZE = CAMERA_COLLIDER_RADIUS * 0.65;
 
 function createScene() {
     scene = new BABYLON.Scene(engine);
+    window.__scene = scene;
+    window.__engine = engine;
 
     // Start with a dark, night-like background for the main menu
     applyMenuVisuals();
@@ -720,7 +724,9 @@ function beginLoadingGate() {
         forceSpawnPatchDone: false,
         streamingNoticeShown: false,
         stage: LoadingStage.STAGE1,
-        stage2ReadySeconds: 0
+        stage2ReadySeconds: 0,
+        stage2StartElapsed: 0,
+        stage2FallbackTriggered: false
     };
 
     if (loadingOverlay?.show) {
@@ -732,22 +738,21 @@ function beginLoadingGate() {
 }
 
 function setStreamingFocusToSpawn() {
-    streamingFocus.globalPosition.copyFrom(SPAWN_DIR);
-    streamingFocus.globalPosition.scaleInPlace(SPAWN_RADIUS_UNITS);
+    const surfacePos = surfaceFocus(SPAWN_DIR, PLANET_RADIUS_UNITS);
+    streamingFocus.globalPosition.copyFrom(surfacePos);
     useStreamingFocus = true;
 }
 
-function getSurfaceFocusPosition(pos) {
+function surfaceFocus(pos, planetRadius) {
     if (!pos) return null;
-    const dir = pos.clone();
-    if (dir.lengthSquared() < 1e-6) return null;
-    dir.normalize();
-    return dir.scale(PLANET_RADIUS_UNITS);
+    const v = pos.clone ? pos.clone() : new BABYLON.Vector3(pos.x, pos.y, pos.z);
+    if (v.lengthSquared() < 1e-6) return new BABYLON.Vector3(0, 0, planetRadius);
+    return v.normalize().scale(planetRadius);
 }
 
 function setStreamingFocusToPlayerSurface() {
     if (!player?.mesh) return false;
-    const focusPos = getSurfaceFocusPosition(player.mesh.position);
+    const focusPos = surfaceFocus(player.mesh.position, PLANET_RADIUS_UNITS);
     if (!focusPos) return false;
     streamingFocus.globalPosition.copyFrom(focusPos);
     useStreamingFocus = true;
@@ -776,10 +781,14 @@ function computeStage2Readiness(stats) {
         1,
         (stats.enabledMeshes ?? 0) / LOADING_STAGE2_MIN_ENABLED
     );
-    const collidableScore = Math.min(
-        1,
-        (stats.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
-    );
+    const knownCollisions = terrain?.getKnownCollisionMeshes?.()?.length ?? 0;
+    const requireColliders = knownCollisions > 0;
+    const collidableScore = requireColliders
+        ? Math.min(
+            1,
+            (stats.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
+        )
+        : 1;
     const queueLength = stats.buildQueueLength ?? Number.POSITIVE_INFINITY;
     const queueScore = queueLength <= LOADING_STAGE2_MAX_QUEUE
         ? 1
@@ -857,6 +866,7 @@ function spawnPlayerForStage2() {
             deferSpawn: true,
             spawnDirection: SPAWN_DIR
         });
+        window.__player = player;
     }
 
     const spawnPos = SPAWN_DIR.scale(SPAWN_RADIUS_UNITS);
@@ -899,6 +909,7 @@ function forceSpawnNow() {
             deferSpawn: true,
             spawnDirection: SPAWN_DIR
         });
+        window.__player = player;
     }
 
     const spawnDir = SPAWN_DIR.clone().normalize();
@@ -1021,6 +1032,7 @@ function updateLoadingGate(dtSeconds) {
     if (loadingGate.stage === LoadingStage.STAGE1 && progress >= LOADING_PROGRESS_CAP) {
         loadingGate.stage = LoadingStage.STAGE2;
         loadingGate.stage2ReadySeconds = 0;
+        loadingGate.stage2StartElapsed = loadingGate.elapsed;
         spawnPlayerForStage2();
         setStreamingFocusToPlayerSurface();
     }
@@ -1036,6 +1048,15 @@ function updateLoadingGate(dtSeconds) {
 
         const stage2Progress = LOADING_PROGRESS_CAP + (1 - LOADING_PROGRESS_CAP) * readiness.score;
         progress = Math.max(progress, stage2Progress);
+
+        if (
+            !loadingGate.stage2FallbackTriggered
+            && loadingGate.elapsed - (loadingGate.stage2StartElapsed ?? loadingGate.elapsed) >= LOADING_STAGE2_FALLBACK_SECONDS
+        ) {
+            console.warn("[LOADING] Stage 2 timeout; building global LOD1 fallback.");
+            terrain?.buildGlobalCoarseLod1?.();
+            loadingGate.stage2FallbackTriggered = true;
+        }
 
         if (loadingGate.stage2ReadySeconds >= LOADING_STAGE2_READY_SECONDS) {
             progress = 1;
@@ -1431,10 +1452,14 @@ function startGame() {
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
         });
+        window.__terrain = terrain;
 
         terrain.setOnInitialBuildDone(() => {
             console.log("Initial planet build complete.");
         });
+    }
+    if (terrain) {
+        window.__terrain = terrain;
     }
 
     if (terrain?.forceSpawnPatch && loadingGate && !loadingGate.forceSpawnPatchDone) {
@@ -1445,6 +1470,7 @@ function startGame() {
 
 function setupPlayerAndSystems() {
     if (!terrain || !player) return;
+    window.__player = player;
 
     if (mainCamera && player?.mesh) {
         player.attachCamera(mainCamera);
@@ -1572,32 +1598,27 @@ engine.runRenderLoop(() => {
 
     // Focus position for LOD & hemisphere
     let focusPos = null;
-    if (loadingGate?.stage === LoadingStage.STAGE2 && player?.mesh) {
-        const surfaceFocus = getSurfaceFocusPosition(player.mesh.position);
-        if (surfaceFocus) {
-            streamingFocus.globalPosition.copyFrom(surfaceFocus);
-            useStreamingFocus = true;
-            focusPos = streamingFocus.globalPosition;
-        }
-    }
-
-    if (!focusPos) {
-        if (useStreamingFocus) {
-            focusPos = streamingFocus.globalPosition;
-        } else if (cameraCollider) {
-            focusPos = cameraCollider.position;
-        } else if (player && player.mesh) {
-            focusPos = player.mesh.position;
-        } else if (scene.activeCamera) {
-            focusPos = scene.activeCamera.position;
-        }
+    let focusMode = "camera";
+    if (gameState === GameState.LOADING && player?.mesh) {
+        focusPos = surfaceFocus(player.mesh.position, PLANET_RADIUS_UNITS);
+        focusMode = "loading-player";
+    } else if (useStreamingFocus) {
+        focusPos = surfaceFocus(streamingFocus.globalPosition, PLANET_RADIUS_UNITS);
+        focusMode = "loading-focus";
+    } else if (gameState === GameState.PLAYING && player?.mesh) {
+        focusPos = surfaceFocus(player.mesh.position, PLANET_RADIUS_UNITS);
+        focusMode = "player";
+    } else if (scene.activeCamera) {
+        const camPos = scene.activeCamera.globalPosition || scene.activeCamera.position;
+        focusPos = surfaceFocus(camPos, PLANET_RADIUS_UNITS);
+        focusMode = "camera";
     }
 
     if (focusPos) {
         lastStreamingFocusPos = focusPos.clone
             ? focusPos.clone()
             : new BABYLON.Vector3(focusPos.x, focusPos.y, focusPos.z);
-        lastStreamingFocusMode = useStreamingFocus ? "streamingFocus" : "activeCamera";
+        lastStreamingFocusMode = focusMode;
     }
 
     const { warmupActive, timeSincePlayStartMs } = resolveCollisionWarmupState(now);
@@ -1609,7 +1630,7 @@ engine.runRenderLoop(() => {
                 timeSincePlayStartMs
             });
         }
-        terrain.updateStreaming(focusPos);
+        terrain.updateAtPosition(focusPos);
     }
 
     if (gameState === GameState.LOADING) {
@@ -1618,6 +1639,19 @@ engine.runRenderLoop(() => {
 
     if (focusPos) {
         updateStreamingDebugMeshes(focusPos);
+        focusLogTimer += simDtSeconds;
+        if (focusLogTimer >= 1) {
+            focusLogTimer = 0;
+            console.log("[FOCUS]", {
+                mode: focusMode,
+                focusR: focusPos.length(),
+                focus: {
+                    x: focusPos.x.toFixed(1),
+                    y: focusPos.y.toFixed(1),
+                    z: focusPos.z.toFixed(1)
+                }
+            });
+        }
     }
 
 
