@@ -73,6 +73,8 @@ this.groundFriction = options.groundFriction ?? 8;
 
         // Input can be disabled while in menus so gameplay controls don't bleed through.
         this.inputEnabled = options.inputEnabled ?? true;
+        this.gravityEnabled = options.gravityEnabled ?? true;
+        this.holdMode = options.holdMode ?? false;
 
         // Deterministic spawn direction (defaults to +Z). We then raycast to the real surface.
         this.spawnDirection = (options.spawnDirection
@@ -161,6 +163,23 @@ this.groundFriction = options.groundFriction ?? 8;
         if (this.isFrozen) {
             this.velocity.set(0, 0, 0);
             this.inputJumpRequested = false;
+        }
+    }
+
+    setHoldMode(enabled) {
+        this.holdMode = !!enabled;
+        if (this.holdMode) {
+            this.setInputEnabled(false);
+            this.setGravityEnabled(false);
+            this.velocity.set(0, 0, 0);
+            this.inputJumpRequested = false;
+        }
+    }
+
+    setGravityEnabled(isEnabled) {
+        this.gravityEnabled = !!isEnabled;
+        if (!this.gravityEnabled) {
+            this.velocity.set(0, 0, 0);
         }
     }
 
@@ -253,6 +272,11 @@ this.groundFriction = options.groundFriction ?? 8;
             return;
         }
 
+        if (this.holdMode) {
+            this.velocity.set(0, 0, 0);
+            return;
+        }
+
         // Remember starting point for tunnel detection
         this._previousPosition.copyFrom(this.mesh.position);
 
@@ -310,7 +334,9 @@ this.groundFriction = options.groundFriction ?? 8;
         // ---------------------------
         // 1) Gravity
         // ---------------------------
-        this.velocity.addInPlace(down.scale(this.gravity * dtSeconds));
+        if (this.gravityEnabled) {
+            this.velocity.addInPlace(down.scale(this.gravity * dtSeconds));
+        }
 
         // ---------------------------
         // 2) Movement input
