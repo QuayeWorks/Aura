@@ -20,6 +20,7 @@ import { createAbilityTreePanel } from "./ui/AbilityTreePanel.js";
 import { createLoadingOverlay as createDomLoadingOverlay } from "./ui/LoadingOverlay.js";
 import { DebugMenu } from "./ui/DebugMenu.js";
 import { DebugSettings } from "./systems/DebugSettings.js";
+import { PlanetWorld } from "./world/PlanetWorld.js";
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
@@ -54,6 +55,7 @@ let gameRuntime = null;
 let compassHud = null;
 let devPanel = null;
 let audioSystem = null;
+let planetWorld = new PlanetWorld({ radius: PLANET_RADIUS_UNITS, gravityStrength: 1 });
 const saveSystem = new SaveSystem();
 let pendingLoadSnapshot = null;
 let loadingGate = null;
@@ -354,7 +356,7 @@ function startStreamingStatsInterval() {
 
         const streamingGoNoGo = {
             maxLeafBudget: STREAMING_MAX_LEAF_BUDGET,
-            staleDropsLastSecond: stats.buildJobsDroppedStaleResult ?? 0,
+            staleDropsLastSecond: (stats.buildJobsDroppedStaleResult ?? 0) + (stats.buildJobsDroppedStaleJob ?? 0),
             go:
                 (stats.enabledOutsideRcull ?? 0) === 0
                 && (stats.collidableOutsideRcull ?? 0) === 0
@@ -394,7 +396,8 @@ function startStreamingStatsInterval() {
 function formatStreamSummary(stats) {
     const goStatus = stats.streamingGoNoGo?.go ? "GO" : "NO-GO";
     const maxLeafBudget = stats.streamingGoNoGo?.maxLeafBudget ?? STREAMING_MAX_LEAF_BUDGET;
-    const staleDrops = stats.streamingGoNoGo?.staleDropsLastSecond ?? stats.buildJobsDroppedStaleResult ?? 0;
+    const staleDrops = stats.streamingGoNoGo?.staleDropsLastSecond
+        ?? ((stats.buildJobsDroppedStaleResult ?? 0) + (stats.buildJobsDroppedStaleJob ?? 0));
     return [
         "[STREAM SUMMARY]",
         `Status: ${goStatus}`,
@@ -404,7 +407,7 @@ function formatStreamSummary(stats) {
         `enabledTooDeep: ${stats.enabledTooDeep ?? 0}`,
         `totalLeafVisible: ${stats.totalLeafVisible ?? 0}`,
         `maxLeafBudget: ${maxLeafBudget}`,
-        `staleResultDropsLastSecond: ${staleDrops}`
+        `staleDropsLastSecond: ${staleDrops}`
     ].join("\n");
 }
 
@@ -745,9 +748,23 @@ function setStreamingFocusToSpawn() {
 
 function surfaceFocus(pos, planetRadius) {
     if (!pos) return null;
+    if (planetWorld) {
+        planetWorld.setRadius(planetRadius);
+        return planetWorld.getSurfacePoint(pos);
+    }
     const v = pos.clone ? pos.clone() : new BABYLON.Vector3(pos.x, pos.y, pos.z);
     if (v.lengthSquared() < 1e-6) return new BABYLON.Vector3(0, 0, planetRadius);
     return v.normalize().scale(planetRadius);
+}
+
+function getWorldUp(pos) {
+    if (!pos) return new BABYLON.Vector3(0, 0, 1);
+    if (planetWorld) {
+        return planetWorld.getUpVector(pos);
+    }
+    const v = pos.clone ? pos.clone() : new BABYLON.Vector3(pos.x, pos.y, pos.z);
+    if (v.lengthSquared() < 1e-6) return new BABYLON.Vector3(0, 0, 1);
+    return v.normalize();
 }
 
 function setStreamingFocusToPlayerSurface() {
@@ -781,14 +798,10 @@ function computeStage2Readiness(stats) {
         1,
         (stats.enabledMeshes ?? 0) / LOADING_STAGE2_MIN_ENABLED
     );
-    const knownCollisions = terrain?.getKnownCollisionMeshes?.()?.length ?? 0;
-    const requireColliders = knownCollisions > 0;
-    const collidableScore = requireColliders
-        ? Math.min(
-            1,
-            (stats.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
-        )
-        : 1;
+    const collidableScore = Math.min(
+        1,
+        (stats.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
+    );
     const queueLength = stats.buildQueueLength ?? Number.POSITIVE_INFINITY;
     const queueScore = queueLength <= LOADING_STAGE2_MAX_QUEUE
         ? 1
@@ -855,6 +868,7 @@ function spawnPlayerForStage2() {
     if (!player) {
         player = new PlanetPlayer(scene, terrain, {
             planetRadius: PLANET_RADIUS_UNITS,
+            world: planetWorld,
             walkSpeed: 2.2,
             runSpeed: 11,
             height: 1.8,
@@ -900,6 +914,7 @@ function forceSpawnNow() {
     if (!player) {
         player = new PlanetPlayer(scene, terrain, {
             planetRadius: PLANET_RADIUS_UNITS,
+            world: planetWorld,
             walkSpeed: 2.2,
             runSpeed: 11,
             height: 1.8,
@@ -932,7 +947,7 @@ function forceSpawnNow() {
         player.flyMode = true;
     }
     if (player?.setHoldMode) player.setHoldMode(false);
-    if (player?.setGravityEnabled) player.setGravityEnabled(true);
+    if (player?.setGravityEnabled) player.setGravityEnabled(false);
     forceSpawnSafety = { active: true };
 
     if (domHud?.setInteractionPrompt) {
@@ -1006,6 +1021,11 @@ function updateForceSpawnSafety() {
             player.setFlyMode(false, { syncDebug: false });
         } else {
             player.flyMode = false;
+        }
+        if (player?.setGravityEnabled) {
+            player.setGravityEnabled(true);
+        } else if (player) {
+            player.gravityEnabled = true;
         }
         forceSpawnSafety = { active: false };
         if (domHud?.setInteractionPrompt) domHud.setInteractionPrompt("");
@@ -1251,8 +1271,7 @@ function updateCameraRig() {
     // Process orbit input even though orbitCamera is not the active renderer
     orbitCamera._checkInputs();
 
-    const camUp = player.mesh.position.clone();
-    if (camUp.lengthSquared() > 0) camUp.normalize();
+    const camUp = getWorldUp(player.mesh.position);
 
     const headPos = player.mesh.position.add(camUp.scale(CAMERA_HEAD_OFFSET));
     cameraPivot.position.copyFrom(headPos);
@@ -1452,6 +1471,7 @@ function startGame() {
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
         });
+        planetWorld?.setRadius?.(terrain.radius ?? PLANET_RADIUS_UNITS);
         window.__terrain = terrain;
 
         terrain.setOnInitialBuildDone(() => {
@@ -1479,8 +1499,7 @@ function setupPlayerAndSystems() {
     }
 
     if (orbitCamera && player?.mesh) {
-        const up = player.mesh.position.clone();
-        if (up.lengthSquared() > 0) up.normalize();
+        const up = getWorldUp(player.mesh.position);
         cameraPivot.position.copyFrom(
             player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
         );
@@ -1511,7 +1530,8 @@ function setupPlayerAndSystems() {
             baseCarve: { radius: 70, nenCost: 14 },
             scene,
             dayNightSystem,
-            saveSystem
+            saveSystem,
+            world: planetWorld
         });
     }
 
@@ -1557,8 +1577,7 @@ function enterGameplayFromLoading() {
     if (player && player.setInputEnabled) player.setInputEnabled(true);
 
     if (orbitCamera && player?.mesh) {
-        const up = player.mesh.position.clone();
-        if (up.lengthSquared() > 0) up.normalize();
+        const up = getWorldUp(player.mesh.position);
         cameraPivot.position.copyFrom(
             player.mesh.position.add(up.scale(CAMERA_HEAD_OFFSET))
         );
@@ -1599,15 +1618,15 @@ engine.runRenderLoop(() => {
     // Focus position for LOD & hemisphere
     let focusPos = null;
     let focusMode = "camera";
-    if (gameState === GameState.LOADING && player?.mesh) {
-        focusPos = surfaceFocus(player.mesh.position, PLANET_RADIUS_UNITS);
-        focusMode = "loading-player";
-    } else if (useStreamingFocus) {
+    if (gameState === GameState.LOADING) {
         focusPos = surfaceFocus(streamingFocus.globalPosition, PLANET_RADIUS_UNITS);
-        focusMode = "loading-focus";
+        focusMode = "loading-spawn";
     } else if (gameState === GameState.PLAYING && player?.mesh) {
         focusPos = surfaceFocus(player.mesh.position, PLANET_RADIUS_UNITS);
         focusMode = "player";
+    } else if (useStreamingFocus) {
+        focusPos = surfaceFocus(streamingFocus.globalPosition, PLANET_RADIUS_UNITS);
+        focusMode = "loading-focus";
     } else if (scene.activeCamera) {
         const camPos = scene.activeCamera.globalPosition || scene.activeCamera.position;
         focusPos = surfaceFocus(camPos, PLANET_RADIUS_UNITS);
@@ -1770,14 +1789,11 @@ engine.runRenderLoop(() => {
                 let moonAltLocal = moonAltGlobal;
 
                 if (player && player.mesh) {
-                    const up = player.mesh.position.clone();
-                    if (up.lengthSquared() > 0) {
-                        up.normalize();
-                        sunAltLocal =
-                            Math.asin(BABYLON.Vector3.Dot(sDir, up)) * radToDeg;
-                        moonAltLocal =
-                            Math.asin(BABYLON.Vector3.Dot(mDir, up)) * radToDeg;
-                    }
+                    const up = getWorldUp(player.mesh.position);
+                    sunAltLocal =
+                        Math.asin(BABYLON.Vector3.Dot(sDir, up)) * radToDeg;
+                    moonAltLocal =
+                        Math.asin(BABYLON.Vector3.Dot(mDir, up)) * radToDeg;
                 }
 
                 const timeStr = `${pad(hour)}:${pad(minute)}`;

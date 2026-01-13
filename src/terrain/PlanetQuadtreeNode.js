@@ -28,6 +28,11 @@ export class PlanetQuadtreeNode {
         this.isCulled = false;
         this.isDepthCulled = false;
         this.isHorizonCulled = false;
+        this._wantedBuildKey = null;
+        this._visibleFrames = 0;
+        this._wasVisibleLastFrame = false;
+        this._inRenderSet = false;
+        this.skirtEdges = null;
 
         // Lifetime tracking (LRU / residency)
         this.lastTouchedFrame = 0;

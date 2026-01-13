@@ -566,13 +566,15 @@ _applyMeshBuffers(positions, normals, indices, colors) {
         return;
     }
 
-    const vertexData = new BABYLON.VertexData();
-    vertexData.positions = positions;
-    vertexData.indices = indices;
-    vertexData.normals = normals;
+    const skirted = this._applySkirtsIfNeeded(positions, normals, indices, colors);
 
-    if (colors && colors.length > 0) {
-        vertexData.colors = colors;
+    const vertexData = new BABYLON.VertexData();
+    vertexData.positions = skirted.positions;
+    vertexData.indices = skirted.indices;
+    vertexData.normals = skirted.normals;
+
+    if (skirted.colors && skirted.colors.length > 0) {
+        vertexData.colors = skirted.colors;
     }
 
     if (!this.mesh) {
@@ -604,6 +606,137 @@ _applyMeshBuffers(positions, normals, indices, colors) {
     vertexData.applyToMesh(this.mesh, true);
 }
 
+    _applySkirtsIfNeeded(positions, normals, indices, colors) {
+        if (!this._skirtSettings || !this._skirtSettings.enabled) {
+            return { positions, normals, indices, colors };
+        }
+
+        const { edges, depth } = this._skirtSettings;
+        if (!edges || depth <= 0) {
+            return { positions, normals, indices, colors };
+        }
+
+        const bounds = this._lastBuildBounds;
+        if (!bounds) {
+            return { positions, normals, indices, colors };
+        }
+
+        const epsilon = (this.cellSize ?? 1) * 0.25;
+        const minX = bounds.minX;
+        const maxX = bounds.maxX;
+        const minZ = bounds.minZ;
+        const maxZ = bounds.maxZ;
+
+        const edgeForVertex = (x, z) => {
+            if (edges.west && Math.abs(x - minX) <= epsilon) return "west";
+            if (edges.east && Math.abs(x - maxX) <= epsilon) return "east";
+            if (edges.south && Math.abs(z - minZ) <= epsilon) return "south";
+            if (edges.north && Math.abs(z - maxZ) <= epsilon) return "north";
+            return null;
+        };
+
+        const getVertex = (idx) => {
+            const i3 = idx * 3;
+            return {
+                x: positions[i3],
+                y: positions[i3 + 1],
+                z: positions[i3 + 2]
+            };
+        };
+        const getNormal = (idx) => {
+            const i3 = idx * 3;
+            return {
+                x: normals[i3],
+                y: normals[i3 + 1],
+                z: normals[i3 + 2]
+            };
+        };
+
+        const edgeCounts = new Map();
+        const edgeMeta = new Map();
+        const addEdge = (a, b, plane) => {
+            const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+            edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1);
+            edgeMeta.set(key, { a, b, plane });
+        };
+
+        for (let i = 0; i < indices.length; i += 3) {
+            const i0 = indices[i];
+            const i1 = indices[i + 1];
+            const i2 = indices[i + 2];
+
+            const v0 = getVertex(i0);
+            const v1 = getVertex(i1);
+            const v2 = getVertex(i2);
+
+            const e0 = edgeForVertex(v0.x, v0.z);
+            const e1 = edgeForVertex(v1.x, v1.z);
+            const e2 = edgeForVertex(v2.x, v2.z);
+
+            if (e0 && e0 === e1) addEdge(i0, i1, e0);
+            if (e1 && e1 === e2) addEdge(i1, i2, e1);
+            if (e2 && e2 === e0) addEdge(i2, i0, e2);
+        }
+
+        const skirtPositions = positions.slice();
+        const skirtNormals = normals.slice();
+        const skirtColors = colors ? colors.slice() : null;
+        const skirtIndices = indices.slice();
+
+        const addSkirtVertex = (vx, vy, vz, nx, ny, nz, colorIdx) => {
+            const idx = skirtPositions.length / 3;
+            skirtPositions.push(vx, vy, vz);
+            skirtNormals.push(nx, ny, nz);
+            if (skirtColors && colorIdx != null) {
+                const c4 = colorIdx * 4;
+                skirtColors.push(
+                    skirtColors[c4],
+                    skirtColors[c4 + 1],
+                    skirtColors[c4 + 2],
+                    skirtColors[c4 + 3]
+                );
+            } else if (skirtColors) {
+                skirtColors.push(1, 1, 1, 1);
+            }
+            return idx;
+        };
+
+        for (const [key, count] of edgeCounts.entries()) {
+            if (count !== 1) continue;
+            const meta = edgeMeta.get(key);
+            if (!meta) continue;
+            const { a, b } = meta;
+
+            const v0 = getVertex(a);
+            const v1 = getVertex(b);
+            const n0 = getNormal(a);
+            const n1 = getNormal(b);
+
+            const v0e = {
+                x: v0.x - n0.x * depth,
+                y: v0.y - n0.y * depth,
+                z: v0.z - n0.z * depth
+            };
+            const v1e = {
+                x: v1.x - n1.x * depth,
+                y: v1.y - n1.y * depth,
+                z: v1.z - n1.z * depth
+            };
+
+            const v0eIdx = addSkirtVertex(v0e.x, v0e.y, v0e.z, n0.x, n0.y, n0.z, a);
+            const v1eIdx = addSkirtVertex(v1e.x, v1e.y, v1e.z, n1.x, n1.y, n1.z, b);
+
+            skirtIndices.push(a, b, v1eIdx);
+            skirtIndices.push(a, v1eIdx, v0eIdx);
+        }
+
+        return {
+            positions: skirtPositions,
+            normals: skirtNormals,
+            indices: skirtIndices,
+            colors: skirtColors
+        };
+    }
 
 
     _buildMesh() {
@@ -797,6 +930,23 @@ _applyMeshBuffers(positions, normals, indices, colors) {
                 ? settings.origin.clone()
                 : new BABYLON.Vector3(settings.origin.x, settings.origin.y, settings.origin.z);
         }
+
+        if (settings.skirt) {
+            this._skirtSettings = {
+                enabled: !!settings.skirt.enabled,
+                edges: settings.skirt.edges || null,
+                depth: settings.skirt.depth ?? (this.cellSize ?? 1) * 0.4
+            };
+        } else {
+            this._skirtSettings = null;
+        }
+
+        this._lastBuildBounds = {
+            minX: this.origin.x,
+            maxX: this.origin.x + (this.dimX - 1) * this.cellSize,
+            minZ: this.origin.z,
+            maxZ: this.origin.z + (this.dimZ - 1) * this.cellSize
+        };
 
         // Carves passed from ChunkedPlanetTerrain as plain objects: [{position:{x,y,z}, radius}]
         this.carves = settings.carves || [];
