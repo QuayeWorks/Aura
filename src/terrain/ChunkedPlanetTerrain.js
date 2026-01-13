@@ -447,7 +447,7 @@ export class ChunkedPlanetTerrain {
             }
         }
 
-        const requiredLod = Math.min(4, this.lodLevel); // require at least LOD 4 (or max available)
+        const requiredLod = Math.min(2, this.lodLevel); // require at least LOD 4 (or max available)
         if (nearLod < requiredLod) {
             // We've finished the first batch, but detail isn't high enough yet.
             // More rebuild jobs will call _onChunkBuilt() again as LOD increases.
