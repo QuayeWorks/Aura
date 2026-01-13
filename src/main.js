@@ -26,7 +26,7 @@ const engine = new BABYLON.Engine(canvas, true);
 
 // Planet radius in world units (meters, conceptually)
 const PLANET_RADIUS_UNITS = 32400;
-const SPAWN_OFFSET_UNITS = 100;
+const SPAWN_OFFSET_UNITS = 300;
 const SPAWN_RADIUS_UNITS = PLANET_RADIUS_UNITS + SPAWN_OFFSET_UNITS;
 const SPAWN_DIR = new BABYLON.Vector3(0, 0, 1).normalize();
 
@@ -649,7 +649,7 @@ function createFireflies() {
     fireflyMat.alpha = 0.9;
     fireflyMat.disableLighting = true;
 
-    const radius = PLANET_RADIUS_UNITS * 0.05;
+    const radius = PLANET_RADIUS_UNITS * 0.025;
     const count = 80;
 
     for (let i = 0; i < count; i++) {
@@ -1333,6 +1333,7 @@ function startGame() {
         terrain = new ChunkedPlanetTerrain(scene, {
             chunkCountX: 16,
             chunkCountZ: 16,
+            maxBuildDistance: 36000,
             baseChunkResolution: 128,
             isoLevel: 0,
             radius: PLANET_RADIUS_UNITS
