@@ -16,6 +16,7 @@ export class PlanetPlayer {
     constructor(scene, terrain, options = {}) {
         this.scene = scene;
         this.terrain = terrain;
+        this.world = options.world ?? null;
 
         // --- Shape / planet parameters ---
         const defaultHeight = options.height ?? 20;
@@ -158,6 +159,24 @@ this.groundFriction = options.groundFriction ?? 8;
         }
     }
 
+    _getUpVector(pos) {
+        if (this.world && typeof this.world.getUpVector === "function") {
+            return this.world.getUpVector(pos);
+        }
+        if (!pos) return new BABYLON.Vector3(0, 1, 0);
+        const v = pos.clone ? pos.clone() : new BABYLON.Vector3(pos.x, pos.y, pos.z);
+        if (v.lengthSquared() < 1e-6) return new BABYLON.Vector3(0, 1, 0);
+        return v.normalize();
+    }
+
+    _getGravityVector(pos) {
+        if (this.world && typeof this.world.getGravityVector === "function") {
+            return this.world.getGravityVector(pos);
+        }
+        const up = this._getUpVector(pos);
+        return up.scale(-1);
+    }
+
     setFrozen(isFrozen) {
         this.isFrozen = !!isFrozen;
         if (this.isFrozen) {
@@ -198,14 +217,14 @@ this.groundFriction = options.groundFriction ?? 8;
 
         if (next) {
             if (hasPos) {
-                const up = pos.clone().normalize();
+                const up = this._getUpVector(pos);
                 const radialVel = BABYLON.Vector3.Dot(this.velocity, up);
                 if (Math.abs(radialVel) > 0) {
                     this.velocity = this.velocity.subtract(up.scale(radialVel));
                 }
             }
         } else if (hasPos) {
-            const up = pos.clone().normalize();
+            const up = this._getUpVector(pos);
             const upward = BABYLON.Vector3.Dot(this.velocity, up);
             if (upward > 0) {
                 this.velocity = this.velocity.subtract(up.scale(upward));
@@ -315,8 +334,8 @@ this.groundFriction = options.groundFriction ?? 8;
             return;
         }
 
-        const up = pos.scale(1 / r);   // radial up
-        const down = up.scale(-1);
+        const up = this._getUpVector(pos);   // radial up
+        const down = this._getGravityVector(pos);
 
         if (this.flyMode) {
             this._integrateFlightStep(dtSeconds, pos, up, down);
@@ -460,7 +479,7 @@ this.groundFriction = options.groundFriction ?? 8;
         // ---------- CAMERA UP LOCK ----------
         if (this.camera) {
             // Planet-normal up at player position
-            const camUp = this.mesh.position.clone().normalize();
+            const camUp = this._getUpVector(this.mesh.position);
 
             // Keep arc-rotate camera's up aligned with the planet
             this.camera.upVector = camUp;
@@ -723,7 +742,7 @@ this.groundFriction = options.groundFriction ?? 8;
         if (pick && pick.hit && pick.pickedPoint) {
             // Place player just above the surface hit.
             const bottomToCenter = this.height * 0.5;
-            const up = pick.pickedPoint.clone().normalize();
+            const up = this._getUpVector(pick.pickedPoint);
             this.mesh.position.copyFrom(
                 pick.pickedPoint.add(up.scale(bottomToCenter + surfaceClearance))
             );
@@ -890,7 +909,7 @@ this.groundFriction = options.groundFriction ?? 8;
         const r = pos.length();
         if (r < 1e-3) return;
 
-        const up = pos.scale(1 / r);
+        const up = this._getUpVector(pos);
         const down = up.scale(-1);
 
         
@@ -1014,7 +1033,7 @@ this.groundFriction = options.groundFriction ?? 8;
         const r = pos.length();
         if (r < 1e-3) return;
 
-        const up = pos.scale(1 / r);
+        const up = this._getUpVector(pos);
 
         if (!this.mesh.rotationQuaternion) {
             this.mesh.rotationQuaternion = BABYLON.Quaternion.Identity();

@@ -2,6 +2,8 @@
 import { MarchingCubesTerrain } from "./MarchingCubesTerrain.js";
 import { PlanetQuadtreeNode } from "./PlanetQuadtreeNode.js";
 import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js";
+import { TerrainScheduler } from "./TerrainScheduler.js";
+import { ColliderQueue } from "./ColliderQueue.js";
 
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
@@ -48,17 +50,29 @@ export class ChunkedPlanetTerrain {
 
         this.meshPool = [];
         this.terrainPool = [];
-        this.buildQueue = [];
         this.carveHistory = [];
         this.carveRevision = 0; // increments when carve history changes
 
-        // Build de-dupe / in-flight tracking
-        this.queuedJobKeys = new Set();
-        this.inFlightJobKeys = new Set();
-
         this.buildBudgetMs = options.buildBudgetMs ?? 6; // ms budget per frame
         this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 2;
-        this.activeBuilds = 0;
+        this.buildStabilityFrames = options.buildStabilityFrames ?? 8;
+        this.updatedCollidersPerSecond = options.updatedCollidersPerSecond ?? 30;
+
+        this.scheduler = new TerrainScheduler({
+            maxConcurrentBuilds: this.maxConcurrentBuilds,
+            buildBudgetMs: this.buildBudgetMs,
+            getPriority: (job) => {
+                const lodWeight = job.lodLevel ?? 0;
+                const dist = Number.isFinite(job.surfaceDist) ? job.surfaceDist : 0;
+                const surfaceDistanceWeight = Math.max(0, 100000 - dist);
+                const visibleBonus = job.wasVisibleLastFrame ? 5000 : 0;
+                return (lodWeight * 100000) + surfaceDistanceWeight + visibleBonus;
+            }
+        });
+
+        this.colliderQueue = new ColliderQueue({
+            updatedCollidersPerSecond: this.updatedCollidersPerSecond
+        });
 
 
         // Cached world-space chunk metrics
@@ -76,6 +90,7 @@ export class ChunkedPlanetTerrain {
 
         this.lastCameraPosition = null;
         this._lastFocusData = null;
+        this._streamRevision = 0;
         
         this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
 
@@ -98,6 +113,7 @@ export class ChunkedPlanetTerrain {
             options.cullHysteresis ?? baseStreamingDistance * 0.02;
         this.depthCullHysteresis =
             options.depthCullHysteresis ?? baseStreamingDistance * 0.01;
+        this.skirtDepthScale = options.skirtDepthScale ?? 0.4;
 
         this.lastLodStats = {
             totalVisible: 0,
@@ -355,6 +371,8 @@ export class ChunkedPlanetTerrain {
 
     _setMeshCollisionActive(mesh, isActive) {
         if (!mesh) return;
+        mesh.metadata = mesh.metadata || {};
+        mesh.metadata.isTerrainCollider = !!isActive;
         mesh.checkCollisions = !!isActive;
         if (isActive && mesh.isEnabled?.()) {
             this._activeCollisionMeshes.add(mesh);
@@ -384,7 +402,8 @@ export class ChunkedPlanetTerrain {
         this.rootNode = null;
         this.activeLeaves = [];
         this._activeLeafSet = new Set();
-        this.buildQueue = [];
+        this.scheduler.queue.length = 0;
+        this.scheduler.queuedKeys.clear();
     }
 
     _createRootNode() {
@@ -415,7 +434,8 @@ export class ChunkedPlanetTerrain {
         this._activeLeafSet = new Set(this.activeLeaves);
 
         // Reset build bookkeeping
-        this.buildQueue.length = 0;
+        this.scheduler.queue.length = 0;
+        this.scheduler.queuedKeys.clear();
 
         // Initial build tracking – nothing queued yet
         this.initialBuildTotal = 0;
@@ -756,6 +776,8 @@ export class ChunkedPlanetTerrain {
     _deactivateNode(node) {
         if (!node) return;
         node._wantedBuildKey = null;
+        node._inRenderSet = false;
+        node._visibleFrames = 0;
 
         if (node.terrain && node.terrain.mesh) {
             node.terrain.mesh.setEnabled(false);
@@ -847,17 +869,23 @@ export class ChunkedPlanetTerrain {
         // Skip if already built for this revision & LOD (unless forced)
         if (!force && node.lastBuiltLod === lodLevel && node.lastBuiltRevision === revisionKey) return;
 
-        const key = this._jobKey(node, lodLevel, revisionKey);
-
-        // If queued or currently building, skip.
-        if (this.queuedJobKeys.has(key) || this.inFlightJobKeys.has(key)) return;
+        const jobKey = this._jobKey(node, lodLevel, revisionKey);
 
         const streamRevision = this._streamRevision ?? 0;
         const buildKey = `${node.id}|lod:${lodLevel}|rev:${streamRevision}`;
         node._wantedBuildKey = buildKey;
 
-        this.queuedJobKeys.add(key);
-        this.buildQueue.push({ node, lodLevel, revisionKey, buildKey, force, surfaceDist, ignoreCulling });
+        this.scheduler.enqueue({
+            node,
+            lodLevel,
+            revisionKey,
+            buildKey,
+            force,
+            surfaceDist,
+            ignoreCulling,
+            jobKey,
+            wasVisibleLastFrame: node._wasVisibleLastFrame
+        });
     }
 
     _updateQuadtree(focusData) {
@@ -880,6 +908,12 @@ export class ChunkedPlanetTerrain {
 
         const maxSurfaceLodDist = this.lodRingRadii.r3;
         const maxDepth = maxSurfaceLodDist * 0.5;
+
+        const previousLeaves = this.activeLeaves || [];
+        for (const node of previousLeaves) {
+            node._wasVisibleLastFrame = node._inRenderSet;
+            node._inRenderSet = false;
+        }
 
         const stack = [this.rootNode];
         const newLeaves = [];
@@ -945,6 +979,9 @@ export class ChunkedPlanetTerrain {
                 }
             }
 
+            node._inRenderSet = true;
+            node._visibleFrames = node._wasVisibleLastFrame ? (node._visibleFrames + 1) : 1;
+
             // Ensure mesh is enabled if already built
             if (node.terrain && node.terrain.mesh) {
                 const mesh = node.terrain.mesh;
@@ -954,10 +991,6 @@ export class ChunkedPlanetTerrain {
                 }
                 mesh.setEnabled(true);
                 this._registerActiveTerrainMesh(mesh, node);
-                this._tagColliderForTerrain(node.terrain, node.lastBuiltLod ?? node.level, {
-                    surfaceDist,
-                    warmupEnabled: this._collisionWarmup?.enabled
-                });
             }
         }
 
@@ -965,12 +998,21 @@ export class ChunkedPlanetTerrain {
         this._activeLeafSet = new Set(newLeaves);
         this.lastLodStats = stats;
 
+        for (const node of previousLeaves) {
+            if (!node._inRenderSet) {
+                node._visibleFrames = 0;
+            }
+        }
+
+        this._updateSkirtEdges(newLeaves);
+
         // Queue builds for any leaves that need them (progressive refinement)
         for (const leaf of newLeaves) {
             this._ensureTerrainForNode(leaf);
         
-            const desiredLod = leaf.level;               // leaf.level is your stabilized target
+            const desiredLod = leaf.stableLod ?? leaf.level; // stabilized target
             const built = (leaf.lastBuiltLod ?? null);   // null means never built
+            const stableForBuild = leaf._visibleFrames >= this.buildStabilityFrames;
         
             // First time this leaf becomes visible: build LOD 1 first (fast), then refine.
             if (built === null) {
@@ -978,7 +1020,7 @@ export class ChunkedPlanetTerrain {
         
                 this._scheduleNodeRebuild(leaf, coarse, {});
         
-                if (desiredLod > coarse) {
+                if (desiredLod > coarse && stableForBuild) {
                     this._scheduleNodeRebuild(leaf, desiredLod, {});
                 }
         
@@ -986,7 +1028,7 @@ export class ChunkedPlanetTerrain {
             }
         
             // Already built: only upgrade progressively (no downgrades here)
-            if (desiredLod > built) {
+            if (desiredLod > built && stableForBuild) {
                 this._scheduleNodeRebuild(leaf, desiredLod, {});
             }
         
@@ -1003,12 +1045,85 @@ export class ChunkedPlanetTerrain {
         // built. By updating the total to include newly queued jobs until the
         // initial build is marked complete, the loading bar now reflects the
         // full workload and the game waits appropriately.
-        if (!this.initialBuildDone && this.buildQueue.length > 0) {
-            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+        if (!this.initialBuildDone && this.scheduler.getQueueLength() > 0) {
+            const pendingJobs = this.scheduler.getQueueLength() + this.initialBuildCompleted;
             if (pendingJobs > this.initialBuildTotal) {
                 this.initialBuildTotal = pendingJobs;
             }
         }
+    }
+
+    _updateSkirtEdges(leaves) {
+        if (!Array.isArray(leaves) || leaves.length === 0) return;
+        const epsilon = Math.max(this.cellSize ?? 1, 1) * 0.5;
+        const rangesOverlap = (aMin, aMax, bMin, bMax) => aMin <= bMax + epsilon && aMax + epsilon >= bMin;
+
+        for (const leaf of leaves) {
+            leaf.skirtEdges = { north: false, south: false, east: false, west: false };
+        }
+
+        for (let i = 0; i < leaves.length; i++) {
+            const node = leaves[i];
+            const b = node.bounds;
+            for (let j = 0; j < leaves.length; j++) {
+                if (i === j) continue;
+                const other = leaves[j];
+                if (other.level >= node.level) continue;
+                const o = other.bounds;
+
+                if (Math.abs(b.maxX - o.minX) <= epsilon && rangesOverlap(b.minZ, b.maxZ, o.minZ, o.maxZ)) {
+                    node.skirtEdges.east = true;
+                }
+                if (Math.abs(b.minX - o.maxX) <= epsilon && rangesOverlap(b.minZ, b.maxZ, o.minZ, o.maxZ)) {
+                    node.skirtEdges.west = true;
+                }
+                if (Math.abs(b.maxZ - o.minZ) <= epsilon && rangesOverlap(b.minX, b.maxX, o.minX, o.maxX)) {
+                    node.skirtEdges.north = true;
+                }
+                if (Math.abs(b.minZ - o.maxZ) <= epsilon && rangesOverlap(b.minX, b.maxX, o.minX, o.maxX)) {
+                    node.skirtEdges.south = true;
+                }
+            }
+        }
+    }
+
+    _syncRenderSetMeshes() {
+        if (!this._activeLeafSet || this._activeLeafSet.size === 0) return;
+        const meshes = Array.from(this.activeTerrainMeshes);
+        for (const mesh of meshes) {
+            const node = mesh?.metadata?.terrainNode;
+            if (!node || !this._activeLeafSet.has(node)) {
+                mesh.setEnabled(false);
+                this._setMeshCollisionActive(mesh, false);
+                this._unregisterActiveTerrainMesh(mesh);
+            }
+        }
+    }
+
+    _updateColliderQueue() {
+        const focusData = this._lastFocusData;
+        if (!focusData || !focusData.focusDir) return;
+        const { r1, r2 } = this.lodRingRadii;
+
+        for (const mesh of this.activeTerrainMeshes) {
+            if (!mesh || !mesh.isEnabled?.()) continue;
+            const surfaceDist = this._surfaceDistanceForMesh(mesh, this.lastCameraPosition, focusData.focusDir);
+            if (!Number.isFinite(surfaceDist)) continue;
+
+            if (surfaceDist <= r1) {
+                this.colliderQueue.request(mesh, true, 3);
+            } else if (surfaceDist <= r2) {
+                this.colliderQueue.request(mesh, true, 2);
+            } else {
+                this.colliderQueue.request(mesh, false, 1);
+            }
+        }
+
+        this.colliderQueue.process({
+            applyUpdate: (mesh, isActive) => {
+                this._setMeshCollisionActive(mesh, isActive);
+            }
+        });
     }
 
 
@@ -1018,116 +1133,54 @@ export class ChunkedPlanetTerrain {
     }
 
     _processBuildQueueBudgeted(budgetMs = this.buildBudgetMs) {
-        const start = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-        const nowMs = () => (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
         const maxDepth = this.lodRingRadii.r3 * 0.5;
-
-        // Respect async concurrency limit
-        if (this.activeBuilds >= this.maxConcurrentBuilds) return;
-
-        while (this.buildQueue.length > 0) {
-            if (nowMs() - start >= budgetMs) return;
-            if (this.activeBuilds >= this.maxConcurrentBuilds) return;
-
-            const job = this.buildQueue.shift();
-            if (!job || !job.node) continue;
-
-            const node = job.node;
-            if (!job.ignoreCulling && (node.isCulled || node.isDepthCulled || node.isHorizonCulled)) {
-                const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
-                const key = this._jobKey(node, job.lodLevel, revisionKey);
-                this.queuedJobKeys.delete(key);
-                this._recordDroppedBuild("culled");
-                continue;
-            }
-            if (!job.ignoreCulling && !this._withinDepthCap(node, maxDepth)) {
-                console.warn("LEAK build outside depth cap", { nodeId: node.id, lodLevel: job.lodLevel });
-                const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
-                const key = this._jobKey(node, job.lodLevel, revisionKey);
-                this.queuedJobKeys.delete(key);
-                this._recordDroppedBuild("depth");
-                continue;
-            }
-            if (!job.ignoreCulling && this._lastFocusData && !this._isChunkAboveHorizon(node, this._lastFocusData)) {
-                console.warn("LEAK build below horizon", { nodeId: node.id, lodLevel: job.lodLevel });
-                node.isHorizonCulled = true;
-                const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
-                const key = this._jobKey(node, job.lodLevel, revisionKey);
-                this.queuedJobKeys.delete(key);
-                this._recordDroppedBuild("horizon");
-                continue;
-            }
-            if (!job.ignoreCulling && this._lastFocusData?.focusDir) {
-                const focusDir = this._lastFocusData.focusDir;
-                const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
-                if (surfaceDist > this.lodRingRadii.rcull + 1) {
-                    console.warn("LEAK build outside Rcull", { nodeId: node.id, lodLevel: job.lodLevel, surfaceDist });
-                    const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
-                    const key = this._jobKey(node, job.lodLevel, revisionKey);
-                    this.queuedJobKeys.delete(key);
-                    this._recordDroppedBuild("rcull");
-                    continue;
+        this.scheduler.process({
+            budgetMs,
+            canRunJob: (job) => {
+                const node = job.node;
+                if (!node) return { ok: false, reason: "missingNode" };
+                if (!job.ignoreCulling && (node.isCulled || node.isDepthCulled || node.isHorizonCulled)) {
+                    this._recordDroppedBuild("culled");
+                    return { ok: false, reason: "culled" };
                 }
-            }
-            const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
-            const key = this._jobKey(node, job.lodLevel, revisionKey);
-
-            // This job is no longer queued
-            this.queuedJobKeys.delete(key);
-
-            // Ensure terrain instance exists
-            this._ensureTerrainForNode(node);
-
-            // If already built for this revision & LOD (unless forced), skip
-            if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revisionKey) {
-                continue;
-            }
-
-            // Prevent duplicates while in-flight
-            if (this.inFlightJobKeys.has(key)) continue;
-            this.inFlightJobKeys.add(key);
-
-            this.activeBuilds++;
-
-            const jobStartMs = nowMs();
-            const finishOk = (result) => {
-                if (result?.applied === false) {
-                    this.inFlightJobKeys.delete(key);
-                    this.activeBuilds = Math.max(0, this.activeBuilds - 1);
-                    return;
+                if (!job.ignoreCulling && !this._withinDepthCap(node, maxDepth)) {
+                    console.warn("LEAK build outside depth cap", { nodeId: node.id, lodLevel: job.lodLevel });
+                    this._recordDroppedBuild("depth");
+                    return { ok: false, reason: "depth" };
                 }
-
-                node.lastBuiltLod = job.lodLevel;
-                node.lastBuiltRevision = revisionKey;
-
-                this._registerActiveTerrainMesh(node.terrain?.mesh, node);
-                let surfaceDist = null;
-                if (this._lastFocusData?.focusDir) {
+                if (!job.ignoreCulling && this._lastFocusData && !this._isChunkAboveHorizon(node, this._lastFocusData)) {
+                    console.warn("LEAK build below horizon", { nodeId: node.id, lodLevel: job.lodLevel });
+                    node.isHorizonCulled = true;
+                    this._recordDroppedBuild("horizon");
+                    return { ok: false, reason: "horizon" };
+                }
+                if (!job.ignoreCulling && this._lastFocusData?.focusDir) {
                     const focusDir = this._lastFocusData.focusDir;
-                    surfaceDist = this._surfaceDistanceForNode(focusDir, node);
+                    const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
+                    if (surfaceDist > this.lodRingRadii.rcull + 1) {
+                        console.warn("LEAK build outside Rcull", { nodeId: node.id, lodLevel: job.lodLevel, surfaceDist });
+                        this._recordDroppedBuild("rcull");
+                        return { ok: false, reason: "rcull" };
+                    }
                 }
-                this._tagColliderForTerrain(node.terrain, job.lodLevel, {
-                    surfaceDist,
-                    warmupEnabled: this._collisionWarmup?.enabled
-                });
-                this._onChunkBuilt();
-                this._recordBuildDuration(nowMs() - jobStartMs);
+                return { ok: true };
+            },
+            runJob: (job) => {
+                const node = job.node;
+                const revisionKey = job.revisionKey ?? `${this.carveRevision}:${this.biomeRevision}`;
 
-                this.inFlightJobKeys.delete(key);
-                this.activeBuilds = Math.max(0, this.activeBuilds - 1);
-            };
+                this._ensureTerrainForNode(node);
 
-            const finishErr = (err) => {
-                console.error("Chunk rebuild failed:", err);
-                this.inFlightJobKeys.delete(key);
-                this.activeBuilds = Math.max(0, this.activeBuilds - 1);
-            };
+                if (!job.force && node.lastBuiltLod === job.lodLevel && node.lastBuiltRevision === revisionKey) {
+                    return null;
+                }
 
-            const lodDims = this._computeLodDimensions(job.lodLevel, node);
+                const jobStartMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+                const lodDims = this._computeLodDimensions(job.lodLevel, node);
+                const skirtEdges = node.skirtEdges ?? {};
+                const skirtDepth = lodDims.cellSize * this.skirtDepthScale;
 
-            let maybePromise;
-            try {
-                maybePromise = node.terrain.rebuildWithSettings({
+                return node.terrain.rebuildWithSettings({
                     origin: new BABYLON.Vector3(node.bounds.minX, node.bounds.minY, node.bounds.minZ),
                     dimX: lodDims.dimX,
                     dimY: lodDims.dimY,
@@ -1136,6 +1189,11 @@ export class ChunkedPlanetTerrain {
                     carves: this._collectCarvesForNode(node),
                     biomeSettings: this.biomeSettings,
                     buildKey: job.buildKey ?? null,
+                    skirt: {
+                        enabled: !!(skirtEdges.north || skirtEdges.south || skirtEdges.east || skirtEdges.west),
+                        edges: skirtEdges,
+                        depth: skirtDepth
+                    },
                     shouldApplyResult: (result) => {
                         if (node._wantedBuildKey !== result.buildKey) {
                             this._recordDroppedBuild("staleResult");
@@ -1143,18 +1201,22 @@ export class ChunkedPlanetTerrain {
                         }
                         return true;
                     }
+                }).then((result) => {
+                    if (result?.applied === false) {
+                        return null;
+                    }
+                    node.lastBuiltLod = job.lodLevel;
+                    node.lastBuiltRevision = revisionKey;
+                    this._registerActiveTerrainMesh(node.terrain?.mesh, node);
+                    this._onChunkBuilt();
+                    const endMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+                    this._recordBuildDuration(endMs - jobStartMs);
+                    return result;
+                }).catch((err) => {
+                    console.error("Chunk rebuild failed:", err);
                 });
-            } catch (e) {
-                finishErr(e);
-                continue;
             }
-
-            if (maybePromise && typeof maybePromise.then === "function") {
-                maybePromise.then(finishOk).catch(finishErr);
-            } else {
-                finishOk(maybePromise);
-            }
-        }
+        });
     }
 
     _recordBuildDuration(ms) {
@@ -1249,16 +1311,22 @@ export class ChunkedPlanetTerrain {
         if (clamped === this.lodLevel) return;
         this.lodLevel = clamped;
 
-        this.buildQueue = [];
+        this.scheduler.queue.length = 0;
+        this.scheduler.queuedKeys.clear();
         this._initializeQuadtree();
     }
 
     updateAtPosition(focusPosition) {
         this.lodUpdateCounter++;
-        this._streamRevision = (this._streamRevision ?? 0) + 1;
+        const nowMs = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
+        this.scheduler.setLimits({
+            maxConcurrentBuilds: this.maxConcurrentBuilds,
+            buildBudgetMs: this.buildBudgetMs
+        });
         if (this._collisionWarmup) {
             this._collisionWarmup.forcedCount = 0;
         }
+        const lastFocus = this.lastCameraPosition;
         if (focusPosition) {
             this.lastCameraPosition = focusPosition.clone
                 ? focusPosition.clone()
@@ -1268,6 +1336,9 @@ export class ChunkedPlanetTerrain {
                     focusPosition.z
                 );
             this._lastFocusData = this._computeFocusData(this.lastCameraPosition);
+            if (!lastFocus || BABYLON.Vector3.Distance(lastFocus, this.lastCameraPosition) > this.lodRingHysteresis) {
+                this._streamRevision = (this._streamRevision ?? 0) + 1;
+            }
         } else {
             this._lastFocusData = null;
         }
@@ -1282,8 +1353,12 @@ export class ChunkedPlanetTerrain {
                 mesh.setEnabled(false);
                 this._setMeshCollisionActive(mesh, false);
             }
+            this.activeTerrainMeshes.clear();
+            this._activeCollisionMeshes.clear();
         }
 
+        this._syncRenderSetMeshes();
+        this._updateColliderQueue();
         this._processBuildQueue();
     }
 
@@ -1372,8 +1447,8 @@ export class ChunkedPlanetTerrain {
             this._scheduleNodeRebuild(leaf, leaf.level, { force: true });
         }
 
-        if (!this.initialBuildDone && this.buildQueue.length > 0) {
-            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+        if (!this.initialBuildDone && this.scheduler.getQueueLength() > 0) {
+            const pendingJobs = this.scheduler.getQueueLength() + this.initialBuildCompleted;
             if (pendingJobs > this.initialBuildTotal) {
                 this.initialBuildTotal = pendingJobs;
             }
@@ -1406,8 +1481,8 @@ export class ChunkedPlanetTerrain {
             this._scheduleNodeRebuild(node, 1, { force: true, ignoreCulling: true });
         }
 
-        if (!this.initialBuildDone && this.buildQueue.length > 0) {
-            const pendingJobs = this.buildQueue.length + this.initialBuildCompleted;
+        if (!this.initialBuildDone && this.scheduler.getQueueLength() > 0) {
+            const pendingJobs = this.scheduler.getQueueLength() + this.initialBuildCompleted;
             if (pendingJobs > this.initialBuildTotal) {
                 this.initialBuildTotal = pendingJobs;
             }
@@ -1532,6 +1607,12 @@ export class ChunkedPlanetTerrain {
         let enabledBelowHorizon = 0;
         let enabledTooDeep = 0;
         let perLodOutsideRcull = 0;
+        let enabledInR1 = 0;
+        let enabledInR2 = 0;
+        let enabledInR3 = 0;
+        let collidersInR1 = 0;
+        let collidersInR2 = 0;
+        let collidersInR3 = 0;
 
         for (const mesh of enabledMeshes) {
             const surfaceDist = surfaceDistanceForMesh(mesh);
@@ -1544,6 +1625,13 @@ export class ChunkedPlanetTerrain {
             if (meshTooDeep(mesh)) {
                 enabledTooDeep++;
             }
+            if (surfaceDist <= this.lodRingRadii.r1) {
+                enabledInR1++;
+            } else if (surfaceDist <= this.lodRingRadii.r2) {
+                enabledInR2++;
+            } else if (surfaceDist <= this.lodRingRadii.r3) {
+                enabledInR3++;
+            }
         }
 
         for (const mesh of this._activeCollisionMeshes) {
@@ -1551,6 +1639,13 @@ export class ChunkedPlanetTerrain {
             const surfaceDist = surfaceDistanceForMesh(mesh);
             if (surfaceDist > rcull) {
                 collidableOutsideRcull++;
+            }
+            if (surfaceDist <= this.lodRingRadii.r1) {
+                collidersInR1++;
+            } else if (surfaceDist <= this.lodRingRadii.r2) {
+                collidersInR2++;
+            } else if (surfaceDist <= this.lodRingRadii.r3) {
+                collidersInR3++;
             }
         }
 
@@ -1570,7 +1665,7 @@ export class ChunkedPlanetTerrain {
         let buildJobsQueuedTooDeep = 0;
         if (focusData?.focusDir) {
             const focusDir = focusData.focusDir;
-            for (const job of this.buildQueue) {
+            for (const job of this.scheduler.queue) {
                 const node = job?.node;
                 if (!node) continue;
                 const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
@@ -1602,6 +1697,7 @@ export class ChunkedPlanetTerrain {
         let buildJobsDroppedTooDeep = 0;
         let buildJobsDroppedCulled = 0;
         let buildJobsDroppedStaleResult = 0;
+        let buildJobsDroppedStaleJob = 0;
         for (const sample of this._buildDropSamples) {
             if (sample.t < cutoff) continue;
             if (sample.reason === "rcull") buildJobsDroppedOutsideRcull++;
@@ -1609,6 +1705,10 @@ export class ChunkedPlanetTerrain {
             if (sample.reason === "depth") buildJobsDroppedTooDeep++;
             if (sample.reason === "culled") buildJobsDroppedCulled++;
             if (sample.reason === "staleResult") buildJobsDroppedStaleResult++;
+        }
+        for (const sample of this.scheduler.getDropSamples()) {
+            if (sample.t < cutoff) continue;
+            if (sample.reason === "staleJob") buildJobsDroppedStaleJob++;
         }
 
         const dotSamples = [];
@@ -1632,6 +1732,14 @@ export class ChunkedPlanetTerrain {
             collisionsWarmupEnabled: this._collisionWarmup?.enabled ?? false,
             collidersForcedCount: this._collisionWarmup?.forcedCount ?? 0,
             timeSincePlayStart: this._collisionWarmup?.timeSincePlayStartMs ?? null,
+            colliderQueueLength: this.colliderQueue.getQueueLength(),
+            collidersProcessedPerSecond: this.colliderQueue.getProcessedPerSecond(),
+            enabledMeshesR1: enabledInR1,
+            enabledMeshesR2: enabledInR2,
+            enabledMeshesR3: enabledInR3,
+            enabledCollidersR1: collidersInR1,
+            enabledCollidersR2: collidersInR2,
+            enabledCollidersR3: collidersInR3,
             enabledOutsideRcull,
             collidableOutsideRcull,
             enabledBelowHorizon,
@@ -1645,6 +1753,7 @@ export class ChunkedPlanetTerrain {
             buildJobsDroppedTooDeep,
             buildJobsDroppedCulled,
             buildJobsDroppedStaleResult,
+            buildJobsDroppedStaleJob,
             renderSetCount: this.lastLodStats.totalVisible ?? 0,
             totalLeafCandidates: this.lastLodStats.totalLeafCandidates ?? 0,
             totalLeafVisible: this.lastLodStats.totalLeafVisible ?? 0,
@@ -1653,8 +1762,8 @@ export class ChunkedPlanetTerrain {
             horizonCulledCount: this.lastLodStats.culledByHorizon ?? 0,
             perLodCounts: [...(this.lastLodStats.perLod || [])],
             maxLodInUse: this.lastLodStats.maxLodInUse ?? 0,
-            buildQueueLength: this.buildQueue.length,
-            activeBuilds: this.activeBuilds,
+            buildQueueLength: this.scheduler.getQueueLength(),
+            activeBuilds: this.scheduler.activeBuilds,
             avgBuildMsLastSecond: count > 0 ? sum / count : 0
         };
     }
@@ -1687,7 +1796,7 @@ export class ChunkedPlanetTerrain {
             chunkWorldSizeX: this.chunkWorldSizeX,
             chunkWorldSizeZ: this.chunkWorldSizeZ,
             worldSpan: this.worldSpan,
-            buildQueueLength: this.buildQueue.length,
+            buildQueueLength: this.scheduler.getQueueLength(),
             avgBuildMs: this.lastBuildStats.avgBuildMs,
             streamingRadii: { ...this.lodRingRadii }
         };

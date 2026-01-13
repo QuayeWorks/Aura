@@ -13,13 +13,14 @@ import { LocalMultiplayerSim, NetEventBus, NetSyncController } from "../multipla
 import { GroundSpawnGate } from "./GroundSpawnGate.js";
 
 export class GameRuntime {
-    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem, saveSystem } = {}) {
+    constructor({ player, terrain, hud, baseMovement, baseCarve, scene, dayNightSystem, saveSystem, world } = {}) {
         this.player = player;
         this.terrain = terrain;
         this.hud = hud;
         this.scene = scene;
         this.dayNightSystem = dayNightSystem;
         this.saveSystem = saveSystem;
+        this.world = world ?? null;
 
         this.playerStats = new PlayerStats({
             baseMovement: {
@@ -89,6 +90,7 @@ export class GameRuntime {
             scene,
             terrain,
             player,
+            world: this.world,
             planetRadius: terrain?.radius ?? 1,
             playerStats: this.playerStats,
             dayNightSystem: this.dayNightSystem,

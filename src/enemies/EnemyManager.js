@@ -3,10 +3,11 @@ import { Enemy } from "./Enemy.js";
 import { raiseActorToSafeAltitude } from "../gameplay/GroundSpawnGate.js";
 
 export class EnemyManager {
-    constructor({ scene, terrain, player, planetRadius, playerStats, dayNightSystem, groundGate, spawnRadius = 10, maxEnemies = 2 }) {
+    constructor({ scene, terrain, player, world, planetRadius, playerStats, dayNightSystem, groundGate, spawnRadius = 10, maxEnemies = 2 }) {
         this.scene = scene;
         this.terrain = terrain;
         this.player = player;
+        this.world = world ?? null;
         this.planetRadius = planetRadius ?? 1;
         this.playerStats = playerStats;
         this.dayNightSystem = dayNightSystem;
@@ -50,7 +51,7 @@ export class EnemyManager {
         const playerRadius = playerPos.length();
         if (playerRadius < 1e-4) return null;
 
-        const up = playerPos.clone().normalize();
+        const up = this.world?.getUpVector ? this.world.getUpVector(playerPos) : playerPos.clone().normalize();
         const { tangent, bitangent } = this._tangentBasis(up);
         const angle = Math.random() * Math.PI * 2;
         const offsetDir = tangent.scale(Math.cos(angle)).add(bitangent.scale(Math.sin(angle))).normalize();

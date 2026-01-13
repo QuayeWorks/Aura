@@ -106,6 +106,16 @@ export class DevPanel {
             pushLine(
                 `Meshes   enabled:${s.enabledMeshes ?? 0}  collidable:${s.enabledCollidableMeshes ?? 0}  maxLOD:${s.maxLodInUse ?? 0}`
             );
+            if (s.enabledMeshesR1 != null || s.enabledMeshesR2 != null || s.enabledMeshesR3 != null) {
+                pushLine(
+                    `MeshRings r1:${s.enabledMeshesR1 ?? 0}  r2:${s.enabledMeshesR2 ?? 0}  r3:${s.enabledMeshesR3 ?? 0}`
+                );
+            }
+            if (s.enabledCollidersR1 != null || s.enabledCollidersR2 != null || s.enabledCollidersR3 != null) {
+                pushLine(
+                    `ColRings r1:${s.enabledCollidersR1 ?? 0}  r2:${s.enabledCollidersR2 ?? 0}  r3:${s.enabledCollidersR3 ?? 0}`
+                );
+            }
             if (Array.isArray(s.perLodCounts)) {
                 const lodParts = s.perLodCounts.map((val, idx) => `${idx}:${val ?? 0}`);
                 pushLine(`LOD set  [${lodParts.join("  ")}]`);
@@ -119,6 +129,11 @@ export class DevPanel {
             pushLine(
                 `Builds   queue:${s.buildQueueLength ?? 0}  active:${s.activeBuilds ?? 0}  avg:${(s.avgBuildMsLastSecond ?? 0).toFixed(1)}ms`
             );
+            if (s.colliderQueueLength != null || s.collidersProcessedPerSecond != null) {
+                pushLine(
+                    `CollideQ queue:${s.colliderQueueLength ?? 0}  rate:${s.collidersProcessedPerSecond ?? 0}/s`
+                );
+            }
             if (s.streamingAcceptance) {
                 const pass = (value) => (value ? "PASS" : "FAIL");
                 pushLine("STREAMING ACCEPTANCE");
