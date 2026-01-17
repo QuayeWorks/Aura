@@ -57,6 +57,7 @@ export class ChunkedPlanetTerrain {
         this.maxConcurrentBuilds = options.maxConcurrentBuilds ?? 2;
         this.buildStabilityFrames = options.buildStabilityFrames ?? 8;
         this.updatedCollidersPerSecond = options.updatedCollidersPerSecond ?? 30;
+        this.maxLodAllowed = options.maxLodAllowed ?? this.lodLevel;
 
         this.scheduler = new TerrainScheduler({
             maxConcurrentBuilds: this.maxConcurrentBuilds,
@@ -114,6 +115,20 @@ export class ChunkedPlanetTerrain {
         this.depthCullHysteresis =
             options.depthCullHysteresis ?? baseStreamingDistance * 0.01;
         this.skirtDepthScale = options.skirtDepthScale ?? 0.4;
+
+        this._basePerfProfile = {
+            buildBudgetMs: this.buildBudgetMs,
+            maxConcurrentBuilds: this.maxConcurrentBuilds,
+            maxLodAllowed: this.maxLodAllowed,
+            updatedCollidersPerSecond: this.updatedCollidersPerSecond,
+            buildStabilityFrames: this.buildStabilityFrames,
+            lodRingHysteresis: this.lodRingHysteresis
+        };
+        this._perfProfileState = {
+            name: "base",
+            warmupActive: false,
+            ...this._basePerfProfile
+        };
 
         this.lastLodStats = {
             totalVisible: 0,
@@ -181,7 +196,10 @@ export class ChunkedPlanetTerrain {
             desiredLevel = 1;
         }
 
-        return Math.min(desiredLevel, this.lodLevel);
+        const maxLod = Number.isFinite(this.maxLodAllowed)
+            ? this.maxLodAllowed
+            : this.lodLevel;
+        return Math.min(desiredLevel, this.lodLevel, maxLod);
     }
 
 
@@ -1310,10 +1328,59 @@ export class ChunkedPlanetTerrain {
         const clamped = Math.max(0, Math.min(5, Math.round(level)));
         if (clamped === this.lodLevel) return;
         this.lodLevel = clamped;
+        if (!Number.isFinite(this.maxLodAllowed) || this.maxLodAllowed > clamped) {
+            this.maxLodAllowed = clamped;
+        }
+        if (this._basePerfProfile) {
+            this._basePerfProfile.maxLodAllowed = clamped;
+        }
+        if (this._perfProfileState?.maxLodAllowed != null) {
+            this._perfProfileState.maxLodAllowed = Math.min(
+                this._perfProfileState.maxLodAllowed,
+                clamped
+            );
+        }
 
         this.scheduler.queue.length = 0;
         this.scheduler.queuedKeys.clear();
         this._initializeQuadtree();
+    }
+
+    applyPerfProfile(profile = {}) {
+        const next = {
+            ...this._perfProfileState,
+            ...(profile || {})
+        };
+
+        if (Number.isFinite(next.buildBudgetMs)) {
+            this.buildBudgetMs = next.buildBudgetMs;
+        }
+        if (Number.isFinite(next.maxConcurrentBuilds)) {
+            this.maxConcurrentBuilds = next.maxConcurrentBuilds;
+        }
+        if (Number.isFinite(next.maxLodAllowed)) {
+            this.maxLodAllowed = Math.min(next.maxLodAllowed, this.lodLevel);
+        }
+        if (Number.isFinite(next.updatedCollidersPerSecond)) {
+            this.updatedCollidersPerSecond = next.updatedCollidersPerSecond;
+            this.colliderQueue.setRate(this.updatedCollidersPerSecond);
+        }
+        if (Number.isFinite(next.buildStabilityFrames)) {
+            this.buildStabilityFrames = next.buildStabilityFrames;
+        }
+        if (Number.isFinite(next.lodRingHysteresis)) {
+            this.lodRingHysteresis = next.lodRingHysteresis;
+        }
+
+        this._perfProfileState = next;
+    }
+
+    resetPerfProfile() {
+        this.applyPerfProfile({
+            name: "base",
+            warmupActive: false,
+            ...this._basePerfProfile
+        });
     }
 
     updateAtPosition(focusPosition) {
@@ -1740,6 +1807,12 @@ export class ChunkedPlanetTerrain {
             enabledCollidersR1: collidersInR1,
             enabledCollidersR2: collidersInR2,
             enabledCollidersR3: collidersInR3,
+            warmupActive: this._perfProfileState?.warmupActive ?? false,
+            perfProfileName: this._perfProfileState?.name ?? null,
+            buildBudgetMs: this.buildBudgetMs,
+            maxConcurrentBuilds: this.maxConcurrentBuilds,
+            maxLodAllowed: this.maxLodAllowed,
+            updatedCollidersPerSecond: this.updatedCollidersPerSecond,
             enabledOutsideRcull,
             collidableOutsideRcull,
             enabledBelowHorizon,

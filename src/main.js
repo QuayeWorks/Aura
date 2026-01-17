@@ -429,6 +429,13 @@ const LOADING_STAGE2_MIN_COLLIDABLE = 2;
 const LOADING_STAGE2_MAX_QUEUE = 5;
 const LOADING_STAGE2_FALLBACK_SECONDS = 15;
 const COLLISION_WARMUP_MS = 8000;
+const TERRAIN_WARMUP_DURATION_MS = 8000;
+const TERRAIN_WARMUP_RAMP_MS = 5000;
+const TERRAIN_WARMUP_BUILD_BUDGET_MS = 3;
+const TERRAIN_WARMUP_MAX_LOD = 2;
+const TERRAIN_WARMUP_COLLIDER_RATE = 15;
+const TERRAIN_WARMUP_HYSTERESIS_SCALE = 1.35;
+const TERRAIN_WARMUP_STABILITY_BONUS = 60;
 
 // Third-person camera distance (scaled to planet)
 const CAM_MIN_RADIUS = PLANET_RADIUS_UNITS * 0.001;
@@ -440,6 +447,82 @@ const CAMERA_MAX_STEP_FRACTION = 0.75;    // portion of radius to move per colli
 const CAMERA_HEAD_OFFSET = 2.0;           // meters above player origin to target
 const CAMERA_RECOVERY_STEPS = 4;          // attempts to push out if chunk rebuild spawns intersecting geometry
 const CAMERA_RECOVERY_STEP_SIZE = CAMERA_COLLIDER_RADIUS * 0.65;
+
+let terrainWarmupRamp = null;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function startTerrainWarmupRamp(startMs) {
+    if (!terrain || !terrain.applyPerfProfile) return;
+    terrainWarmupRamp = {
+        startMs,
+        warmupDurationMs: TERRAIN_WARMUP_DURATION_MS,
+        rampDurationMs: TERRAIN_WARMUP_RAMP_MS,
+        baseProfile: {
+            buildBudgetMs: terrain.buildBudgetMs,
+            maxConcurrentBuilds: terrain.maxConcurrentBuilds,
+            maxLodAllowed: Number.isFinite(terrain.maxLodAllowed) ? terrain.maxLodAllowed : terrain.lodLevel,
+            updatedCollidersPerSecond: terrain.updatedCollidersPerSecond,
+            buildStabilityFrames: terrain.buildStabilityFrames,
+            lodRingHysteresis: terrain.lodRingHysteresis
+        }
+    };
+}
+
+function applyTerrainWarmupRamp(nowMs) {
+    if (!terrain || !terrainWarmupRamp) return;
+
+    const elapsed = nowMs - terrainWarmupRamp.startMs;
+    const warmupDurationMs = terrainWarmupRamp.warmupDurationMs;
+    const rampDurationMs = terrainWarmupRamp.rampDurationMs;
+    const base = terrainWarmupRamp.baseProfile;
+
+    if (elapsed < 0) return;
+
+    const warmupEndMs = warmupDurationMs;
+    const rampEndMs = warmupDurationMs + rampDurationMs;
+    const warmupActive = elapsed < rampEndMs;
+
+    if (elapsed <= warmupEndMs) {
+        terrain.applyPerfProfile({
+            name: "force-spawn-warmup",
+            warmupActive: true,
+            buildBudgetMs: TERRAIN_WARMUP_BUILD_BUDGET_MS,
+            maxConcurrentBuilds: 1,
+            maxLodAllowed: Math.min(TERRAIN_WARMUP_MAX_LOD, base.maxLodAllowed ?? TERRAIN_WARMUP_MAX_LOD),
+            updatedCollidersPerSecond: TERRAIN_WARMUP_COLLIDER_RATE,
+            buildStabilityFrames: (base.buildStabilityFrames ?? 0) + TERRAIN_WARMUP_STABILITY_BONUS,
+            lodRingHysteresis: (base.lodRingHysteresis ?? 0) * TERRAIN_WARMUP_HYSTERESIS_SCALE
+        });
+        return;
+    }
+
+    if (warmupActive) {
+        const t = clamp((elapsed - warmupEndMs) / Math.max(1, rampDurationMs), 0, 1);
+        const baseBudget = base.buildBudgetMs ?? TERRAIN_WARMUP_BUILD_BUDGET_MS;
+        const baseColliderRate = base.updatedCollidersPerSecond ?? TERRAIN_WARMUP_COLLIDER_RATE;
+        const baseMaxLod = base.maxLodAllowed ?? terrain.lodLevel ?? TERRAIN_WARMUP_MAX_LOD;
+        const baseConcurrent = base.maxConcurrentBuilds ?? 1;
+        const baseStability = base.buildStabilityFrames ?? 0;
+        const baseHysteresis = base.lodRingHysteresis ?? 0;
+
+        terrain.applyPerfProfile({
+            name: "force-spawn-warmup",
+            warmupActive: true,
+            buildBudgetMs: lerp(TERRAIN_WARMUP_BUILD_BUDGET_MS, baseBudget, t),
+            maxConcurrentBuilds: t < 0.7 ? 1 : Math.max(1, Math.round(baseConcurrent)),
+            maxLodAllowed: t < 0.7 ? TERRAIN_WARMUP_MAX_LOD : Math.round(lerp(TERRAIN_WARMUP_MAX_LOD, baseMaxLod, t)),
+            updatedCollidersPerSecond: lerp(TERRAIN_WARMUP_COLLIDER_RATE, baseColliderRate, t),
+            buildStabilityFrames: Math.round(lerp(baseStability + TERRAIN_WARMUP_STABILITY_BONUS, baseStability, t)),
+            lodRingHysteresis: lerp(baseHysteresis * TERRAIN_WARMUP_HYSTERESIS_SCALE, baseHysteresis, t)
+        });
+        return;
+    }
+
+    terrain.resetPerfProfile?.();
+    terrainWarmupRamp = null;
+}
 
 function createScene() {
     scene = new BABYLON.Scene(engine);
@@ -728,6 +811,7 @@ function beginLoadingGate() {
         streamingNoticeShown: false,
         stage: LoadingStage.STAGE1,
         stage2ReadySeconds: 0,
+        stage2Ema: null,
         stage2StartElapsed: 0,
         stage2FallbackTriggered: false
     };
@@ -785,36 +869,55 @@ function freezePlayerForLoading() {
     }
 }
 
-function computeStage2Readiness(stats) {
+function computeStage2ReadinessWithEma(stats, emaState) {
     if (!stats) {
-        return { ready: false, score: 0 };
+        return { ready: false, score: 0, ema: emaState ?? null };
     }
+
+    const alpha = 0.15;
+    const updateEma = (prev, value) => (
+        prev == null ? value : (prev * (1 - alpha)) + (value * alpha)
+    );
+
+    const renderSetCount = stats.renderSetCount ?? 0;
+    const enabledMeshes = stats.enabledMeshes ?? 0;
+    const enabledCollidableMeshes = stats.enabledCollidableMeshes ?? 0;
+    const queueLength = Number.isFinite(stats.buildQueueLength)
+        ? stats.buildQueueLength
+        : LOADING_STAGE2_MAX_QUEUE * 2;
+
+    const nextEma = {
+        renderSetCount: updateEma(emaState?.renderSetCount ?? null, renderSetCount),
+        enabledMeshes: updateEma(emaState?.enabledMeshes ?? null, enabledMeshes),
+        enabledCollidableMeshes: updateEma(emaState?.enabledCollidableMeshes ?? null, enabledCollidableMeshes),
+        buildQueueLength: updateEma(emaState?.buildQueueLength ?? null, queueLength)
+    };
 
     const renderScore = Math.min(
         1,
-        (stats.renderSetCount ?? 0) / LOADING_STAGE2_MIN_RENDERSET
+        (nextEma.renderSetCount ?? 0) / LOADING_STAGE2_MIN_RENDERSET
     );
     const enabledScore = Math.min(
         1,
-        (stats.enabledMeshes ?? 0) / LOADING_STAGE2_MIN_ENABLED
+        (nextEma.enabledMeshes ?? 0) / LOADING_STAGE2_MIN_ENABLED
     );
     const collidableScore = Math.min(
         1,
-        (stats.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
+        (nextEma.enabledCollidableMeshes ?? 0) / LOADING_STAGE2_MIN_COLLIDABLE
     );
-    const queueLength = stats.buildQueueLength ?? Number.POSITIVE_INFINITY;
-    const queueScore = queueLength <= LOADING_STAGE2_MAX_QUEUE
+    const queueEma = nextEma.buildQueueLength ?? Number.POSITIVE_INFINITY;
+    const queueScore = queueEma <= LOADING_STAGE2_MAX_QUEUE
         ? 1
-        : Math.min(1, LOADING_STAGE2_MAX_QUEUE / Math.max(queueLength, 1));
+        : Math.min(1, LOADING_STAGE2_MAX_QUEUE / Math.max(queueEma, 1));
 
     const score = (renderScore + enabledScore + collidableScore + queueScore) / 4;
     const ready =
         renderScore >= 1 &&
         enabledScore >= 1 &&
         collidableScore >= 1 &&
-        queueLength <= LOADING_STAGE2_MAX_QUEUE;
+        queueEma <= LOADING_STAGE2_MAX_QUEUE;
 
-    return { ready, score };
+    return { ready, score, ema: nextEma };
 }
 
 function spawnAreaReady() {
@@ -910,6 +1013,7 @@ function forceSpawnNow() {
     console.warn("[LOADING] Force Spawn used.");
 
     if (!terrain) return;
+    startTerrainWarmupRamp(performance.now());
 
     if (!player) {
         player = new PlanetPlayer(scene, terrain, {
@@ -1059,7 +1163,8 @@ function updateLoadingGate(dtSeconds) {
 
     if (loadingGate.stage === LoadingStage.STAGE2) {
         const stats = terrain?.getStreamingStats?.() ?? null;
-        const readiness = computeStage2Readiness(stats);
+        const readiness = computeStage2ReadinessWithEma(stats, loadingGate.stage2Ema);
+        loadingGate.stage2Ema = readiness.ema;
         if (readiness.ready) {
             loadingGate.stage2ReadySeconds += dtSeconds;
         } else {
@@ -1643,6 +1748,7 @@ engine.runRenderLoop(() => {
     const { warmupActive, timeSincePlayStartMs } = resolveCollisionWarmupState(now);
 
     if (terrain && (gameState === GameState.LOADING || gameState === GameState.PLAYING)) {
+        applyTerrainWarmupRamp(now);
         if (terrain.setCollisionWarmupState) {
             terrain.setCollisionWarmupState({
                 enabled: warmupActive,
