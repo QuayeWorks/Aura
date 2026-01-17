@@ -99,7 +99,33 @@ let lastStreamingHighLodCount = null;
 let lastStreamingFocusSamplePos = null;
 let forceSpawnToastTimer = null;
 let forceSpawnSafety = { active: false };
-let focusLogTimer = 0;
+let lastStreamingLogMs = 0;
+
+const logOnce = (() => {
+    const seen = new Set();
+    return (key, ...args) => {
+        if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
+        if (seen.has(key)) return;
+        seen.add(key);
+        console.log(...args);
+    };
+})();
+
+function log1Hz(...args) {
+    if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
+    const now = performance.now();
+    if (now - lastStreamingLogMs < 1000) return;
+    lastStreamingLogMs = now;
+    console.log(...args);
+}
+
+function log1HzWarn(...args) {
+    if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
+    const now = performance.now();
+    if (now - lastStreamingLogMs < 1000) return;
+    lastStreamingLogMs = now;
+    console.warn(...args);
+}
 
 function applyDebugFlags(state = {}) {
     const flags = state.flags ?? DebugSettings.getAllFlags();
@@ -268,6 +294,7 @@ function ensureDebugMenu() {
         { key: "showPOIDebug", label: "POI Debug" },
         { key: "cameraColliderDebug", label: "Camera Collider" },
         { key: "showStreamingRings", label: "Streaming Rings" },
+        { key: "verboseStreamingLogs", label: "Verbose Streaming Logs" },
         { key: "biomeDebug", label: "Biome Debug" },
         { key: "localSimulation", label: "Local Simulation" },
         { key: "flyMode", label: "Fly Mode" },
@@ -289,10 +316,10 @@ function ensureDebugMenu() {
             buttonLabel: "Print",
             onClick: () => {
                 if (!lastStreamingStats) {
-                    console.log("[STREAM] No streaming stats available yet.");
+                    log1Hz("[STREAM] No streaming stats available yet.");
                     return;
                 }
-                console.log(formatStreamSummary(lastStreamingStats));
+                log1Hz(formatStreamSummary(lastStreamingStats));
             }
         }
     ];
@@ -389,7 +416,7 @@ function startStreamingStatsInterval() {
                 lastStreamingFocusPos.y,
                 lastStreamingFocusPos.z
             );
-        console.log("[STREAM]", report);
+        log1Hz("[STREAM]", report);
     }, 1000);
 }
 
@@ -934,7 +961,7 @@ function getSpawnRayDiagnostics() {
             m.metadata?.isTerrainChunk === true
         );
     }
-    console.log("[SPAWNDBG] testing meshes:", meshes.map((mesh) => mesh?.name));
+    log1Hz("[SPAWNDBG] testing meshes:", meshes.map((mesh) => mesh?.name));
 
     const up = SPAWN_DIR.clone().normalize();
     const origin = up.scale(SPAWN_RADIUS_UNITS + 500);
@@ -1001,16 +1028,17 @@ function spawnPlayerForStage2() {
     setupPlayerAndSystems();
     setStreamingFocusToPlayerSurface();
     playerSpawned = true;
+    logOnce("player-spawned", "[SPAWN] Player spawned.");
 }
 
 function retrySpawnCheck() {
     const ready = spawnAreaReady();
-    console.log("[LOADING] Retry spawn check requested. Ready:", ready);
+    log1Hz("[LOADING] Retry spawn check requested. Ready:", ready);
 }
 
 function forceSpawnNow() {
     if (gameState !== GameState.LOADING) return;
-    console.warn("[LOADING] Force Spawn used.");
+    logOnce("force-spawn-used", "[LOADING] Force Spawn used.");
 
     if (!terrain) return;
     startTerrainWarmupRamp(performance.now());
@@ -1072,6 +1100,7 @@ function forceSpawnNow() {
     useStreamingFocus = false;
     loadingGate = null;
     playerSpawned = true;
+    logOnce("player-spawned", "[SPAWN] Player spawned.");
     enterGameplayFromLoading();
 }
 
@@ -1178,7 +1207,7 @@ function updateLoadingGate(dtSeconds) {
             !loadingGate.stage2FallbackTriggered
             && loadingGate.elapsed - (loadingGate.stage2StartElapsed ?? loadingGate.elapsed) >= LOADING_STAGE2_FALLBACK_SECONDS
         ) {
-            console.warn("[LOADING] Stage 2 timeout; building global LOD1 fallback.");
+            log1HzWarn("[LOADING] Stage 2 timeout; building global LOD1 fallback.");
             terrain?.buildGlobalCoarseLod1?.();
             loadingGate.stage2FallbackTriggered = true;
         }
@@ -1234,8 +1263,11 @@ function updateLoadingGate(dtSeconds) {
         const rOrigin = diagnostics.origin?.length?.() ?? 0;
         const spawnDir = { x: SPAWN_DIR.x, y: SPAWN_DIR.y, z: SPAWN_DIR.z };
         const bestHit = diagnostics.bestHit;
+        const collidableSceneMeshes = !diagnostics.ready
+            ? scene.meshes.filter((m) => m.checkCollisions).map((m) => m.name)
+            : null;
 
-        console.log("[SPAWNDBG]", {
+        log1Hz("[SPAWNDBG]", {
             useStreamingFocus,
             rFocus,
             spawnDir,
@@ -1246,27 +1278,9 @@ function updateLoadingGate(dtSeconds) {
             collidableScene,
             testedMeshes: diagnostics.testedMeshes,
             bestHit: !!bestHit?.hit,
-            bestHitDistance: bestHit?.hit ? bestHit.distance : null
+            bestHitDistance: bestHit?.hit ? bestHit.distance : null,
+            collidableSceneMeshes
         });
-        console.log(
-            "[MESHREG]",
-            "known:",
-            known,
-            "active:",
-            active,
-            "sceneCollidable:",
-            collidableScene,
-            "rawKnownSize:",
-            terrain?._collisionMeshes?.size,
-            "rawActiveSize:",
-            terrain?._activeCollisionMeshes?.size
-        );
-        if (!diagnostics.ready) {
-            console.log(
-                "collidable scene meshes:",
-                scene.meshes.filter((m) => m.checkCollisions).map((m) => m.name)
-            );
-        }
     }
 }
 
@@ -1580,7 +1594,7 @@ function startGame() {
         window.__terrain = terrain;
 
         terrain.setOnInitialBuildDone(() => {
-            console.log("Initial planet build complete.");
+            logOnce("terrain-initialized", "Initial planet build complete.");
         });
     }
     if (terrain) {
@@ -1764,19 +1778,15 @@ engine.runRenderLoop(() => {
 
     if (focusPos) {
         updateStreamingDebugMeshes(focusPos);
-        focusLogTimer += simDtSeconds;
-        if (focusLogTimer >= 1) {
-            focusLogTimer = 0;
-            console.log("[FOCUS]", {
-                mode: focusMode,
-                focusR: focusPos.length(),
-                focus: {
-                    x: focusPos.x.toFixed(1),
-                    y: focusPos.y.toFixed(1),
-                    z: focusPos.z.toFixed(1)
-                }
-            });
-        }
+        log1Hz("[FOCUS]", {
+            mode: focusMode,
+            focusR: focusPos.length(),
+            focus: {
+                x: focusPos.x.toFixed(1),
+                y: focusPos.y.toFixed(1),
+                z: focusPos.z.toFixed(1)
+            }
+        });
     }
 
 

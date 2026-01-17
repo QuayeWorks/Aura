@@ -8,6 +8,7 @@ const defaultFlags = {
     showPOIDebug: false,
     showCullDebug: false,
     showStreamingRings: false,
+    verboseStreamingLogs: false,
     biomeDebug: false,
     cameraColliderDebug: false,
     logCollisionRecovery: false,

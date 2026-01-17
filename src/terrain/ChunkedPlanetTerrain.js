@@ -4,6 +4,25 @@ import { PlanetQuadtreeNode } from "./PlanetQuadtreeNode.js";
 import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js";
 import { TerrainScheduler } from "./TerrainScheduler.js";
 import { ColliderQueue } from "./ColliderQueue.js";
+import { DebugSettings } from "../systems/DebugSettings.js";
+
+let lastLogMs = 0;
+
+function log1Hz(...args) {
+    if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
+    const now = performance.now();
+    if (now - lastLogMs < 1000) return;
+    lastLogMs = now;
+    console.log(...args);
+}
+
+function log1HzWarn(...args) {
+    if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
+    const now = performance.now();
+    if (now - lastLogMs < 1000) return;
+    lastLogMs = now;
+    console.warn(...args);
+}
 
 export class ChunkedPlanetTerrain {
     constructor(scene, options = {}) {
@@ -341,7 +360,7 @@ export class ChunkedPlanetTerrain {
         if (node) {
             mesh.metadata.terrainNode = node;
         }
-        console.log("[MESHREG-ADD] added", mesh.name, "known size:", this._collisionMeshes.size);
+        log1Hz("[MESHREG-ADD] added", mesh.name, "known size:", this._collisionMeshes.size);
     }
 
     _registerActiveTerrainMesh(mesh, node = null) {
@@ -351,7 +370,7 @@ export class ChunkedPlanetTerrain {
         mesh.metadata.isTerrainChunk = true;
         this._collisionMeshes ??= new Set();
         this._collisionMeshes.add(mesh);
-        console.log(
+        log1Hz(
             "[TERRAIN-MESH]",
             mesh.name,
             "enabled:",
@@ -369,7 +388,7 @@ export class ChunkedPlanetTerrain {
             this._activeCollisionMeshes.delete(mesh);
         }
         if (!this._loggedTerrainMeshes.has(mesh)) {
-            console.log(
+            log1Hz(
                 "[Terrain] chunk mesh created:",
                 mesh.name,
                 "collisions:",
@@ -858,7 +877,7 @@ export class ChunkedPlanetTerrain {
         const revisionKey = `${this.carveRevision}:${this.biomeRevision}`;
 
         if (!ignoreCulling && (node.isCulled || node.isDepthCulled || node.isHorizonCulled)) {
-            console.warn("LEAK build scheduled for culled node", {
+            log1HzWarn("LEAK build scheduled for culled node", {
                 nodeId: node.id,
                 lodLevel,
                 isCulled: node.isCulled,
@@ -874,7 +893,7 @@ export class ChunkedPlanetTerrain {
             const focusDir = this._lastFocusData.focusDir;
             surfaceDist = this._surfaceDistanceForNode(focusDir, node);
             if (surfaceDist > this.lodRingRadii.rcull + 1) {
-                console.warn("LEAK build outside Rcull", {
+                log1HzWarn("LEAK build outside Rcull", {
                     nodeId: node.id,
                     lodLevel,
                     surfaceDist
@@ -1005,7 +1024,7 @@ export class ChunkedPlanetTerrain {
                 const mesh = node.terrain.mesh;
                 const inRenderSet = true;
                 if (inRenderSet && node.terrain?.mesh && !mesh.isEnabled?.()) {
-                    console.warn("RenderSet mesh disabled leak", node.id);
+                    log1HzWarn("RenderSet mesh disabled leak", node.id);
                 }
                 mesh.setEnabled(true);
                 this._registerActiveTerrainMesh(mesh, node);
@@ -1162,12 +1181,12 @@ export class ChunkedPlanetTerrain {
                     return { ok: false, reason: "culled" };
                 }
                 if (!job.ignoreCulling && !this._withinDepthCap(node, maxDepth)) {
-                    console.warn("LEAK build outside depth cap", { nodeId: node.id, lodLevel: job.lodLevel });
+                    log1HzWarn("LEAK build outside depth cap", { nodeId: node.id, lodLevel: job.lodLevel });
                     this._recordDroppedBuild("depth");
                     return { ok: false, reason: "depth" };
                 }
                 if (!job.ignoreCulling && this._lastFocusData && !this._isChunkAboveHorizon(node, this._lastFocusData)) {
-                    console.warn("LEAK build below horizon", { nodeId: node.id, lodLevel: job.lodLevel });
+                    log1HzWarn("LEAK build below horizon", { nodeId: node.id, lodLevel: job.lodLevel });
                     node.isHorizonCulled = true;
                     this._recordDroppedBuild("horizon");
                     return { ok: false, reason: "horizon" };
@@ -1176,7 +1195,7 @@ export class ChunkedPlanetTerrain {
                     const focusDir = this._lastFocusData.focusDir;
                     const surfaceDist = this._surfaceDistanceForNode(focusDir, node);
                     if (surfaceDist > this.lodRingRadii.rcull + 1) {
-                        console.warn("LEAK build outside Rcull", { nodeId: node.id, lodLevel: job.lodLevel, surfaceDist });
+                        log1HzWarn("LEAK build outside Rcull", { nodeId: node.id, lodLevel: job.lodLevel, surfaceDist });
                         this._recordDroppedBuild("rcull");
                         return { ok: false, reason: "rcull" };
                     }
