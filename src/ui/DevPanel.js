@@ -134,6 +134,16 @@ export class DevPanel {
                     `CollideQ queue:${s.colliderQueueLength ?? 0}  rate:${s.collidersProcessedPerSecond ?? 0}/s`
                 );
             }
+            if (
+                s.buildBudgetMs != null
+                || s.updatedCollidersPerSecond != null
+                || s.maxLodAllowed != null
+            ) {
+                const warmupLabel = s.warmupActive ? "yes" : "no";
+                pushLine(
+                    `Perf     warmup:${warmupLabel}  profile:${s.perfProfileName ?? "-"}  budget:${(s.buildBudgetMs ?? 0).toFixed(1)}ms  lodCap:${s.maxLodAllowed ?? 0}  collRate:${s.updatedCollidersPerSecond ?? 0}/s`
+                );
+            }
             if (s.streamingAcceptance) {
                 const pass = (value) => (value ? "PASS" : "FAIL");
                 pushLine("STREAMING ACCEPTANCE");
