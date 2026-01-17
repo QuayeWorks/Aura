@@ -2,6 +2,7 @@
 // src/terrain/MarchingCubesTerrain.js
 
 import { resolveBiomeSettings, DEFAULT_BIOME_SETTINGS } from "./biomeSettings.js";
+import { edgeTable, triTable } from "../workers/mcTables.js";
 
 // --- Optional Web Worker for SDF field generation (CPU offload) ---
 let FIELD_WORKER = null;
@@ -627,6 +628,16 @@ _applyMeshBuffers(positions, normals, indices, colors) {
         const minZ = bounds.minZ;
         const maxZ = bounds.maxZ;
 
+        const toArray = (data) => {
+            if (!data) return [];
+            return Array.isArray(data) ? data : Array.from(data);
+        };
+
+        const basePositions = toArray(positions);
+        const baseNormals = toArray(normals);
+        const baseIndices = toArray(indices);
+        const baseColors = colors ? toArray(colors) : null;
+
         const edgeForVertex = (x, z) => {
             if (edges.west && Math.abs(x - minX) <= epsilon) return "west";
             if (edges.east && Math.abs(x - maxX) <= epsilon) return "east";
@@ -638,17 +649,17 @@ _applyMeshBuffers(positions, normals, indices, colors) {
         const getVertex = (idx) => {
             const i3 = idx * 3;
             return {
-                x: positions[i3],
-                y: positions[i3 + 1],
-                z: positions[i3 + 2]
+                x: basePositions[i3],
+                y: basePositions[i3 + 1],
+                z: basePositions[i3 + 2]
             };
         };
         const getNormal = (idx) => {
             const i3 = idx * 3;
             return {
-                x: normals[i3],
-                y: normals[i3 + 1],
-                z: normals[i3 + 2]
+                x: baseNormals[i3],
+                y: baseNormals[i3 + 1],
+                z: baseNormals[i3 + 2]
             };
         };
 
@@ -660,10 +671,10 @@ _applyMeshBuffers(positions, normals, indices, colors) {
             edgeMeta.set(key, { a, b, plane });
         };
 
-        for (let i = 0; i < indices.length; i += 3) {
-            const i0 = indices[i];
-            const i1 = indices[i + 1];
-            const i2 = indices[i + 2];
+        for (let i = 0; i < baseIndices.length; i += 3) {
+            const i0 = baseIndices[i];
+            const i1 = baseIndices[i + 1];
+            const i2 = baseIndices[i + 2];
 
             const v0 = getVertex(i0);
             const v1 = getVertex(i1);
@@ -678,10 +689,10 @@ _applyMeshBuffers(positions, normals, indices, colors) {
             if (e2 && e2 === e0) addEdge(i2, i0, e2);
         }
 
-        const skirtPositions = positions.slice();
-        const skirtNormals = normals.slice();
-        const skirtColors = colors ? colors.slice() : null;
-        const skirtIndices = indices.slice();
+        const skirtPositions = basePositions.slice();
+        const skirtNormals = baseNormals.slice();
+        const skirtColors = baseColors ? baseColors.slice() : null;
+        const skirtIndices = baseIndices.slice();
 
         const addSkirtVertex = (vx, vy, vz, nx, ny, nz, colorIdx) => {
             const idx = skirtPositions.length / 3;
