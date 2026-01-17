@@ -6,6 +6,16 @@ import { TerrainScheduler } from "./TerrainScheduler.js";
 import { ColliderQueue } from "./ColliderQueue.js";
 import { DebugSettings } from "../systems/DebugSettings.js";
 
+const STREAMING_MODES = {
+    LOADING: "LOADING",
+    PLAYING: "PLAYING",
+    PLAYING_THROTTLE: "PLAYING_THROTTLE"
+};
+const PLAYING_BUILD_STABILITY_FRAMES = 240;
+const PLAYING_REFINEMENT_MOVE_THRESHOLD = 8;
+const PLAYING_BUILD_QUEUE_CAP = 32;
+const PLAYING_LOD_UPGRADE_BUFFER = 1;
+
 let lastLogMs = 0;
 
 function log1Hz(...args) {
@@ -111,6 +121,7 @@ export class ChunkedPlanetTerrain {
         this.lastCameraPosition = null;
         this._lastFocusData = null;
         this._streamRevision = 0;
+        this._lastMovedDistance = 0;
         
         this.initialCoarseLod = 1; // Progressive LOD: always show LOD 1 first
 
@@ -148,6 +159,16 @@ export class ChunkedPlanetTerrain {
             warmupActive: false,
             ...this._basePerfProfile
         };
+        this._streamingModeOverrides = {
+            buildStabilityFrames: null,
+            refinementMoveThreshold: 0,
+            maxBuildQueueLength: Number.POSITIVE_INFINITY,
+            maxLodUpgradeBuffer: null
+        };
+        this.refinementMoveThreshold = 0;
+        this.maxBuildQueueLength = Number.POSITIVE_INFINITY;
+        this.maxLodUpgradeBuffer = null;
+        this.streamingMode = options.streamingMode ?? STREAMING_MODES.LOADING;
 
         this.lastLodStats = {
             totalVisible: 0,
@@ -186,6 +207,7 @@ export class ChunkedPlanetTerrain {
 
         // Build the initial quadtree (replaces the old fixed grid)
         this._initializeQuadtree();
+        this.setStreamingMode(this.streamingMode);
     }
 
     _lodFactorFor(level) {
@@ -954,6 +976,8 @@ export class ChunkedPlanetTerrain {
 
         const stack = [this.rootNode];
         const newLeaves = [];
+        let nearestLeafDist = Number.POSITIVE_INFINITY;
+        let nearestLeafLod = null;
 
         while (stack.length > 0) {
             const node = stack.pop();
@@ -1007,6 +1031,10 @@ export class ChunkedPlanetTerrain {
 
             // Leaf that should be visible
             newLeaves.push(node);
+            if (surfaceDist < nearestLeafDist) {
+                nearestLeafDist = surfaceDist;
+                nearestLeafLod = node.level;
+            }
             stats.totalVisible++;
             stats.totalLeafVisible++;
             if (node.level >= 0 && node.level < stats.perLod.length) {
@@ -1043,30 +1071,49 @@ export class ChunkedPlanetTerrain {
 
         this._updateSkirtEdges(newLeaves);
 
+        const movedDistance = this._lastMovedDistance ?? 0;
+        const isPlayingMode = this._isPlayingMode();
+        const skipRefinementThisFrame = isPlayingMode
+            && movedDistance < this.refinementMoveThreshold;
+        const maxUpgradeLod = (isPlayingMode && Number.isFinite(nearestLeafLod))
+            ? Math.min(this.lodLevel, nearestLeafLod + (this.maxLodUpgradeBuffer ?? 0))
+            : null;
+
         // Queue builds for any leaves that need them (progressive refinement)
         for (const leaf of newLeaves) {
             this._ensureTerrainForNode(leaf);
         
             const desiredLod = leaf.stableLod ?? leaf.level; // stabilized target
+            const cappedDesiredLod = Number.isFinite(maxUpgradeLod)
+                ? Math.min(desiredLod, maxUpgradeLod)
+                : desiredLod;
             const built = (leaf.lastBuiltLod ?? null);   // null means never built
             const stableForBuild = leaf._visibleFrames >= this.buildStabilityFrames;
         
             // First time this leaf becomes visible: build LOD 1 first (fast), then refine.
             if (built === null) {
-                const coarse = Math.min(this.initialCoarseLod ?? 1, desiredLod);
+                const coarse = Math.min(this.initialCoarseLod ?? 1, cappedDesiredLod);
         
                 this._scheduleNodeRebuild(leaf, coarse, {});
         
-                if (desiredLod > coarse && stableForBuild) {
-                    this._scheduleNodeRebuild(leaf, desiredLod, {});
+                if (
+                    cappedDesiredLod > coarse
+                    && stableForBuild
+                    && !skipRefinementThisFrame
+                ) {
+                    this._scheduleNodeRebuild(leaf, cappedDesiredLod, {});
                 }
         
                 continue;
             }
         
             // Already built: only upgrade progressively (no downgrades here)
-            if (desiredLod > built && stableForBuild) {
-                this._scheduleNodeRebuild(leaf, desiredLod, {});
+            if (
+                cappedDesiredLod > built
+                && stableForBuild
+                && !skipRefinementThisFrame
+            ) {
+                this._scheduleNodeRebuild(leaf, cappedDesiredLod, {});
             }
         
             // If desiredLod < built: do nothing (stickiness). Downgrades should happen via eviction/memory policy later.
@@ -1392,6 +1439,7 @@ export class ChunkedPlanetTerrain {
         }
 
         this._perfProfileState = next;
+        this._applyStreamingModeOverrides();
     }
 
     resetPerfProfile() {
@@ -1400,6 +1448,51 @@ export class ChunkedPlanetTerrain {
             warmupActive: false,
             ...this._basePerfProfile
         });
+    }
+
+    setStreamingMode(mode) {
+        const normalizedMode = STREAMING_MODES[mode] ?? mode;
+        if (!Object.values(STREAMING_MODES).includes(normalizedMode)) return;
+        this.streamingMode = normalizedMode;
+
+        if (
+            normalizedMode === STREAMING_MODES.PLAYING
+            || normalizedMode === STREAMING_MODES.PLAYING_THROTTLE
+        ) {
+            this._streamingModeOverrides = {
+                buildStabilityFrames: PLAYING_BUILD_STABILITY_FRAMES,
+                refinementMoveThreshold: PLAYING_REFINEMENT_MOVE_THRESHOLD,
+                maxBuildQueueLength: PLAYING_BUILD_QUEUE_CAP,
+                maxLodUpgradeBuffer: PLAYING_LOD_UPGRADE_BUFFER
+            };
+        } else {
+            this._streamingModeOverrides = {
+                buildStabilityFrames: null,
+                refinementMoveThreshold: 0,
+                maxBuildQueueLength: Number.POSITIVE_INFINITY,
+                maxLodUpgradeBuffer: null
+            };
+        }
+
+        this._applyStreamingModeOverrides();
+    }
+
+    _applyStreamingModeOverrides() {
+        const overrides = this._streamingModeOverrides ?? {};
+        if (Number.isFinite(overrides.buildStabilityFrames)) {
+            const base = Number.isFinite(this.buildStabilityFrames) ? this.buildStabilityFrames : 0;
+            this.buildStabilityFrames = Math.max(base, overrides.buildStabilityFrames);
+        }
+        this.refinementMoveThreshold = overrides.refinementMoveThreshold ?? 0;
+        this.maxBuildQueueLength = Number.isFinite(overrides.maxBuildQueueLength)
+            ? overrides.maxBuildQueueLength
+            : Number.POSITIVE_INFINITY;
+        this.maxLodUpgradeBuffer = overrides.maxLodUpgradeBuffer ?? null;
+    }
+
+    _isPlayingMode() {
+        return this.streamingMode === STREAMING_MODES.PLAYING
+            || this.streamingMode === STREAMING_MODES.PLAYING_THROTTLE;
     }
 
     updateAtPosition(focusPosition) {
@@ -1413,6 +1506,7 @@ export class ChunkedPlanetTerrain {
             this._collisionWarmup.forcedCount = 0;
         }
         const lastFocus = this.lastCameraPosition;
+        let movedDistance = 0;
         if (focusPosition) {
             this.lastCameraPosition = focusPosition.clone
                 ? focusPosition.clone()
@@ -1422,12 +1516,16 @@ export class ChunkedPlanetTerrain {
                     focusPosition.z
                 );
             this._lastFocusData = this._computeFocusData(this.lastCameraPosition);
-            if (!lastFocus || BABYLON.Vector3.Distance(lastFocus, this.lastCameraPosition) > this.lodRingHysteresis) {
+            if (lastFocus) {
+                movedDistance = BABYLON.Vector3.Distance(lastFocus, this.lastCameraPosition);
+            }
+            if (!lastFocus || movedDistance > this.lodRingHysteresis) {
                 this._streamRevision = (this._streamRevision ?? 0) + 1;
             }
         } else {
             this._lastFocusData = null;
         }
+        this._lastMovedDistance = movedDistance;
 
         if (this._lastFocusData) {
             this._updateQuadtree(this._lastFocusData);
@@ -1445,6 +1543,12 @@ export class ChunkedPlanetTerrain {
 
         this._syncRenderSetMeshes();
         this._updateColliderQueue();
+        if (this._isPlayingMode() && this.scheduler.getQueueLength() > this.maxBuildQueueLength) {
+            const dropped = this.scheduler.dropLowPriority(this.maxBuildQueueLength);
+            for (let i = 0; i < dropped; i++) {
+                this._recordDroppedBuild("queueCap");
+            }
+        }
         this._processBuildQueue();
     }
 

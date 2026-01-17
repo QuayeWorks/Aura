@@ -41,6 +41,26 @@ export class TerrainScheduler {
         return [...this._dropSamples];
     }
 
+    dropLowPriority(maxQueueLength) {
+        if (!Number.isFinite(maxQueueLength) || maxQueueLength < 0) return 0;
+        if (this.queue.length <= maxQueueLength) return 0;
+
+        this.queue.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+        const kept = this.queue.slice(0, maxQueueLength);
+        const dropped = this.queue.slice(maxQueueLength);
+
+        this.queue = kept;
+        this.queuedKeys = new Set(kept.map((job) => job.jobKey));
+
+        for (const job of dropped) {
+            if (job?.jobKey) {
+                this._recordDrop("queueCap");
+            }
+        }
+
+        return dropped.length;
+    }
+
     _recordDrop(reason) {
         const now = this._now();
         this._dropSamples.push({ t: now, reason });

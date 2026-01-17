@@ -1714,6 +1714,9 @@ function enterGameplayFromLoading() {
     if (!forceSpawnSafety?.active) {
         forceSpawnSafety = { active: false };
     }
+    if (terrain?.setStreamingMode) {
+        terrain.setStreamingMode("PLAYING");
+    }
     gameState = GameState.PLAYING;
     autosaveTimer = 0;
 }
