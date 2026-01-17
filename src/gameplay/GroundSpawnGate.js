@@ -1,4 +1,5 @@
 /* global BABYLON */
+import { DebugSettings } from "../systems/DebugSettings.js";
 
 const DEFAULT_GRACE_SECONDS = 2;
 const DEFAULT_CHECK_INTERVAL = 1;
@@ -6,14 +7,25 @@ const DEFAULT_CLAMP_GRACE_SECONDS = 2;
 const DEFAULT_CLAMP_MAX_STEP_SECONDS = 1 / 120;
 const DEFAULT_MAX_CHECKS_PER_TICK = 3;
 
+let lastLogMs = 0;
+
 const logOnce = (() => {
     const seen = new Set();
     return (key, ...args) => {
+        if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
         if (seen.has(key)) return;
         seen.add(key);
         console.log(...args);
     };
 })();
+
+function log1Hz(...args) {
+    if (!DebugSettings.getFlag("verboseStreamingLogs")) return;
+    const now = performance.now();
+    if (now - lastLogMs < 1000) return;
+    lastLogMs = now;
+    console.log(...args);
+}
 
 function getActorPosition(actor) {
     return actor?.mesh?.position || actor?.position || null;
@@ -300,7 +312,7 @@ export class GroundSpawnGate {
 
         const meshes = this._getPlacementMeshes();
         const active = meshes.length > 0;
-        console.log(
+        log1Hz(
             "[GroundSpawnGate] Placement terrain meshes active:",
             active,
             "count:",
